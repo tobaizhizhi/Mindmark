@@ -1,0 +1,10 @@
+{
+  "goal": "Explain why state must be updated before an external call.",
+  "pages": [
+    {
+      "pageNumber": 1,
+      "text": "A contract that sends Ether before clearing a user's recorded balance exposes stale state. A callback can enter withdraw again and reuse that balance. Updating the balance before the call makes the nested check observe the new state."
+    }
+  ]
+}
+

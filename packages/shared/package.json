@@ -1,0 +1,37 @@
+{
+  "name": "@mindmark/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./schemas": {
+      "types": "./dist/schemas.d.ts",
+      "import": "./dist/schemas.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "generate:vectors": "tsx scripts/generate-hash-vectors.ts",
+    "lint": "eslint src test scripts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@openzeppelin/merkle-tree": "1.0.8",
+    "json-canonicalize": "2.0.0",
+    "viem": "2.55.5",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "pdfjs-dist": "6.1.200"
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "goal": "Understand reentrancy attack mechanics, call ordering, and practical defenses.",
+  "knowledgePoints": [
+    "External calls transfer control to potentially adversarial code.",
+    "Reentrancy exposes an intermediate state before the first invocation finishes.",
+    "A withdrawal that sends before clearing a balance can reuse stale accounting.",
+    "An attacker receive function recursively calls the vulnerable entry point.",
+    "The exploit requires a bounded stopping condition to avoid reverting from gas exhaustion.",
+    "Checks-Effects-Interactions commits all related state before external interaction.",
+    "ReentrancyGuard is defense in depth and must cover the invariant boundary.",
+    "Cross-function and cross-contract paths can share the same broken invariant.",
+    "Read-only reentrancy exposes temporarily invalid values to another protocol.",
+    "Pull payments isolate delivery but still require protected withdrawal logic.",
+    "Using call requires checking success and assuming the recipient is adversarial.",
+    "Adversarial and invariant tests should verify both storage and asset conservation."
+  ]
+}
+

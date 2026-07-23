@@ -1,0 +1,21 @@
+{
+  "cases": [
+    {
+      "name": "page-out-of-range",
+      "source": {
+        "page": 99,
+        "quote": "A callback can enter withdraw again while the old balance remains visible to the vulnerable contract."
+      },
+      "expectedError": "page_out_of_range"
+    },
+    {
+      "name": "fabricated-quote",
+      "source": {
+        "page": 2,
+        "quote": "Monad automatically prevents every Solidity reentrancy attack before a transaction enters a block."
+      },
+      "expectedError": "quote_not_found"
+    }
+  ]
+}
+

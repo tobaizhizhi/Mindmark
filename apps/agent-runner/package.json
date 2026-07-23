@@ -1,0 +1,21 @@
+{
+  "name": "@mindmark/agent-runner",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "benchmark:commits": "tsx src/benchmark.ts",
+    "dev": "tsx watch src/index.ts",
+    "lint": "eslint src test",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@mindmark/shared": "workspace:*",
+    "@supabase/supabase-js": "2.110.8",
+    "viem": "2.55.5",
+    "zod": "4.4.3"
+  }
+}

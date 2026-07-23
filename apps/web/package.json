@@ -1,0 +1,36 @@
+{
+  "name": "@mindmark/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "next build --webpack",
+    "dev": "next dev --webpack",
+    "lint": "eslint .",
+    "start": "next start",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@mindmark/shared": "workspace:*",
+    "@supabase/supabase-js": "2.110.8",
+    "@tanstack/react-query": "5.101.4",
+    "lucide-react": "1.25.0",
+    "next": "16.2.11",
+    "pdfjs-dist": "6.1.200",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "siwe": "3.0.0",
+    "ts-fsrs": "5.4.1",
+    "viem": "2.55.5",
+    "wagmi": "3.7.3",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.4",
+    "@tailwindcss/postcss": "4.3.3",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "eslint-config-next": "16.2.11",
+    "tailwindcss": "4.3.3"
+  }
+}
