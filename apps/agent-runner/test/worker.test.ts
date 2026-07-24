@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { WorkerAgent } from "../src/worker.js";
 import { validateAndCommitCards } from "../src/validation.js";
 import {
@@ -52,6 +52,35 @@ describe("Step 7 Worker Agent", () => {
 
     await new WorkerAgent(repository, registry, model).run(journeyId, 0);
     expect(model.calls).toBe(7);
+    expect(repository.state.chunks[0]!.status).toBe("CONFIRMED");
+  });
+
+  it("treats a repeated successful validation as idempotent", async () => {
+    const repository = new InMemoryRepository();
+    const registry = new FakeRegistry();
+    await repository.claimChunk(journeyId, 0, registry.workerAddress(0));
+    const saveChunkResult = repository.saveChunkResult.bind(repository);
+    const saveSpy = vi
+      .spyOn(repository, "saveChunkResult")
+      .mockImplementation(async (currentJourneyId, chunkId, result) => {
+        const chunk = repository.state.chunks[chunkId]!;
+        if (!["GENERATING", "VALIDATING"].includes(chunk.status)) {
+          throw new Error("save chunk result: no row was updated");
+        }
+        await saveChunkResult(currentJourneyId, chunkId, result);
+      });
+    const model = new ScriptedModel([
+      { id: "read", name: "read_assigned_chunk", arguments: {} },
+      { id: "save", name: "save_chunk_draft", arguments: { cards: cardContents(0) } },
+      { id: "validate-1", name: "validate_chunk_cards", arguments: {} },
+      { id: "validate-2", name: "validate_chunk_cards", arguments: {} },
+      { id: "get", name: "get_chunk_commitment", arguments: {} },
+      { id: "submit", name: "submit_chunk_commitment", arguments: {} },
+    ]);
+
+    await new WorkerAgent(repository, registry, model).run(journeyId, 0);
+
+    expect(saveSpy).toHaveBeenCalledTimes(1);
     expect(repository.state.chunks[0]!.status).toBe("CONFIRMED");
   });
 

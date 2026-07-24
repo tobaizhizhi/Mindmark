@@ -7,3 +7,4 @@ export declare function validateCitation(card: KnowledgeCardContent, pages: Sour
     valid: false;
     error: CitationError;
 };
+//# sourceMappingURL=citations.d.ts.map

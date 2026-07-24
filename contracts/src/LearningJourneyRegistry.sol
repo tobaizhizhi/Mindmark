@@ -4,6 +4,8 @@ pragma solidity ^0.8.28;
 import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 
 contract LearningJourneyRegistry {
+    uint16 public constant MAX_CHUNK_COUNT = 12;
+
     enum JourneyStatus {
         NONE,
         CREATED,
@@ -105,7 +107,7 @@ contract LearningJourneyRegistry {
             journeyId == bytes32(0) || sourceHash == bytes32(0) || goalHash == bytes32(0)
                 || chunkManifestRoot == bytes32(0)
         ) revert EmptyValue();
-        if (chunkCount < 2 || chunkCount > 4) revert InvalidChunkCount(chunkCount);
+        if (chunkCount < 2 || chunkCount > MAX_CHUNK_COUNT) revert InvalidChunkCount(chunkCount);
         if (journeys[journeyId].status != JourneyStatus.NONE) revert JourneyAlreadyExists(journeyId);
 
         journeys[journeyId] = Journey({
@@ -202,4 +204,3 @@ contract LearningJourneyRegistry {
         emit JourneyCancelled(journeyId, msg.sender);
     }
 }
-

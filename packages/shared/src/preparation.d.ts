@@ -16,3 +16,4 @@ export type PreparedJourney = {
     chunks: PreparedChunk[];
 };
 export declare function prepareJourney(rawRequest: PrepareJourneyRequest, journeyId: Hex): PreparedJourney;
+//# sourceMappingURL=preparation.d.ts.map

@@ -1,4 +1,7 @@
 import { z } from "zod";
+export const MAX_SOURCE_PAGES = 30;
+export const MAX_SOURCE_CHARACTERS = 60_000;
+export const MAX_SOURCE_CHUNKS = 12;
 export const Bytes32Schema = z
     .string()
     .regex(/^0x[0-9a-fA-F]{64}$/u, "Expected a 32-byte hex value")
@@ -105,7 +108,7 @@ export const SessionSummarySchema = z
 });
 export const PrepareJourneyRequestSchema = z
     .object({
-    pages: z.array(SourcePageSchema).min(1).max(10),
+    pages: z.array(SourcePageSchema).min(1).max(MAX_SOURCE_PAGES),
     goal: z.string().trim().min(1).max(500).optional(),
 })
     .strict()
@@ -126,10 +129,10 @@ export const PrepareJourneyRequestSchema = z
         });
     }
     const totalCharacters = request.pages.reduce((total, page) => total + page.text.length, 0);
-    if (totalCharacters > 20_000) {
+    if (totalCharacters > MAX_SOURCE_CHARACTERS) {
         context.addIssue({
             code: "custom",
-            message: "Extracted source text cannot exceed 20,000 characters",
+            message: `Extracted source text cannot exceed ${MAX_SOURCE_CHARACTERS.toLocaleString()} characters`,
             path: ["pages"],
         });
     }
@@ -140,7 +143,7 @@ export const CreateJourneyArgsSchema = z
     sourceHash: Bytes32Schema,
     goalHash: Bytes32Schema,
     chunkManifestRoot: Bytes32Schema,
-    chunkCount: z.number().int().min(2).max(4),
+    chunkCount: z.number().int().min(2).max(MAX_SOURCE_CHUNKS),
 })
     .strict();
 export const PrepareJourneyResponseSchema = z
@@ -150,7 +153,7 @@ export const PrepareJourneyResponseSchema = z
     chunks: z
         .array(z
         .object({
-        chunkId: z.number().int().min(0).max(3),
+        chunkId: z.number().int().min(0).max(MAX_SOURCE_CHUNKS - 1),
         pageStart: z.number().int().positive(),
         pageEnd: z.number().int().positive(),
         title: z.string().min(1).max(200),
@@ -158,7 +161,7 @@ export const PrepareJourneyResponseSchema = z
     })
         .strict())
         .min(2)
-        .max(4),
+        .max(MAX_SOURCE_CHUNKS),
 })
     .strict();
 export const AuthNonceRequestSchema = z
@@ -214,6 +217,85 @@ export const CardProvenanceSchema = z
     chunkId: z.number().int().min(0).max(65_535),
     cardLeaf: Bytes32Schema,
     chunkProof: z.array(Bytes32Schema),
+})
+    .strict();
+export const JourneyStatusSchema = z.enum([
+    "PREPARING",
+    "AWAITING_CREATE_TX",
+    "CREATED",
+    "GENERATING",
+    "FINALIZING",
+    "READY",
+    "FAILED_RETRYABLE",
+    "CANCELLED",
+]);
+export const ChunkProgressSchema = z
+    .object({
+    chunkId: z.number().int().min(0).max(MAX_SOURCE_CHUNKS - 1),
+    pageStart: z.number().int().positive(),
+    pageEnd: z.number().int().positive(),
+    title: z.string().min(1).max(200),
+    sourceChunkHash: Bytes32Schema,
+    cardsRoot: Bytes32Schema.nullable(),
+    workerAddress: AddressSchema.nullable(),
+    status: z.enum([
+        "QUEUED",
+        "GENERATING",
+        "VALIDATING",
+        "SAVED",
+        "SUBMITTING",
+        "CONFIRMED",
+        "MERGED",
+        "RETRYABLE",
+    ]),
+    cardCount: z.number().int().min(1).max(30).nullable(),
+    commitTxHash: Bytes32Schema.nullable(),
+    confirmedBlock: z.string().regex(/^\d+$/u).nullable(),
+    gasUsed: z.string().regex(/^\d+$/u).nullable(),
+    generationMs: z.number().int().nonnegative().nullable(),
+    confirmationMs: z.number().int().nonnegative().nullable(),
+})
+    .strict();
+export const StudyQueueItemSchema = z
+    .object({
+    reason: z.enum(["due", "planned"]),
+    card: CommittedKnowledgeCardSchema,
+})
+    .strict();
+export const StudyQueueSchema = z
+    .object({
+    dueCount: z.number().int().nonnegative(),
+    newCount: z.number().int().nonnegative(),
+    queue: z.array(StudyQueueItemSchema).max(15),
+})
+    .strict();
+export const JourneyDetailResponseSchema = z
+    .object({
+    journeyId: Bytes32Schema,
+    status: JourneyStatusSchema,
+    sourceHash: Bytes32Schema,
+    chunkManifestRoot: Bytes32Schema,
+    createTxHash: Bytes32Schema.nullable(),
+    finalizeTxHash: Bytes32Schema.nullable(),
+    deckRoot: Bytes32Schema.nullable(),
+    planHash: Bytes32Schema.nullable(),
+    planVersion: z.number().int().positive(),
+    deck: z.array(CommittedKnowledgeCardSchema).min(4).max(30).nullable(),
+    provenance: z.record(Bytes32Schema, CardProvenanceSchema).nullable(),
+    plan: ReviewPlanSchema.nullable(),
+    chunks: z.array(ChunkProgressSchema).min(2).max(MAX_SOURCE_CHUNKS),
+    studyQueue: StudyQueueSchema.nullable(),
+})
+    .strict();
+export const CompleteSessionRequestSchema = z
+    .object({ sessionId: z.string().uuid() })
+    .strict();
+export const CompleteSessionResponseSchema = z
+    .object({
+    summary: SessionSummarySchema,
+    planUpdated: z.boolean(),
+    planVersion: z.number().int().positive(),
+    triggerReasons: z.array(z.string().min(1).max(80)).max(5),
 })
     .strict();
 //# sourceMappingURL=schemas.js.map

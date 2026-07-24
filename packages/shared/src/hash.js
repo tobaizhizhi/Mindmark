@@ -1,6 +1,6 @@
 import { canonicalize } from "json-canonicalize";
 import { encodeAbiParameters, keccak256, stringToHex, } from "viem";
-import { Bytes32Schema, KnowledgeCardContentSchema, ReviewPlanSchema, SourceChunkContentSchema, SourcePageSchema, } from "./schemas.js";
+import { Bytes32Schema, KnowledgeCardContentSchema, MAX_SOURCE_PAGES, ReviewPlanSchema, SourceChunkContentSchema, SourcePageSchema, } from "./schemas.js";
 export function canonicalJson(value) {
     return canonicalize(value);
 }
@@ -8,7 +8,7 @@ export function hashCanonical(value) {
     return keccak256(stringToHex(canonicalJson(value)));
 }
 export function hashSourcePages(pages) {
-    return hashCanonical(SourcePageSchema.array().min(1).max(10).parse(pages));
+    return hashCanonical(SourcePageSchema.array().min(1).max(MAX_SOURCE_PAGES).parse(pages));
 }
 export function hashSourceChunk(chunk) {
     return hashCanonical(SourceChunkContentSchema.parse(chunk));

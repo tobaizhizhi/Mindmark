@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { describeRunner, isDirectExecution, runnerIdentity } from "../src/index.js";
 
@@ -26,5 +27,13 @@ describe("runner workspace", () => {
         "/workspace/apps/agent-runner",
       ),
     ).toBe(false);
+  });
+
+  it("loads the root development environment before starting the Runner", () => {
+    const packageJson = JSON.parse(
+      readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+    ) as { scripts?: { dev?: string } };
+
+    expect(packageJson.scripts?.dev).toContain("--env-file-if-exists=../../.env");
   });
 });

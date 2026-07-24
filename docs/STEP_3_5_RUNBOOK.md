@@ -67,12 +67,11 @@ openssl rand -hex 32
 ## 5. Step 5 验收
 
 1. 打开首页并连接赛事要求的 Monad 钱包网络。
-2. 点击“使用示例”或导入不超过 10 页、5 MB 的文本型 PDF。
+2. 点击“使用示例”或导入不超过 30 页、15 MB、60,000 字符的文本型 PDF。
 3. 签署 EIP-4361 登录消息。
-4. 点击“拆分资料”，确认生成 2-4 个 chunk 和动态卡片预算。
+4. 点击“拆分资料”，确认系统先识别章节，再生成 2-12 个章节子分段和动态卡片预算。
 5. 点击“在 Monad 创建”，钱包调用 `createJourney`。
 6. API 校验 receipt 和 `JourneyCreated` 的合约、链、learner 及所有 Hash 后，数据库才进入 `CREATED`。
 
 原始 PDF 不会发送到服务器。Journey `READY` 时数据库 trigger 会立即删除
 `source_chunks.source_text` 和 Worker 草稿；异常数据由清理函数在 24 小时后处理。
-

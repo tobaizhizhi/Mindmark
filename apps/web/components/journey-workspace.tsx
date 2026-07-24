@@ -13,7 +13,7 @@ import {
   RefreshCw,
   ShieldCheck,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   learningJourneyRegistryAbi,
   type CompleteSessionResponse,
@@ -24,6 +24,7 @@ import { JourneyDetailResponseSchema } from "@mindmark/shared/schemas";
 import { usePublicClient } from "wagmi";
 import { z } from "zod";
 import { monadChain, registryAddress } from "@/lib/client/chain";
+import { buildStudyChapters } from "@/lib/client/chapters";
 import {
   verifyDeckAgainstChain,
   type DeckVerification,
@@ -85,7 +86,8 @@ export function JourneyWorkspace(props: {
   const [error, setError] = useState<string | null>(null);
   const [verification, setVerification] = useState<DeckVerification | null>(null);
   const [verifying, setVerifying] = useState(false);
-  const [cardIndex, setCardIndex] = useState(0);
+  const [selectedChapterId, setSelectedChapterId] = useState<string | null>(null);
+  const [reviewedCardIds, setReviewedCardIds] = useState<`0x${string}`[]>([]);
   const [revealed, setRevealed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [sessionResult, setSessionResult] = useState<CompleteSessionResponse | null>(null);
@@ -126,13 +128,50 @@ export function JourneyWorkspace(props: {
     return () => window.clearInterval(timer);
   }, [detail, loadDetail]);
 
-  const activeItem = detail?.studyQueue?.queue[cardIndex] ?? null;
-  const reviewedCount = Math.min(cardIndex, detail?.studyQueue?.queue.length ?? 0);
+  const studyChapters = useMemo(
+    () =>
+      detail
+        ? buildStudyChapters({
+            chunks: detail.chunks,
+            deck: detail.deck,
+            studiedCardIds: detail.studiedCardIds,
+            studyQueue: detail.studyQueue,
+          })
+        : [],
+    [detail],
+  );
+  const reviewedCardIdSet = useMemo(() => new Set(reviewedCardIds), [reviewedCardIds]);
+  const defaultChapter =
+    studyChapters.find((chapter) => chapter.queue.length > 0) ?? studyChapters[0] ?? null;
+  const activeChapter =
+    studyChapters.find((chapter) => chapter.id === selectedChapterId) ?? defaultChapter;
+  const activeItem =
+    activeChapter?.queue.find((item) => !reviewedCardIdSet.has(item.card.id)) ?? null;
+  const reviewedCount = reviewedCardIds.length;
+  const totalStudyCards = detail?.studyQueue?.queue.length ?? 0;
   const allReviewed = Boolean(
     detail?.studyQueue &&
       detail.studyQueue.queue.length > 0 &&
-      cardIndex >= detail.studyQueue.queue.length,
+      reviewedCount >= detail.studyQueue.queue.length,
   );
+  const activeChapterTodayDone = activeChapter
+    ? activeChapter.queue.filter((item) => reviewedCardIdSet.has(item.card.id)).length
+    : 0;
+  const learnedCardIdSet = useMemo(
+    () => new Set([...(detail?.studiedCardIds ?? []), ...reviewedCardIds]),
+    [detail?.studiedCardIds, reviewedCardIds],
+  );
+  const activeChapterStudied = activeChapter
+    ? activeChapter.cards.filter((card) => learnedCardIdSet.has(card.id)).length
+    : 0;
+  const nextPendingChapter = activeChapter
+    ? studyChapters.find(
+        (chapter) =>
+          chapter.id !== activeChapter.id &&
+          chapter.queue.some((item) => !reviewedCardIdSet.has(item.card.id)),
+      ) ?? null
+    : null;
+
   async function verifyDeck() {
     if (!detail || !registryAddress || !publicClient) {
       setVerification({
@@ -229,12 +268,28 @@ export function JourneyWorkspace(props: {
           }),
         }),
       );
-      const nextIndex = cardIndex + 1;
-      setCardIndex(nextIndex);
+      const nextReviewedCardIds = reviewedCardIdSet.has(activeItem.card.id)
+        ? reviewedCardIds
+        : [...reviewedCardIds, activeItem.card.id];
+      const nextReviewedCardIdSet = new Set(nextReviewedCardIds);
+      setReviewedCardIds(nextReviewedCardIds);
       setRevealed(false);
       cardStartedAt.current = clockMs();
-      if (detail?.studyQueue && nextIndex >= detail.studyQueue.queue.length) {
+      if (detail?.studyQueue && nextReviewedCardIds.length >= detail.studyQueue.queue.length) {
         await completeSession();
+      } else if (
+        activeChapter &&
+        !activeChapter.queue.some((item) => !nextReviewedCardIdSet.has(item.card.id))
+      ) {
+        const currentIndex = studyChapters.findIndex((chapter) => chapter.id === activeChapter.id);
+        const orderedChapters = [
+          ...studyChapters.slice(currentIndex + 1),
+          ...studyChapters.slice(0, currentIndex),
+        ];
+        const nextChapter = orderedChapters.find((chapter) =>
+          chapter.queue.some((item) => !nextReviewedCardIdSet.has(item.card.id)),
+        );
+        if (nextChapter) setSelectedChapterId(nextChapter.id);
       }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "复习记录提交失败");
@@ -364,12 +419,97 @@ export function JourneyWorkspace(props: {
           </section>
         </div>
       ) : detail ? (
-        <div className="mx-auto grid w-full max-w-6xl gap-8 px-5 py-8 md:px-8 lg:grid-cols-[minmax(0,1fr)_280px]">
-          <section>
-            <div className="mb-5 flex items-center justify-between border-b border-[var(--line)] pb-4">
-              <div><p className="section-kicker">Session</p><h2 className="font-display mt-1 text-2xl font-semibold">今日学习</h2></div>
-              <span className="font-mono text-sm text-[var(--muted)]">{reviewedCount} / {detail.studyQueue?.queue.length ?? 0}</span>
+        <div className="chapter-study-shell">
+          <aside className="study-chapter-rail" aria-label="学习章节">
+            <div className="chapter-rail-heading">
+              <div>
+                <p className="section-kicker">Contents</p>
+                <h2 className="font-display mt-1 text-xl font-semibold">章节目录</h2>
+              </div>
+              <span className="chapter-count">{studyChapters.length} 章</span>
             </div>
+
+            <div className="chapter-today-overview">
+              <div>
+                <span>今日总进度</span>
+                <strong>{reviewedCount} / {totalStudyCards}</strong>
+              </div>
+              <div className="chapter-progress-track" aria-hidden="true">
+                <span
+                  style={{
+                    width: totalStudyCards > 0 ? `${(reviewedCount / totalStudyCards) * 100}%` : "0%",
+                  }}
+                />
+              </div>
+            </div>
+
+            <nav className="chapter-nav">
+              {studyChapters.map((chapter, index) => {
+                const todayDone = chapter.queue.filter((item) =>
+                  reviewedCardIdSet.has(item.card.id),
+                ).length;
+                const studiedCount = chapter.cards.filter((card) =>
+                  learnedCardIdSet.has(card.id),
+                ).length;
+                const progress = chapter.cards.length > 0
+                  ? (studiedCount / chapter.cards.length) * 100
+                  : 0;
+                return (
+                  <button
+                    key={chapter.id}
+                    type="button"
+                    data-active={chapter.id === activeChapter?.id}
+                    data-complete={chapter.cards.length > 0 && studiedCount >= chapter.cards.length}
+                    aria-current={chapter.id === activeChapter?.id ? "page" : undefined}
+                    onClick={() => {
+                      setSelectedChapterId(chapter.id);
+                      setRevealed(false);
+                      cardStartedAt.current = clockMs();
+                    }}
+                    className="chapter-nav-item"
+                  >
+                    <span className="chapter-number">{String(index + 1).padStart(2, "0")}</span>
+                    <span className="chapter-nav-copy">
+                      <strong>{chapter.title}</strong>
+                      <span>P.{chapter.pageStart}–{chapter.pageEnd} · {chapter.cards.length} 张卡</span>
+                      <span className="chapter-nav-progress">
+                        <i><b style={{ width: `${progress}%` }} /></i>
+                        <em>{studiedCount}/{chapter.cards.length}</em>
+                      </span>
+                      {chapter.queue.length > 0 ? (
+                        <span className="chapter-today-count">今日 {todayDone}/{chapter.queue.length}</span>
+                      ) : (
+                        <span className="chapter-today-count is-clear">今日无待学卡</span>
+                      )}
+                    </span>
+                  </button>
+                );
+              })}
+            </nav>
+
+            <div className="chapter-rail-note">
+              到期卡优先，每次最多 15 张。章节只负责组织学习顺序，不改变 FSRS 复习时间。
+            </div>
+          </aside>
+
+          <section className="chapter-study-main">
+            <div className="chapter-study-heading">
+              <div>
+                <p className="section-kicker">Today&apos;s Study</p>
+                <h2 className="font-display mt-2 text-3xl font-semibold">{activeChapter?.title ?? "今日学习"}</h2>
+                {activeChapter ? (
+                  <p className="mt-2 text-sm text-[var(--muted)]">
+                    P.{activeChapter.pageStart}–{activeChapter.pageEnd} · 共 {activeChapter.cards.length} 张卡 · 已学习 {activeChapterStudied} 张
+                  </p>
+                ) : null}
+              </div>
+              <div className="chapter-session-stats" aria-label="今日学习队列">
+                <div><span>本章今日</span><strong>{activeChapterTodayDone}/{activeChapter?.queue.length ?? 0}</strong></div>
+                <div><span>到期</span><strong>{detail.studyQueue?.dueCount ?? 0}</strong></div>
+                <div><span>新卡</span><strong>{detail.studyQueue?.newCount ?? 0}</strong></div>
+              </div>
+            </div>
+
             {sessionResult || allReviewed ? (
               <div className="study-complete">
                 <Check aria-hidden="true" className="size-6" />
@@ -379,7 +519,15 @@ export function JourneyWorkspace(props: {
               </div>
             ) : activeItem ? (
               <div className="study-card">
-                <div className="flex items-center justify-between"><span className="status-chip">{activeItem.reason === "due" ? "到期复习" : "新学习卡"}</span><span className="font-mono text-xs text-[var(--muted)]">P.{activeItem.card.source.page}</span></div>
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-2">
+                    <span className="status-chip">{activeItem.reason === "due" ? "到期复习" : "新学习卡"}</span>
+                    <span className="chapter-card-position">
+                      本章 {activeChapterTodayDone + 1}/{activeChapter?.queue.length ?? 0}
+                    </span>
+                  </div>
+                  <span className="font-mono text-xs text-[var(--muted)]">P.{activeItem.card.source.page}</span>
+                </div>
                 <h3 className="font-display mt-8 text-2xl font-semibold leading-relaxed">{activeItem.card.question}</h3>
                 {revealed ? (
                   <div className="mt-8 border-t border-[var(--line)] pt-6">
@@ -393,18 +541,30 @@ export function JourneyWorkspace(props: {
                   <button type="button" onClick={() => { sessionId.current ??= window.crypto.randomUUID(); setRevealed(true); }} className="command-button command-button-dark mt-10"><Eye aria-hidden="true" className="size-4" />显示答案</button>
                 )}
               </div>
+            ) : activeChapter && activeChapter.queue.length > 0 ? (
+              <div className="chapter-finished">
+                <span className="chapter-finished-mark"><Check aria-hidden="true" className="size-5" /></span>
+                <p className="section-kicker">Chapter Complete</p>
+                <h3 className="font-display text-2xl font-semibold">本章今日任务已完成</h3>
+                <p>本章今天安排的 {activeChapter.queue.length} 张卡已全部学习。</p>
+                {nextPendingChapter ? (
+                  <button
+                    type="button"
+                    className="command-button command-button-accent mt-3"
+                    onClick={() => {
+                      setSelectedChapterId(nextPendingChapter.id);
+                      setRevealed(false);
+                      cardStartedAt.current = clockMs();
+                    }}
+                  >
+                    继续下一章
+                  </button>
+                ) : null}
+              </div>
             ) : (
-              <div className="study-empty"><EyeOff aria-hidden="true" className="size-5" /><p>当前没有到期或待学习卡片</p></div>
+              <div className="study-empty"><EyeOff aria-hidden="true" className="size-5" /><p>本章节今天没有到期或待学习卡片</p></div>
             )}
           </section>
-          <aside className="study-sidebar">
-            <p className="section-kicker">Queue</p>
-            <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-1">
-              <div><span>到期</span><strong>{detail.studyQueue?.dueCount ?? 0}</strong></div>
-              <div><span>新卡</span><strong>{detail.studyQueue?.newCount ?? 0}</strong></div>
-            </div>
-            <div className="mt-6 border-t border-[var(--line)] pt-5 text-sm leading-6 text-[var(--muted)]">FSRS 到期卡优先，单次最多 15 张。</div>
-          </aside>
         </div>
       ) : null}
     </main>

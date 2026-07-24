@@ -2,6 +2,7 @@ import type { Hex } from "viem";
 import { buildChunkManifest } from "./merkle.js";
 import {
   PrepareJourneyRequestSchema,
+  MAX_SOURCE_CHUNKS,
   SourcePageSchema,
   SourceChunkContentSchema,
   type PrepareJourneyRequest,
@@ -14,6 +15,12 @@ import { normalizeSourceText } from "./citations.js";
 type SourceUnit = {
   pageNumber: number;
   text: string;
+  chapterTitle: string | null;
+};
+
+type ChunkGroup = {
+  chapterTitles: string[];
+  units: SourceUnit[];
 };
 
 export type PreparedChunk = {
@@ -33,10 +40,19 @@ export type PreparedJourney = {
   chunks: PreparedChunk[];
 };
 
-function selectChunkCount(pageCount: number, totalCharacters: number): number {
-  if (pageCount >= 9 || totalCharacters >= 12_000) return 4;
-  if (pageCount >= 6 || totalCharacters >= 4_500) return 3;
-  return 2;
+function selectChunkCount(
+  pageCount: number,
+  totalCharacters: number,
+  chapterCount = 0,
+): number {
+  const byPages = Math.ceil((pageCount + 1) / 3);
+  const byCharacters =
+    totalCharacters >= 12_000
+      ? Math.max(4, Math.ceil(totalCharacters / 6_000))
+      : totalCharacters >= 4_500
+        ? 3
+        : 2;
+  return Math.min(MAX_SOURCE_CHUNKS, Math.max(2, byPages, byCharacters, chapterCount));
 }
 
 function splitIntoUnits(request: PrepareJourneyRequest, desiredCount: number): SourceUnit[] {
@@ -44,6 +60,7 @@ function splitIntoUnits(request: PrepareJourneyRequest, desiredCount: number): S
     return request.pages.map((page) => ({
       pageNumber: page.pageNumber,
       text: normalizeSourceText(page.text),
+      chapterTitle: null,
     }));
   }
 
@@ -59,8 +76,56 @@ function splitIntoUnits(request: PrepareJourneyRequest, desiredCount: number): S
             .split(/(?<=[.!?。！？])\s+/u)
             .map(normalizeSourceText)
             .filter(Boolean);
-    return candidates.map((text) => ({ pageNumber: page.pageNumber, text }));
+    return candidates.map((text) => ({
+      pageNumber: page.pageNumber,
+      text,
+      chapterTitle: null,
+    }));
   });
+}
+
+function isChapterHeading(value: string): boolean {
+  const line = normalizeSourceText(value);
+  if (line.length < 2 || line.length > 120) return false;
+  return (
+    /^第[0-9一二三四五六七八九十百]+[章节篇部单元]\s*\S*/u.test(line) ||
+    /^(?:chapter|unit|part|section)\s+[0-9ivxlcdm]+(?:\s*[:：.-]\s*|\s+)\S*/iu.test(line) ||
+    /^\d+(?:\.\d+){0,3}[.)、:：\s]+\S+/u.test(line) ||
+    (/^[A-Z][A-Z\d\s:&-]{4,}$/u.test(line) && line.includes(" "))
+  );
+}
+
+function chapterSections(request: PrepareJourneyRequest): Array<{
+  title: string | null;
+  units: SourceUnit[];
+}> | null {
+  const sections: Array<{ title: string | null; units: SourceUnit[] }> = [];
+  let current: { title: string | null; units: SourceUnit[] } | null = null;
+  let foundHeading = false;
+
+  for (const page of request.pages) {
+    const lines = page.text
+      .split(/\n+/u)
+      .map(normalizeSourceText)
+      .filter(Boolean);
+    for (const line of lines) {
+      if (isChapterHeading(line)) {
+        foundHeading = true;
+        if (current?.units.length) sections.push(current);
+        current = { title: line, units: [] };
+      }
+      current ??= { title: null, units: [] };
+      current.units.push({
+        pageNumber: page.pageNumber,
+        text: line,
+        chapterTitle: current.title,
+      });
+    }
+  }
+  if (current?.units.length) sections.push(current);
+  return foundHeading && sections.reduce((total, section) => total + section.units.length, 0) >= 2
+    ? sections
+    : null;
 }
 
 function partitionUnits(units: SourceUnit[], count: number): SourceUnit[][] {
@@ -97,6 +162,77 @@ function partitionUnits(units: SourceUnit[], count: number): SourceUnit[][] {
 
     groups.push(group);
     remainingCharacters -= groupCharacters;
+  }
+
+  return groups;
+}
+
+function partitionChapterSections(
+  sections: Array<{ title: string | null; units: SourceUnit[] }>,
+  desiredCount: number,
+): ChunkGroup[] {
+  const totalCharacters = sections.reduce(
+    (total, section) => total + section.units.reduce((sum, unit) => sum + unit.text.length, 0),
+    0,
+  );
+  const targetCharacters = totalCharacters / desiredCount;
+  const groups: ChunkGroup[] = sections.flatMap((section) => {
+    const sectionCharacters = section.units.reduce((total, unit) => total + unit.text.length, 0);
+    const partCount = Math.min(
+      section.units.length,
+      Math.max(1, Math.round(sectionCharacters / targetCharacters)),
+    );
+    return partitionUnits(section.units, partCount).map((units) => ({
+      chapterTitles: section.title ? [section.title] : [],
+      units,
+    }));
+  });
+
+  while (groups.length < desiredCount) {
+    const targetIndex = groups.reduce((largestIndex, group, index) => {
+      if (group.units.length < 2) return largestIndex;
+      if (largestIndex < 0) return index;
+      const size = group.units.reduce((total, unit) => total + unit.text.length, 0);
+      const largestSize = groups[largestIndex]!.units.reduce(
+        (total, unit) => total + unit.text.length,
+        0,
+      );
+      return size > largestSize ? index : largestIndex;
+    }, -1);
+    if (targetIndex < 0) break;
+    const target = groups[targetIndex]!;
+    const [left, right] = partitionUnits(target.units, 2);
+    groups.splice(
+      targetIndex,
+      1,
+      { chapterTitles: target.chapterTitles, units: left! },
+      { chapterTitles: target.chapterTitles, units: right! },
+    );
+  }
+
+  while (groups.length > desiredCount) {
+    let targetIndex = 0;
+    let targetScore = Number.POSITIVE_INFINITY;
+    for (let index = 0; index < groups.length - 1; index += 1) {
+      const left = groups[index]!;
+      const right = groups[index + 1]!;
+      const sameChapter = left.chapterTitles.join(" / ") === right.chapterTitles.join(" / ");
+      const characters = [...left.units, ...right.units].reduce(
+        (total, unit) => total + unit.text.length,
+        0,
+      );
+      const score = characters + (sameChapter ? 0 : totalCharacters);
+      if (score < targetScore) {
+        targetIndex = index;
+        targetScore = score;
+      }
+    }
+    const left = groups[targetIndex]!;
+    const right = groups[targetIndex + 1]!;
+    groups.splice(targetIndex, 2, {
+      chapterTitles: [...new Set([...left.chapterTitles, ...right.chapterTitles])],
+      units: [...left.units, ...right.units],
+    });
   }
 
   return groups;
@@ -149,26 +285,48 @@ export function prepareJourney(
     text: normalizeSourceText(page.text),
   }));
   const totalCharacters = pages.reduce((total, page) => total + page.text.length, 0);
-  const desiredCount = selectChunkCount(pages.length, totalCharacters);
-  const units = splitIntoUnits({ ...request, pages }, desiredCount);
-  const chunkCount = Math.min(desiredCount, units.length);
-  const groups = partitionUnits(units, chunkCount);
+  const chapters = chapterSections(request);
+  const units = chapters
+    ? chapters.flatMap((section) => section.units)
+    : splitIntoUnits(request, selectChunkCount(pages.length, totalCharacters));
+  const desiredCount = Math.min(
+    selectChunkCount(pages.length, totalCharacters, chapters?.length ?? 0),
+    units.length,
+  );
+  const groups: ChunkGroup[] = chapters
+    ? partitionChapterSections(chapters, desiredCount)
+    : partitionUnits(units, desiredCount).map((group) => ({ chapterTitles: [], units: group }));
+  const chunkCount = groups.length;
+  const titleTotals = new Map<string, number>();
+  for (const group of groups) {
+    const key = group.chapterTitles.join(" / ");
+    if (key) titleTotals.set(key, (titleTotals.get(key) ?? 0) + 1);
+  }
+  const titleIndexes = new Map<string, number>();
   const contents = groups.map((group, chunkId) => {
-    const text = group.map((unit) => unit.text).join("\n\n");
+    const text = group.units.map((unit) => unit.text).join("\n\n");
+    const chapterKey = group.chapterTitles.join(" / ");
+    const chapterPart = chapterKey ? (titleIndexes.get(chapterKey) ?? 0) + 1 : 0;
+    if (chapterKey) titleIndexes.set(chapterKey, chapterPart);
+    const rawTitle = chapterKey
+      ? (titleTotals.get(chapterKey) ?? 1) > 1
+        ? `${chapterKey} · 分段 ${chapterPart}/${titleTotals.get(chapterKey)}`
+        : chapterKey
+      : titleFor(text, chunkId);
     return SourceChunkContentSchema.parse({
       chunkId,
-      pageStart: Math.min(...group.map((unit) => unit.pageNumber)),
-      pageEnd: Math.max(...group.map((unit) => unit.pageNumber)),
-      title: titleFor(text, chunkId),
+      pageStart: Math.min(...group.units.map((unit) => unit.pageNumber)),
+      pageEnd: Math.max(...group.units.map((unit) => unit.pageNumber)),
+      title: rawTitle.length > 200 ? `${rawTitle.slice(0, 197).trim()}...` : rawTitle,
       text,
     });
   });
   const sourcePagesByChunk = groups.map((group) => {
-    const pageNumbers = [...new Set(group.map((unit) => unit.pageNumber))];
+    const pageNumbers = [...new Set(group.units.map((unit) => unit.pageNumber))];
     return SourcePageSchema.array().parse(
       pageNumbers.map((pageNumber) => ({
         pageNumber,
-        text: group
+        text: group.units
           .filter((unit) => unit.pageNumber === pageNumber)
           .map((unit) => unit.text)
           .join(" "),

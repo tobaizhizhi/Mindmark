@@ -252,6 +252,9 @@ export async function getJourneyDetailForOwner(
     provenance,
     plan,
     chunks,
+    studiedCardIds: deck
+      ? deck.filter((card) => Boolean(fsrsStates[card.id])).map((card) => card.id)
+      : [],
     studyQueue:
       row.status === "READY" && deck
         ? buildStudyQueue({ deck, fsrsStates, plan, now })

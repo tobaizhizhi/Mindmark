@@ -29,7 +29,11 @@ import type {
   SaveCreateTransactionResponse,
   SourcePage,
 } from "@mindmark/shared";
-import { learningJourneyRegistryAbi } from "@mindmark/shared";
+import {
+  learningJourneyRegistryAbi,
+  MAX_SOURCE_CHARACTERS,
+  MAX_SOURCE_PAGES,
+} from "@mindmark/shared";
 import {
   useAccount,
   useConnect,
@@ -73,6 +77,8 @@ type JourneyListItem = {
   updatedAt: string;
 };
 
+const MAX_PDF_BYTES = 15 * 1024 * 1024;
+
 const journeyStatusLabels: Record<string, string> = {
   PREPARING: "准备资料",
   AWAITING_CREATE_TX: "等待上链",
@@ -110,11 +116,45 @@ function formatUpdatedAt(value: string): string {
 }
 
 function normalizePageText(value: string): string {
-  return value.replace(/\s+/gu, " ").trim();
+  return value
+    .replace(/\r\n?/gu, "\n")
+    .split("\n")
+    .map((line) => line.replace(/[\t ]+/gu, " ").trim())
+    .filter(Boolean)
+    .join("\n");
+}
+
+function pdfItemsToText(items: readonly unknown[]): string {
+  let output = "";
+  let previousY: number | null = null;
+  for (const value of items) {
+    if (!value || typeof value !== "object" || !("str" in value)) continue;
+    const item = value as { str: unknown; hasEOL?: unknown; transform?: unknown };
+    if (typeof item.str !== "string") continue;
+    const transform = Array.isArray(item.transform) ? item.transform : null;
+    const y = transform && typeof transform[5] === "number" ? transform[5] : null;
+    if (
+      previousY !== null &&
+      y !== null &&
+      Math.abs(previousY - y) > 2.5 &&
+      !output.endsWith("\n")
+    ) {
+      output += "\n";
+    }
+    output += item.str;
+    if (item.hasEOL === true) {
+      output += "\n";
+      previousY = null;
+    } else {
+      output += " ";
+      previousY = y;
+    }
+  }
+  return output;
 }
 
 async function extractPdf(file: File): Promise<SourcePage[]> {
-  if (file.size > 5 * 1024 * 1024) throw new Error("PDF 不能超过 5 MB");
+  if (file.size > MAX_PDF_BYTES) throw new Error("PDF 不能超过 15 MB");
   const pdfjs = await import("pdfjs-dist");
   pdfjs.GlobalWorkerOptions.workerSrc = new URL(
     "pdfjs-dist/build/pdf.worker.min.mjs",
@@ -122,28 +162,25 @@ async function extractPdf(file: File): Promise<SourcePage[]> {
   ).toString();
   const loadingTask = pdfjs.getDocument({ data: await file.arrayBuffer() });
   const document = await loadingTask.promise;
-  if (document.numPages > 10) {
+  if (document.numPages > MAX_SOURCE_PAGES) {
     await loadingTask.destroy();
-    throw new Error("PDF 不能超过 10 页");
+    throw new Error(`PDF 不能超过 ${MAX_SOURCE_PAGES} 页`);
   }
 
   const pages: SourcePage[] = [];
   for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
     const page = await document.getPage(pageNumber);
     const content = await page.getTextContent();
-    const text = normalizePageText(
-      content.items
-        .filter((item) => "str" in item)
-        .map((item) => item.str)
-        .join(" "),
-    );
+    const text = normalizePageText(pdfItemsToText(content.items));
     if (text) pages.push({ pageNumber, text });
   }
   await loadingTask.destroy();
 
   const totalCharacters = pages.reduce((total, page) => total + page.text.length, 0);
   if (totalCharacters === 0) throw new Error("没有检测到可提取文本，请改用粘贴文本");
-  if (totalCharacters > 20_000) throw new Error("提取文本不能超过 20,000 字符");
+  if (totalCharacters > MAX_SOURCE_CHARACTERS) {
+    throw new Error(`提取文本不能超过 ${MAX_SOURCE_CHARACTERS.toLocaleString()} 字符`);
+  }
   return pages;
 }
 
@@ -182,10 +219,20 @@ function MindmarkHome(props: {
   onRetry: () => void;
 }) {
   const authBusy = props.isConnecting || props.phase === "wallet";
+  const [selectedJourneyId, setSelectedJourneyId] = useState<`0x${string}` | null>(null);
+  const selectedJourney =
+    props.journeys.find((journey) => journey.journeyId === selectedJourneyId) ??
+    props.journeys.find((journey) => journey.journeyId === props.lastJourneyId) ??
+    props.journeys[0];
+  const showProjectRail =
+    props.isConnected &&
+    props.sessionMatchesWallet &&
+    !props.journeysError &&
+    (props.journeysLoading || Boolean(selectedJourney));
 
   return (
     <main className="home-shell min-h-screen text-[var(--ink)]">
-      <header className="home-header">
+      <header className="home-header home-workbench-header">
         <div className="mx-auto flex h-[72px] w-full max-w-7xl items-center justify-between px-5 md:px-8">
           <div className="flex items-center gap-3">
             <span className="home-logo-mark">
@@ -239,7 +286,10 @@ function MindmarkHome(props: {
         </div>
       </header>
 
-      <section id="learning-projects" className="mx-auto w-full max-w-7xl px-5 py-10 md:px-8 md:py-14">
+      <section
+        id="learning-projects"
+        className={`mx-auto w-full max-w-7xl px-5 py-10 md:px-8 md:py-14 ${showProjectRail ? "home-learning-section-with-rail" : ""}`}
+      >
         <div className="flex flex-col justify-between gap-5 border-b border-[var(--line-strong)] pb-6 sm:flex-row sm:items-end">
           <div>
             <p className="section-kicker">学习工作台</p>
@@ -291,8 +341,12 @@ function MindmarkHome(props: {
             </button>
           </div>
         ) : props.journeysLoading ? (
-          <div className="home-project-grid mt-8" aria-label="正在载入学习项目">
-            {[0, 1, 2].map((item) => <div key={item} className="home-project-skeleton" />)}
+          <div className="home-project-browser mt-8" aria-label="正在载入学习项目">
+            <div className="home-project-sidebar">
+              <div className="home-project-sidebar-heading"><span>学习项目</span><strong>—</strong></div>
+              {[0, 1, 2, 3].map((item) => <div key={item} className="home-project-row-skeleton" />)}
+            </div>
+            <div className="home-project-detail-skeleton" />
           </div>
         ) : props.journeysError ? (
           <div className="home-empty-state mt-8">
@@ -312,56 +366,122 @@ function MindmarkHome(props: {
               <Plus aria-hidden="true" className="size-4" />新建第一个项目
             </button>
           </div>
-        ) : (
-          <div className="home-project-grid mt-8">
-            {props.journeys.map((journey, index) => {
-              const isReady = journey.status === "READY";
-              const isLast = journey.journeyId === props.lastJourneyId;
-              return (
-                <article key={journey.journeyId} className="home-project-card" style={{ animationDelay: `${index * 55}ms` }}>
-                  <div className="flex items-start justify-between gap-4">
-                    <span className="home-project-index">{String(index + 1).padStart(2, "0")}</span>
-                    <div className="flex flex-wrap justify-end gap-2">
-                      {isLast ? <span className="home-last-badge">上次打开</span> : null}
-                      <span className="home-project-status" data-state={journey.status}>
-                        {journeyStatusLabels[journey.status] ?? journey.status}
+        ) : selectedJourney ? (
+          <div className="home-project-browser mt-8">
+            <aside className="home-project-sidebar">
+              <div className="home-project-sidebar-heading">
+                <span>学习项目</span>
+                <strong>{props.journeys.length}</strong>
+              </div>
+              <nav className="home-project-list" aria-label="学习项目列表">
+                {props.journeys.map((journey, index) => {
+                  const isSelected = journey.journeyId === selectedJourney.journeyId;
+                  return (
+                    <button
+                      key={journey.journeyId}
+                      type="button"
+                      onClick={() => setSelectedJourneyId(journey.journeyId)}
+                      className="home-project-row"
+                      data-active={isSelected}
+                      aria-current={isSelected ? "true" : undefined}
+                      style={{ animationDelay: `${index * 45}ms` }}
+                    >
+                      <span className="home-project-dot" data-state={journey.status} />
+                      <span className="home-project-row-copy">
+                        <strong>{journey.goal || "未命名的知识卡学习项目"}</strong>
+                        <small>
+                          {journeyStatusLabels[journey.status] ?? journey.status}
+                          <span>·</span>
+                          {formatUpdatedAt(journey.updatedAt)}
+                        </small>
                       </span>
-                    </div>
-                  </div>
-                  <h3 className="font-display mt-8 line-clamp-2 text-2xl font-semibold leading-snug">
-                    {journey.goal || "未命名的知识卡学习项目"}
-                  </h3>
-                  <p className="mt-3 font-mono text-[11px] text-[var(--muted)]">
-                    {shortJourneyId(journey.journeyId)}
-                  </p>
-                  <div className="home-project-metrics">
-                    <div><span>知识卡</span><strong>{journey.cardCount || "—"}</strong></div>
-                    <div><span>已学习</span><strong>{journey.studiedCardCount}</strong></div>
-                    <div><span>当前到期</span><strong>{isReady ? journey.dueCount : "—"}</strong></div>
-                  </div>
-                  <div className="mt-6 flex items-center justify-between gap-3 border-t border-[var(--line)] pt-5">
-                    <span className="text-xs text-[var(--muted)]">更新于 {formatUpdatedAt(journey.updatedAt)}</span>
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => props.onDelete(journey)}
-                        className="home-delete-button"
-                        aria-label={`删除${journey.goal || "学习项目"}`}
-                        title="删除学习项目"
-                      >
-                        <Trash2 aria-hidden="true" className="size-4" />
-                      </button>
-                      <button type="button" onClick={() => props.onOpen(journey.journeyId)} className="text-command">
-                        {isReady ? "开始复习" : "查看进度"}
-                        <ArrowRight aria-hidden="true" className="size-4" />
-                      </button>
-                    </div>
-                  </div>
-                </article>
-              );
-            })}
+                      {journey.status === "READY" && journey.dueCount > 0 ? (
+                        <span className="home-project-due-badge">{journey.dueCount}</span>
+                      ) : (
+                        <ChevronRight aria-hidden="true" className="size-4" />
+                      )}
+                    </button>
+                  );
+                })}
+              </nav>
+            </aside>
+
+            <section className="home-project-detail" aria-labelledby="selected-project-title">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="home-project-status" data-state={selectedJourney.status}>
+                  {journeyStatusLabels[selectedJourney.status] ?? selectedJourney.status}
+                </span>
+                {selectedJourney.journeyId === props.lastJourneyId ? (
+                  <span className="home-last-badge">上次打开</span>
+                ) : null}
+              </div>
+
+              <p className="section-kicker mt-8">项目详情</p>
+              <h2 id="selected-project-title" className="font-display mt-2 max-w-3xl text-3xl font-semibold leading-snug md:text-4xl">
+                {selectedJourney.goal || "未命名的知识卡学习项目"}
+              </h2>
+              <p className="mt-3 font-mono text-[11px] text-[var(--muted)]">
+                {shortJourneyId(selectedJourney.journeyId)}
+              </p>
+
+              <div className="home-project-detail-metrics">
+                <div><span>知识卡</span><strong>{selectedJourney.cardCount || "—"}</strong></div>
+                <div><span>已学习</span><strong>{selectedJourney.studiedCardCount}</strong></div>
+                <div><span>当前到期</span><strong>{selectedJourney.status === "READY" ? selectedJourney.dueCount : "—"}</strong></div>
+              </div>
+
+              <div className="home-project-progress">
+                <div>
+                  <span>学习进度</span>
+                  <strong>
+                    {selectedJourney.cardCount > 0
+                      ? `${Math.min(100, Math.round((selectedJourney.studiedCardCount / selectedJourney.cardCount) * 100))}%`
+                      : "等待生成"}
+                  </strong>
+                </div>
+                <span>
+                  <i
+                    style={{
+                      width: selectedJourney.cardCount > 0
+                        ? `${Math.min(100, (selectedJourney.studiedCardCount / selectedJourney.cardCount) * 100)}%`
+                        : "0%",
+                    }}
+                  />
+                </span>
+              </div>
+
+              <p className="home-project-detail-note">
+                {selectedJourney.status === "READY"
+                  ? selectedJourney.dueCount > 0
+                    ? `当前有 ${selectedJourney.dueCount} 张知识卡需要复习，到期卡会优先出现。`
+                    : "当前没有到期卡片，可以继续学习尚未接触的新卡。"
+                  : "AI Agent 正在拆解资料并提交 Monad 记录，可以进入进度页查看各分段状态。"}
+              </p>
+
+              <div className="home-project-detail-actions">
+                <span>更新于 {formatUpdatedAt(selectedJourney.updatedAt)}</span>
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => props.onDelete(selectedJourney)}
+                    className="command-button command-button-quiet"
+                  >
+                    <Trash2 aria-hidden="true" className="size-4" />
+                    删除项目
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => props.onOpen(selectedJourney.journeyId)}
+                    className="command-button command-button-accent"
+                  >
+                    {selectedJourney.status === "READY" ? "开始复习" : "查看生成进度"}
+                    <ArrowRight aria-hidden="true" className="size-4" />
+                  </button>
+                </div>
+              </div>
+            </section>
           </div>
-        )}
+        ) : null}
       </section>
     </main>
   );
@@ -505,7 +625,7 @@ export function LearningWorkbench() {
   const characterCount = activePages.reduce((total, page) => total + page.text.length, 0);
   const sessionMatchesWallet =
     Boolean(address && sessionAddress) && address?.toLowerCase() === sessionAddress;
-  const sourceReady = activePages.length > 0 && characterCount <= 20_000;
+  const sourceReady = activePages.length > 0 && characterCount <= MAX_SOURCE_CHARACTERS;
 
   useEffect(() => {
     const restoreTimer = window.setTimeout(() => {
@@ -815,6 +935,7 @@ export function LearningWorkbench() {
   if (activeJourneyId) {
     return (
       <JourneyWorkspace
+        key={activeJourneyId}
         journeyId={activeJourneyId}
         address={sessionAddress ?? address ?? null}
         onNew={() => {
@@ -1009,7 +1130,7 @@ export function LearningWorkbench() {
               <span className="mt-2 text-sm text-[var(--muted)]">
                 {pages.length > 0
                   ? `${pages.length} 页 · ${characterCount.toLocaleString()} 字符`
-                  : "最多 10 页 · 5 MB · 20,000 字符"}
+                  : `最多 ${MAX_SOURCE_PAGES} 页 · 15 MB · ${MAX_SOURCE_CHARACTERS.toLocaleString()} 字符`}
               </span>
             </button>
           ) : (
@@ -1022,12 +1143,12 @@ export function LearningWorkbench() {
                   setPrepared(null);
                   setConfirmed(null);
                 }}
-                maxLength={20_000}
+                maxLength={MAX_SOURCE_CHARACTERS}
                 placeholder="粘贴课程笔记、文章或技术资料"
                 className="source-textarea"
               />
               <p className="mt-2 text-right font-mono text-xs text-[var(--muted)]">
-                {characterCount.toLocaleString()} / 20,000
+                {characterCount.toLocaleString()} / {MAX_SOURCE_CHARACTERS.toLocaleString()}
               </p>
             </div>
           )}

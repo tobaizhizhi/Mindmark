@@ -1,6 +1,6 @@
 import { SimpleMerkleTree } from "@openzeppelin/merkle-tree";
 import { encodeAbiParameters, keccak256 } from "viem";
-import { Bytes32Schema } from "./schemas.js";
+import { Bytes32Schema, MAX_SOURCE_CHUNKS } from "./schemas.js";
 function assertUint16(value, field) {
     if (!Number.isInteger(value) || value < 0 || value > 65_535) {
         throw new RangeError(`${field} must fit uint16`);
@@ -16,8 +16,8 @@ export function manifestLeaf(journeyId, chunkId, sourceChunkHash) {
     return keccak256(encodeAbiParameters([{ type: "bytes32" }, { type: "uint16" }, { type: "bytes32" }], [Bytes32Schema.parse(journeyId), chunkId, Bytes32Schema.parse(sourceChunkHash)]));
 }
 export function buildChunkManifest(journeyId, chunks) {
-    if (chunks.length < 2 || chunks.length > 4) {
-        throw new RangeError("A chunk manifest must contain 2 to 4 chunks");
+    if (chunks.length < 2 || chunks.length > MAX_SOURCE_CHUNKS) {
+        throw new RangeError(`A chunk manifest must contain 2 to ${MAX_SOURCE_CHUNKS} chunks`);
     }
     const sorted = [...chunks].sort((left, right) => left.chunkId - right.chunkId);
     ensureUnique(sorted.map((chunk) => chunk.chunkId.toString()), "chunkId");

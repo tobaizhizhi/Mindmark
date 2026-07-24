@@ -305,12 +305,12 @@ cancelJourney(bytes32 journeyId)
 ### 必须遵守
 
 - 构造函数固定一个 Coordinator 和三个 Worker 地址。
-- `chunkCount` 只能为 2～4。
+- `chunkCount` 只能为 2～12。
 - `commitChunk` 由 allowlisted Worker 调用并记录真实 `msg.sender`。
 - `commitChunk` 验证 manifest proof，同一 chunk 只能成功一次。
 - `commitChunk` 只写 `chunks[journeyId][chunkId]`。
 - 禁止 `committedCount++`、全局任务数组和 Session 数组。
-- `finalizeDeck` 最多循环四个 chunk，确认全部存在后一次写入 Journey。
+- `finalizeDeck` 最多循环十二个 chunk，确认全部存在后一次写入 Journey。
 - Finalizer 卡片数量为 4～30，且不超过各 chunk 卡片数之和。
 - 不加入支付、升级、管理员改地址和暂停逻辑。
 
@@ -410,7 +410,7 @@ updated_at
 ### Web
 
 - 浏览器使用 `pdfjs-dist` 解析文本型 PDF，不上传原文件。
-- 限制 10 页、5 MB、提取文本 20,000 字符。
+- 限制 30 页、15 MB、提取文本 60,000 字符。
 - 显示页数和字符数；无文本时提示粘贴文本。
 - 学习目标可选，不提供截止日期和每日学习时间输入。
 
@@ -426,7 +426,7 @@ updated_at
 
 1. 校验页面文本和目标。
 2. 生成随机非零 `journeyId`。
-3. 按标题、页面、段落和长度确定性拆成 2～4 段。
+3. 先按标题识别章节，再按页面、段落和长度将长章节确定性拆分，总数控制在 2～12 段。
 4. 估算知识密度并分配合计不超过 30 的卡片预算。
 5. 计算 source/chunk Hash、manifest leaves、Root 和 proofs。
 6. 事务写入 Journey 与 chunks，状态为 `AWAITING_CREATE_TX`。

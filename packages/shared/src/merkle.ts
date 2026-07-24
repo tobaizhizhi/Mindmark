@@ -1,6 +1,6 @@
 import { SimpleMerkleTree } from "@openzeppelin/merkle-tree";
 import { encodeAbiParameters, keccak256, type Hex } from "viem";
-import { Bytes32Schema } from "./schemas.js";
+import { Bytes32Schema, MAX_SOURCE_CHUNKS } from "./schemas.js";
 
 export type ManifestChunk = {
   chunkId: number;
@@ -48,8 +48,8 @@ export function buildChunkManifest(
   journeyId: Hex,
   chunks: ManifestChunk[],
 ): { root: Hex; chunks: ManifestCommitment[] } {
-  if (chunks.length < 2 || chunks.length > 4) {
-    throw new RangeError("A chunk manifest must contain 2 to 4 chunks");
+  if (chunks.length < 2 || chunks.length > MAX_SOURCE_CHUNKS) {
+    throw new RangeError(`A chunk manifest must contain 2 to ${MAX_SOURCE_CHUNKS} chunks`);
   }
 
   const sorted = [...chunks].sort((left, right) => left.chunkId - right.chunkId);
@@ -99,4 +99,3 @@ export function verifyMerkleProof(root: Hex, leaf: Hex, proof: Hex[]): boolean {
     proof.map((item) => Bytes32Schema.parse(item)),
   );
 }
-

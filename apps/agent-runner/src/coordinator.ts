@@ -96,22 +96,31 @@ export class Coordinator {
 
     if (!(await this.repository.claimJourney(journeyId))) return;
     bundle = await this.repository.getJourneyBundle(journeyId);
-    const workerRuns = bundle.chunks.map(async (chunk) => {
-      if (chunk.status === "CONFIRMED" || chunk.status === "MERGED") return;
-      const workerIndex = chunk.chunkId % 3;
-      if (chunk.status === "QUEUED" || chunk.status === "RETRYABLE") {
-        const claimed = await this.repository.claimChunk(
-          journeyId,
-          chunk.chunkId,
-          this.registry.workerAddress(workerIndex),
-        );
-        if (!claimed) throw new Error(`Chunk ${chunk.chunkId} could not be claimed`);
-      } else if (chunk.status !== "SAVED" && chunk.status !== "SUBMITTING") {
-        throw new Error(`Chunk ${chunk.chunkId} has non-recoverable status ${chunk.status}`);
+    const workerRuns = this.workers.map(async (worker, workerIndex) => {
+      const laneErrors: unknown[] = [];
+      const laneChunks = bundle.chunks.filter((chunk) => chunk.chunkId % 3 === workerIndex);
+      for (const chunk of laneChunks) {
+        if (chunk.status === "CONFIRMED" || chunk.status === "MERGED") continue;
+        try {
+          if (!(await this.repository.renewJourneyLease(journeyId))) {
+            throw new Error(`Journey lease expired before chunk ${chunk.chunkId}`);
+          }
+          if (chunk.status === "QUEUED" || chunk.status === "RETRYABLE") {
+            const claimed = await this.repository.claimChunk(
+              journeyId,
+              chunk.chunkId,
+              this.registry.workerAddress(workerIndex),
+            );
+            if (!claimed) throw new Error(`Chunk ${chunk.chunkId} could not be claimed`);
+          } else if (chunk.status !== "SAVED" && chunk.status !== "SUBMITTING") {
+            throw new Error(`Chunk ${chunk.chunkId} has non-recoverable status ${chunk.status}`);
+          }
+          await worker.run(journeyId, chunk.chunkId);
+        } catch (error) {
+          laneErrors.push(error);
+        }
       }
-      const worker = this.workers[workerIndex];
-      if (!worker) throw new Error(`Worker ${workerIndex} is not configured`);
-      await worker.run(journeyId, chunk.chunkId);
+      if (laneErrors.length > 0) throw laneErrors[0];
     });
 
     const workerResults = await Promise.allSettled(workerRuns);
@@ -121,7 +130,7 @@ export class Coordinator {
     if (failedWorkers.length > 0) {
       await this.repository.markJourneyRetryable(
         journeyId,
-        `${failedWorkers.length} Worker chunk(s) require retry`,
+        `${failedWorkers.length} Worker lane(s) contain chunk(s) requiring retry`,
       );
       throw new Error(errorMessage(failedWorkers[0]!.reason));
     }

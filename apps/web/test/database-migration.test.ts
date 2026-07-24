@@ -9,6 +9,7 @@ const journeyId = `0x${"11".repeat(32)}`;
 const secondJourneyId = `0x${"22".repeat(32)}`;
 const runnerJourneyId = `0x${"44".repeat(32)}`;
 const reviewJourneyId = `0x${"55".repeat(32)}`;
+const largeJourneyId = `0x${"66".repeat(32)}`;
 const learnerAddress = `0x${"aa".repeat(20)}`;
 const hash = (byte: string) => `0x${byte.repeat(64)}`;
 
@@ -21,6 +22,7 @@ beforeAll(async () => {
     "20260722000100_learning_data.sql",
     "20260722000200_runner_orchestration.sql",
     "20260722000300_reviews_and_sessions.sql",
+    "20260723000100_expand_material_capacity.sql",
   ]) {
     const sql = await readFile(path.join(root, "supabase/migrations", migration), "utf8");
     await database.exec(sql);
@@ -31,7 +33,7 @@ afterAll(async () => {
   await database.close();
 });
 
-function journeyPayload(id: string) {
+function journeyPayload(id: string, chunkCount = 2) {
   return {
     journey_id: id,
     learner_address: learnerAddress,
@@ -39,19 +41,19 @@ function journeyPayload(id: string) {
     source_hash: hash("3"),
     goal_hash: hash("4"),
     chunk_manifest_root: hash("5"),
-    chunk_count: 2,
+    chunk_count: chunkCount,
   };
 }
 
-function chunksPayload() {
-  return [0, 1].map((chunkId) => ({
+function chunksPayload(chunkCount = 2) {
+  return Array.from({ length: chunkCount }, (_, chunkId) => ({
     chunk_id: chunkId,
     page_start: chunkId + 1,
     page_end: chunkId + 1,
     title: `Chunk ${chunkId}`,
     source_text: `Source text ${chunkId}`,
     source_pages: [{ pageNumber: chunkId + 1, text: `Source text ${chunkId}` }],
-    source_chunk_hash: hash(chunkId === 0 ? "6" : "7"),
+    source_chunk_hash: hash(((chunkId % 10) + 1).toString(16)),
     manifest_proof: [hash("8")],
     card_budget: 3,
   }));
@@ -121,6 +123,28 @@ describe("Step 4 Supabase migration", () => {
       [secondJourneyId],
     );
     expect(result.rows[0]?.count).toBe(0);
+  });
+
+  it("accepts twelve contiguous chunks and allows the last chunk to be claimed", async () => {
+    await database.query(
+      "select public.prepare_learning_journey($1::jsonb, $2::jsonb)",
+      [JSON.stringify(journeyPayload(largeJourneyId, 12)), JSON.stringify(chunksPayload(12))],
+    );
+    await database.query(
+      "update public.learning_journeys set status = 'GENERATING' where journey_id = $1",
+      [largeJourneyId],
+    );
+    const claimed = await database.query<{ claimed: boolean }>(
+      "select public.claim_chunk_generation($1, 11, $2) as claimed",
+      [largeJourneyId, learnerAddress],
+    );
+    const chunks = await database.query<{ count: number }>(
+      "select count(*)::integer as count from public.source_chunks where journey_id = $1",
+      [largeJourneyId],
+    );
+
+    expect(claimed.rows[0]?.claimed).toBe(true);
+    expect(chunks.rows[0]?.count).toBe(12);
   });
 
   it("enforces idempotent review and chunk keys", async () => {

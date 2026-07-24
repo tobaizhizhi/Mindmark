@@ -144,6 +144,7 @@ export class WorkerAgent {
       let markedValidating = false;
       let draft: WorkerDraft | null = null;
       let validated = false;
+      let savedValidation: { cardCount: number; cardsRoot: Hex } | null = null;
       let repairCount = 0;
       const startedAt = performance.now();
 
@@ -174,6 +175,11 @@ export class WorkerAgent {
           } else if (call.name === "save_chunk_draft") {
             if (!hasRead) {
               result = { saved: false, error: "read_assigned_chunk must be called first" };
+            } else if (savedValidation) {
+              result = {
+                saved: false,
+                error: "Validated cards are already persisted; submit the commitment next",
+              };
             } else {
               const parsed = SaveDraftArgumentsSchema.safeParse(call.arguments);
               if (!parsed.success) {
@@ -191,6 +197,8 @@ export class WorkerAgent {
             EmptyArgumentsSchema.parse(call.arguments);
             if (!draft) {
               result = { valid: false, errors: ["No draft has been saved"] };
+            } else if (savedValidation) {
+              result = { valid: true, ...savedValidation, alreadyPersisted: true };
             } else {
               if (!markedValidating) {
                 await this.repository.markChunkValidating(journeyId, chunkId);
@@ -216,10 +224,13 @@ export class WorkerAgent {
                   generationMs: Math.round(performance.now() - startedAt),
                 });
                 validated = true;
-                result = {
-                  valid: true,
+                savedValidation = {
                   cardCount: validation.cards.length,
                   cardsRoot: validation.cardsRoot,
+                };
+                result = {
+                  valid: true,
+                  ...savedValidation,
                 };
               }
             }

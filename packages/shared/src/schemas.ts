@@ -1,5 +1,9 @@
 import { z } from "zod";
 
+export const MAX_SOURCE_PAGES = 30;
+export const MAX_SOURCE_CHARACTERS = 60_000;
+export const MAX_SOURCE_CHUNKS = 12;
+
 export const Bytes32Schema = z
   .string()
   .regex(/^0x[0-9a-fA-F]{64}$/u, "Expected a 32-byte hex value")
@@ -119,7 +123,7 @@ export const SessionSummarySchema = z
 
 export const PrepareJourneyRequestSchema = z
   .object({
-    pages: z.array(SourcePageSchema).min(1).max(10),
+    pages: z.array(SourcePageSchema).min(1).max(MAX_SOURCE_PAGES),
     goal: z.string().trim().min(1).max(500).optional(),
   })
   .strict()
@@ -140,10 +144,10 @@ export const PrepareJourneyRequestSchema = z
       });
     }
     const totalCharacters = request.pages.reduce((total, page) => total + page.text.length, 0);
-    if (totalCharacters > 20_000) {
+    if (totalCharacters > MAX_SOURCE_CHARACTERS) {
       context.addIssue({
         code: "custom",
-        message: "Extracted source text cannot exceed 20,000 characters",
+        message: `Extracted source text cannot exceed ${MAX_SOURCE_CHARACTERS.toLocaleString()} characters`,
         path: ["pages"],
       });
     }
@@ -155,7 +159,7 @@ export const CreateJourneyArgsSchema = z
     sourceHash: Bytes32Schema,
     goalHash: Bytes32Schema,
     chunkManifestRoot: Bytes32Schema,
-    chunkCount: z.number().int().min(2).max(4),
+    chunkCount: z.number().int().min(2).max(MAX_SOURCE_CHUNKS),
   })
   .strict();
 
@@ -167,7 +171,7 @@ export const PrepareJourneyResponseSchema = z
       .array(
         z
           .object({
-            chunkId: z.number().int().min(0).max(3),
+            chunkId: z.number().int().min(0).max(MAX_SOURCE_CHUNKS - 1),
             pageStart: z.number().int().positive(),
             pageEnd: z.number().int().positive(),
             title: z.string().min(1).max(200),
@@ -176,7 +180,7 @@ export const PrepareJourneyResponseSchema = z
           .strict(),
       )
       .min(2)
-      .max(4),
+      .max(MAX_SOURCE_CHUNKS),
   })
   .strict();
 
@@ -258,7 +262,7 @@ export const JourneyStatusSchema = z.enum([
 
 export const ChunkProgressSchema = z
   .object({
-    chunkId: z.number().int().min(0).max(3),
+    chunkId: z.number().int().min(0).max(MAX_SOURCE_CHUNKS - 1),
     pageStart: z.number().int().positive(),
     pageEnd: z.number().int().positive(),
     title: z.string().min(1).max(200),
@@ -313,7 +317,8 @@ export const JourneyDetailResponseSchema = z
     deck: z.array(CommittedKnowledgeCardSchema).min(4).max(30).nullable(),
     provenance: z.record(Bytes32Schema, CardProvenanceSchema).nullable(),
     plan: ReviewPlanSchema.nullable(),
-    chunks: z.array(ChunkProgressSchema).min(2).max(4),
+    chunks: z.array(ChunkProgressSchema).min(2).max(MAX_SOURCE_CHUNKS),
+    studiedCardIds: z.array(Bytes32Schema).max(30).default([]),
     studyQueue: StudyQueueSchema.nullable(),
   })
   .strict();

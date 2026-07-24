@@ -33,7 +33,7 @@ Mindmark 借鉴单词卡应用“一次学习一张卡”的体验，但扩展�
         ↓
 可选填写学习目标
         ↓
-浏览器解析资料，Coordinator 建立 2～4 个语义分段
+浏览器保留 PDF 行结构，Coordinator 先识别章节，再建立 2～12 个章节子分段
         ↓
 用户在 Monad 创建学习项目，登记 sourceHash + chunkManifestRoot
         ↓
@@ -145,7 +145,7 @@ Coordinator 负责任务拆分、调度、超时、重试和结果合并；Monad
 资料与卡片：
 
 - 文本型 PDF 或粘贴文本。
-- PDF 最多 10 页、5 MB，提取后最多 20,000 字符。
+- PDF 最多 30 页、15 MB，提取后最多 60,000 字符。
 - 首发仅支持简体中文。
 - 用户可以填写学习目标；留空时默认提取资料核心知识。
 - Agent 根据 Knowledge Map 动态生成 4～30 张 `concept | qa` 知识卡。
@@ -372,13 +372,13 @@ type SessionSummary = {
 ### 资料准备与分派
 
 1. 浏览器解析 PDF，API 校验页数、字符数并生成 `journeyId`。
-2. Coordinator 按标题、页面和长度边界建立 2～4 个语义分段，不把同一段落切开。
+2. Coordinator 先按标题识别互不相关的章节，再按页面、段落和长度边界将长章节拆为子分段，总数控制在 2～12 段。
 3. Coordinator 估算各分段知识密度，分配合计不超过 30 的卡片预算。
 4. 系统计算 `sourceHash`、各 `sourceChunkHash` 和 `chunkManifestRoot`。
 5. User 调用 `createJourney` 登记清单 Root 和分段数。
 6. Runner 监听 `JourneyCreated`，将不同 `chunkId` 分派给最多三个空闲 Worker。
 
-演示资料固定产生三个分段，以保证三钱包并行路径可见；真实资料允许 2～4 个分段，超过三个时由先完成的 Worker 领取下一段。
+演示资料固定产生三个分段，以保证三钱包并行路径可见；真实资料允许 2～12 个分段，按 `chunkId % 3` 分配到三条 Worker 通道。三条通道并行执行，同一钱包通道内顺序提交，避免交易 nonce 冲突。
 
 ### Worker 并行生成
 
@@ -528,13 +528,13 @@ cancelJourney(bytes32 journeyId)
 ### 规则
 
 - `journeyId` 是 Web 生成的随机非零 `bytes32`，不得重复。
-- `chunkCount` 只能为 2～4；`chunkManifestRoot` 承诺确定的 `(journeyId, chunkId, sourceChunkHash)` 叶子集合。
+- `chunkCount` 只能为 2～12；`chunkManifestRoot` 承诺确定的 `(journeyId, chunkId, sourceChunkHash)` 叶子集合。
 - 只有 learner 能取消自己的学习项目；`READY` 后不能取消。
 - 只有部署时登记的 Worker 能提交分段；实际提交者由 `msg.sender` 记录，不能由参数伪造。
 - `commitChunk` 使用 OpenZeppelin `MerkleProof` 校验分段属于清单，要求 `chunkId < chunkCount`、`cardsRoot != 0`、`cardCount > 0`。
 - 同一 `journeyId + chunkId` 只能成功提交一次。Worker 超时后可以重派，但先确认的有效交易获胜。
 - `commitChunk` 只写 `chunks[journeyId][chunkId]`，不更新 Journey 完成数量或任何全局计数器。
-- 只有 Coordinator 能调用 `finalizeDeck`；方法最多循环四个分段，要求每个分段均已提交。
+- 只有 Coordinator 能调用 `finalizeDeck`；方法最多循环十二个分段，要求每个分段均已提交。
 - Finalizer 要求 `4 <= totalCardCount <= 30`，并且最终数量不能超过各分段 `cardCount` 之和，然后将 Journey 置为 `READY`。
 - `sourceHash`、Root、卡片数量和 Agent 地址上链，资料正文、卡片正文、具体评分和私钥不上链。
 
@@ -629,7 +629,7 @@ POST /api/internal/journeys/{id}/events
 ### Day 2：资料与学习项目
 
 - PDF 解析、粘贴文本和输入限制。
-- Coordinator 生成 2～4 个语义分段、卡片预算和 `chunkManifestRoot`。
+- Coordinator 生成 2～12 个章节子分段、卡片预算和 `chunkManifestRoot`。
 - Supabase 四类数据、钱包 session 和临时文本清理字段。
 - `prepare/create` API、用户钱包交易和 receipt。
 - Runner 捕获 `JourneyCreated` 并恢复对应分段任务。

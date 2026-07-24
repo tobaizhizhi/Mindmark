@@ -8,6 +8,7 @@ import {
 import {
   Bytes32Schema,
   KnowledgeCardContentSchema,
+  MAX_SOURCE_PAGES,
   ReviewPlanSchema,
   SourceChunkContentSchema,
   SourcePageSchema,
@@ -26,7 +27,7 @@ export function hashCanonical(value: unknown): Hex {
 }
 
 export function hashSourcePages(pages: SourcePage[]): Hex {
-  return hashCanonical(SourcePageSchema.array().min(1).max(10).parse(pages));
+  return hashCanonical(SourcePageSchema.array().min(1).max(MAX_SOURCE_PAGES).parse(pages));
 }
 
 export function hashSourceChunk(chunk: SourceChunkContent): Hex {

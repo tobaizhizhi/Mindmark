@@ -22,3 +22,4 @@ export declare function buildCardTree(cardIds: Hex[]): {
     cards: CardCommitment[];
 };
 export declare function verifyMerkleProof(root: Hex, leaf: Hex, proof: Hex[]): boolean;
+//# sourceMappingURL=merkle.d.ts.map

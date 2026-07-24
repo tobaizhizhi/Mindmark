@@ -97,7 +97,16 @@ contract LearningJourneyRegistryTest {
 
         vm.prank(LEARNER);
         vm.expectPartialRevert(LearningJourneyRegistry.InvalidChunkCount.selector);
-        registry.createJourney(keccak256("bad-count"), SOURCE_HASH, GOAL_HASH, manifestRoot, 5);
+        registry.createJourney(keccak256("bad-count"), SOURCE_HASH, GOAL_HASH, manifestRoot, 13);
+    }
+
+    function testCreateAllowsTwelveChunks() public {
+        bytes32 largeJourneyId = keccak256("large-journey");
+        _createWithCount(largeJourneyId, keccak256("large-manifest"), 12);
+        (,,,,,, uint16 chunkCount,, LearningJourneyRegistry.JourneyStatus status) =
+            registry.journeys(largeJourneyId);
+        require(chunkCount == 12, "large chunk count mismatch");
+        require(status == LearningJourneyRegistry.JourneyStatus.CREATED, "large journey not created");
     }
 
     function testOnlyWorkerCanCommit() public {

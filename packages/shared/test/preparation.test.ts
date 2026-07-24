@@ -88,9 +88,40 @@ describe("journey preparation", () => {
     ).toThrow(/unique/u);
     expect(() =>
       PrepareJourneyRequestSchema.parse({
-        pages: [{ pageNumber: 1, text: "x".repeat(20_001) }],
+        pages: [
+          { pageNumber: 1, text: "x".repeat(30_000) },
+          { pageNumber: 2, text: "y".repeat(30_001) },
+        ],
+      }),
+    ).toThrow();
+  });
+
+  it("accepts a 30-page source and keeps chapter-aware subsegments bounded", () => {
+    const pages = Array.from({ length: 30 }, (_, index) => {
+      const chapter = Math.floor(index / 5) + 1;
+      const heading = index % 5 === 0 ? `第${chapter}章 核心主题 ${chapter}\n\n` : "";
+      return {
+        pageNumber: index + 1,
+        text: `${heading}第 ${index + 1} 页内容。${"知识点说明。".repeat(210)}`,
+      };
+    });
+
+    const prepared = prepareJourney({ pages }, journeyId);
+
+    expect(prepared.chunkCount).toBeGreaterThan(4);
+    expect(prepared.chunkCount).toBeLessThanOrEqual(12);
+    expect(prepared.chunks.some((chunk) => chunk.content.title.includes("第1章"))).toBe(true);
+    expect(prepared.chunks.every((chunk) => chunk.content.text.length <= 30_000)).toBe(true);
+  });
+
+  it("rejects more than 30 pages", () => {
+    expect(() =>
+      PrepareJourneyRequestSchema.parse({
+        pages: Array.from({ length: 31 }, (_, index) => ({
+          pageNumber: index + 1,
+          text: `Page ${index + 1}`,
+        })),
       }),
     ).toThrow();
   });
 });
-

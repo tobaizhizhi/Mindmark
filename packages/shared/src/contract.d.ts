@@ -231,3 +231,4 @@ export declare const learningJourneyRegistryAbi: readonly [{
         readonly indexed: true;
     }];
 }];
+//# sourceMappingURL=contract.d.ts.map
