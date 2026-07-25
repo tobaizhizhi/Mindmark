@@ -561,7 +561,7 @@ button:disabled {
   display: flex;
   min-height: 260px;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 32px;
   border: 1px solid var(--line-strong);
   border-radius: 8px;
@@ -1258,7 +1258,7 @@ button:disabled {
 
 .progress-table {
   width: 100%;
-  min-width: 1060px;
+  min-width: 1200px;
   border-collapse: collapse;
   table-layout: fixed;
   text-align: left;
@@ -1338,7 +1338,9 @@ button:disabled {
 }
 
 .status-submitting,
-.status-saved {
+.status-saved,
+.status-processing,
+.status-prepared {
   border-color: #dcc88e;
   background: #fbf4df;
   color: #745d19;
@@ -1355,6 +1357,109 @@ button:disabled {
   border-color: #e0aaa4;
   background: var(--danger-soft);
   color: var(--danger);
+}
+
+.status-blocked {
+  border-color: #e0aaa4;
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.reward-cell {
+  display: grid;
+  min-width: 116px;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.moss-settlement-list {
+  border-top: 1px solid var(--line);
+  background: white;
+}
+
+.moss-settlement-row {
+  display: grid;
+  grid-template-columns: minmax(130px, 0.75fr) minmax(360px, 2fr) minmax(320px, 1.5fr);
+  min-height: 92px;
+  align-items: center;
+  gap: 22px;
+  border-bottom: 1px solid var(--line);
+  padding: 16px 18px;
+}
+
+.moss-settlement-identity {
+  display: grid;
+  gap: 3px;
+}
+
+.moss-settlement-identity > span,
+.moss-evidence dt {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.moss-settlement-identity strong {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+.moss-settlement-identity small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.moss-stage-track {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(74px, 1fr));
+  gap: 6px;
+}
+
+.moss-stage {
+  display: grid;
+  min-height: 32px;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--paper);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.moss-stage[data-complete="true"] {
+  border-color: var(--success-line);
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.moss-stage[data-blocked="true"] {
+  border-color: #e0aaa4;
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.moss-evidence {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(56px, 1fr));
+  gap: 12px;
+}
+
+.moss-evidence div {
+  min-width: 0;
+}
+
+.moss-evidence dd {
+  margin-top: 5px;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .inline-link {
@@ -1699,6 +1804,28 @@ button:disabled {
   padding: clamp(24px, 5vw, 48px);
 }
 
+.study-keyboard-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+}
+
+.moss-settlement-reason {
+  grid-column: 1 / -1;
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.moss-settlement-reason-danger {
+  color: var(--danger);
+}
+
 .study-sidebar {
   border-left: 1px solid var(--line);
   padding-left: 24px;
@@ -1825,6 +1952,26 @@ button:disabled {
     display: block;
     border-right: 0;
     border-left: 0;
+  }
+
+  .moss-settlement-row {
+    grid-template-columns: minmax(0, 1fr);
+    min-width: 0;
+    gap: 12px;
+    padding: 16px;
+  }
+
+  .moss-evidence {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-column: 1 / -1;
+  }
+
+  .moss-settlement-list {
+    overflow-x: visible;
+  }
+
+  .moss-stage-track {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .study-chapter-rail {

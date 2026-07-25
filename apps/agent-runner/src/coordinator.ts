@@ -1,5 +1,6 @@
 import type { Hex } from "viem";
 import type { FinalizerAgent } from "./finalizer.js";
+import type { SettlementAgent } from "./reward.js";
 import type { RegistryGateway, RunnerRepository } from "./types.js";
 import type { WorkerAgent } from "./worker.js";
 
@@ -22,6 +23,7 @@ export class Coordinator {
       deploymentBlock: bigint;
       pollIntervalMs?: number;
     },
+    private readonly settlement?: SettlementAgent,
   ) {}
 
   async start(): Promise<void> {
@@ -58,7 +60,17 @@ export class Coordinator {
     const pending = [...this.pendingJourneyIds];
     this.pendingJourneyIds.clear();
     const journeyIds = [...new Set([...additionalJourneyIds, ...pending, ...recoverable])];
-    return Promise.allSettled(journeyIds.map((journeyId) => this.processJourney(journeyId)));
+    const results = await Promise.allSettled(journeyIds.map((journeyId) => this.processJourney(journeyId)));
+    // Reward settlement is an independent queue. A Moss/RPC failure must never
+    // change a Journey result that has already reached READY.
+    if (this.settlement) {
+      try {
+        await this.settlement.runOnce();
+      } catch (error) {
+        console.error(errorMessage(error));
+      }
+    }
+    return results;
   }
 
   private async tick(): Promise<void> {

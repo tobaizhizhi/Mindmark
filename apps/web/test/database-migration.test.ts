@@ -23,6 +23,7 @@ beforeAll(async () => {
     "20260722000200_runner_orchestration.sql",
     "20260722000300_reviews_and_sessions.sql",
     "20260723000100_expand_material_capacity.sql",
+    "20260725000100_worker_rewards.sql",
   ]) {
     const sql = await readFile(path.join(root, "supabase/migrations", migration), "utf8");
     await database.exec(sql);
@@ -77,11 +78,12 @@ describe("Step 4 Supabase migration", () => {
           'auth_nonces',
           'wallet_sessions'
           ,'session_summaries'
+          ,'worker_rewards'
         )
       order by relname
     `);
 
-    expect(result.rows).toHaveLength(7);
+    expect(result.rows).toHaveLength(8);
     expect(result.rows.every((row) => row.relrowsecurity && row.relforcerowsecurity)).toBe(
       true,
     );
@@ -168,6 +170,55 @@ describe("Step 4 Supabase migration", () => {
         [journeyId, hash("a")],
       ),
     ).rejects.toThrow(/unique/u);
+  });
+
+  it("atomically creates exactly one Worker Reward after Chunk confirmation", async () => {
+    const worker = `0x${"bb".repeat(20)}`;
+    await database.query(
+      `update public.source_chunks
+       set worker_address = $2, status = 'SUBMITTING'
+       where journey_id = $1 and chunk_id = 0`,
+      [journeyId, worker],
+    );
+    const confirm = `select public.confirm_chunk_and_enqueue_reward(
+      $1, 0, $2, 123, 80000, 25, $3, 1000000000000000
+    ) as confirmed`;
+    await database.query(confirm, [journeyId, hash("d"), learnerAddress]);
+    await database.query(confirm, [journeyId, hash("e"), learnerAddress]);
+    const rewards = await database.query<{ count: number; status: string; recipient_address: string }>(
+      `select count(*)::integer as count, max(status) as status, max(recipient_address) as recipient_address
+       from public.worker_rewards where journey_id = $1 and chunk_id = 0`,
+      [journeyId],
+    );
+    expect(rewards.rows[0]).toEqual({ count: 1, status: "PENDING", recipient_address: worker });
+  });
+
+  it("leases reward work and preserves prepared raw transactions for recovery", async () => {
+    const claimed = await database.query<{ status: string; attempt: number }>(
+      "select status, attempt from public.claim_worker_reward()",
+    );
+    expect(claimed.rows[0]).toEqual({ status: "PROCESSING", attempt: 1 });
+    const duplicateClaim = await database.query<{ count: number }>(
+      "select count(*)::integer as count from public.claim_worker_reward()",
+    );
+    expect(duplicateClaim.rows[0]?.count).toBe(0);
+    const rawTransaction = `0x02${"11".repeat(40)}`;
+    await database.query(
+      `update public.worker_rewards
+       set status = 'PREPARED', signed_transaction = $3, tx_hash = $2, treasury_nonce = 1,
+           moss_plan_hash = $4, simulation_status = 'PASSED', moss_stage = 'SIMULATED'
+       where journey_id = $1 and chunk_id = 0`,
+      [journeyId, hash("f"), rawTransaction, hash("a")],
+    );
+    await database.query(
+      "select public.release_worker_reward($1, 0, 'temporary RPC failure')",
+      [journeyId],
+    );
+    const prepared = await database.query<{ status: string; signed_transaction: string }>(
+      "select status, signed_transaction from public.worker_rewards where journey_id = $1 and chunk_id = 0",
+      [journeyId],
+    );
+    expect(prepared.rows[0]).toEqual({ status: "PREPARED", signed_transaction: rawTransaction });
   });
 
   it("consumes a valid auth nonce only once", async () => {

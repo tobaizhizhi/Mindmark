@@ -288,6 +288,34 @@ export const ChunkProgressSchema = z
   })
   .strict();
 
+export const MossRewardProgressSchema = z
+  .object({
+    chunkId: z.number().int().min(0).max(MAX_SOURCE_CHUNKS - 1),
+    treasuryAddress: AddressSchema,
+    recipientAddress: AddressSchema,
+    amountWei: z.string().regex(/^\d+$/u),
+    status: z.enum([
+      "PENDING",
+      "PROCESSING",
+      "PREPARED",
+      "SUBMITTING",
+      "CONFIRMED",
+      "RETRYABLE",
+      "BLOCKED",
+    ]),
+    mossStage: z.enum(["PENDING", "DISCOVERED", "LOADED", "BUILT", "SIMULATED"]),
+    simulationStatus: z.enum(["NOT_RUN", "PASSED", "FAILED"]),
+    simulationWarningCodes: z.array(z.string().max(80)).max(20),
+    simulationGas: z.string().regex(/^\d+$/u).nullable(),
+    mossPlanHash: Bytes32Schema.nullable(),
+    txHash: Bytes32Schema.nullable(),
+    confirmedBlock: z.string().regex(/^\d+$/u).nullable(),
+    gasUsed: z.string().regex(/^\d+$/u).nullable(),
+    confirmationMs: z.number().int().nonnegative().nullable(),
+    lastError: z.string().max(500).nullable(),
+  })
+  .strict();
+
 export const StudyQueueItemSchema = z
   .object({
     reason: z.enum(["due", "planned"]),
@@ -318,6 +346,7 @@ export const JourneyDetailResponseSchema = z
     provenance: z.record(Bytes32Schema, CardProvenanceSchema).nullable(),
     plan: ReviewPlanSchema.nullable(),
     chunks: z.array(ChunkProgressSchema).min(2).max(MAX_SOURCE_CHUNKS),
+    rewards: z.array(MossRewardProgressSchema).default([]),
     studiedCardIds: z.array(Bytes32Schema).max(30).default([]),
     studyQueue: StudyQueueSchema.nullable(),
   })
@@ -361,6 +390,7 @@ export type SubmitReviewRequest = z.infer<typeof SubmitReviewRequestSchema>;
 export type SubmitReviewResponse = z.infer<typeof SubmitReviewResponseSchema>;
 export type JourneyStatus = z.infer<typeof JourneyStatusSchema>;
 export type ChunkProgress = z.infer<typeof ChunkProgressSchema>;
+export type MossRewardProgress = z.infer<typeof MossRewardProgressSchema>;
 export type StudyQueue = z.infer<typeof StudyQueueSchema>;
 export type JourneyDetailResponse = z.infer<typeof JourneyDetailResponseSchema>;
 export type CompleteSessionRequest = z.infer<typeof CompleteSessionRequestSchema>;

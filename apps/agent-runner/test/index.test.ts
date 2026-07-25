@@ -9,7 +9,7 @@ describe("runner workspace", () => {
       "worker-1",
       "worker-2",
     ]);
-    expect(describeRunner()).toContain("5 isolated roles");
+    expect(describeRunner()).toContain("6 isolated roles");
   });
 
   it("recognizes a relative tsx watch entry path as direct execution", () => {

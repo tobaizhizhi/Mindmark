@@ -12,6 +12,7 @@ import {
   CompleteSessionResponseSchema,
   JourneyDetailResponseSchema,
   JourneyStatusSchema,
+  MossRewardProgressSchema,
   ReviewPlanSchema,
   SessionSummarySchema,
   SubmitReviewResponseSchema,
@@ -68,6 +69,24 @@ const ReviewRowSchema = z.object({
   reviewed_at: z.string(),
 });
 
+const RewardRowSchema = z.object({
+  chunk_id: z.number().int(),
+  treasury_address: z.string(),
+  recipient_address: z.string(),
+  amount_wei: z.union([z.string(), z.number()]),
+  status: z.string(),
+  moss_stage: z.string(),
+  simulation_status: z.string(),
+  simulation_warning_codes: z.unknown(),
+  simulation_gas: z.union([z.string(), z.number()]).nullable(),
+  moss_plan_hash: Bytes32Schema.nullable(),
+  tx_hash: Bytes32Schema.nullable(),
+  confirmed_block: z.union([z.string(), z.number()]).nullable(),
+  gas_used: z.union([z.string(), z.number()]).nullable(),
+  confirmation_ms: z.number().int().nullable(),
+  last_error: z.string().nullable(),
+});
+
 export type LearningJourneyRow = z.infer<typeof JourneyRowSchema>;
 type ChunkRow = z.infer<typeof ChunkRowSchema>;
 type ReviewRow = z.infer<typeof ReviewRowSchema>;
@@ -75,6 +94,7 @@ type ReviewRow = z.infer<typeof ReviewRowSchema>;
 export interface LearningStore {
   findOwnedJourney(journeyId: Hex, owner: `0x${string}`): Promise<LearningJourneyRow | null>;
   findChunks(journeyId: Hex): Promise<ChunkRow[]>;
+  findRewards(journeyId: Hex): Promise<z.infer<typeof RewardRowSchema>[]>;
   submitReview(input: {
     journeyId: Hex;
     owner: `0x${string}`;
@@ -122,6 +142,18 @@ export class SupabaseLearningStore implements LearningStore {
       .order("chunk_id");
     if (error) throw new Error(`Could not read chunk progress: ${error.message}`);
     return ChunkRowSchema.array().parse(data ?? []);
+  }
+
+  async findRewards(journeyId: Hex): Promise<z.infer<typeof RewardRowSchema>[]> {
+    const { data, error } = await getSupabaseAdmin()
+      .from("worker_rewards")
+      .select(
+        "chunk_id,treasury_address,recipient_address,amount_wei,status,moss_stage,simulation_status,simulation_warning_codes,simulation_gas,moss_plan_hash,tx_hash,confirmed_block,gas_used,confirmation_ms,last_error",
+      )
+      .eq("journey_id", journeyId)
+      .order("chunk_id");
+    if (error) throw new Error(`Could not read Worker rewards: ${error.message}`);
+    return RewardRowSchema.array().parse(data ?? []);
   }
 
   async submitReview(input: {
@@ -208,9 +240,10 @@ export async function getJourneyDetailForOwner(
   store: LearningStore = new SupabaseLearningStore(),
   now = new Date(),
 ): Promise<JourneyDetailResponse> {
-  const [row, chunkRows] = await Promise.all([
+  const [row, chunkRows, rewardRows] = await Promise.all([
     store.findOwnedJourney(journeyId, owner),
     store.findChunks(journeyId),
+    store.findRewards(journeyId),
   ]);
   if (!row) throw new ApiError(404, "journey_not_found", "Learning project not found");
   const deck = parseDeck(row);
@@ -237,6 +270,25 @@ export async function getJourneyDetailForOwner(
       confirmationMs: chunk.confirmation_ms,
     }),
   );
+  const rewards = rewardRows.map((reward) =>
+    MossRewardProgressSchema.parse({
+      chunkId: reward.chunk_id,
+      treasuryAddress: reward.treasury_address,
+      recipientAddress: reward.recipient_address,
+      amountWei: String(reward.amount_wei),
+      status: reward.status,
+      mossStage: reward.moss_stage,
+      simulationStatus: reward.simulation_status,
+      simulationWarningCodes: z.array(z.string()).parse(reward.simulation_warning_codes),
+      simulationGas: reward.simulation_gas === null ? null : String(reward.simulation_gas),
+      mossPlanHash: reward.moss_plan_hash,
+      txHash: reward.tx_hash,
+      confirmedBlock: reward.confirmed_block === null ? null : String(reward.confirmed_block),
+      gasUsed: reward.gas_used === null ? null : String(reward.gas_used),
+      confirmationMs: reward.confirmation_ms,
+      lastError: reward.last_error,
+    }),
+  );
   const fsrsStates = parseFsrsStateMap(row.fsrs_states);
   return JourneyDetailResponseSchema.parse({
     journeyId,
@@ -252,6 +304,7 @@ export async function getJourneyDetailForOwner(
     provenance,
     plan,
     chunks,
+    rewards,
     studiedCardIds: deck
       ? deck.filter((card) => Boolean(fsrsStates[card.id])).map((card) => card.id)
       : [],

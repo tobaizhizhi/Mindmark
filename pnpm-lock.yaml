@@ -47,6 +47,15 @@ importers:
       '@supabase/supabase-js':
         specifier: 2.110.8
         version: 2.110.8
+      '@themoss/core':
+        specifier: 0.1.0
+        version: 0.1.0(typescript@5.9.3)(zod@4.4.3)
+      '@themoss/erc':
+        specifier: 0.1.0
+        version: 0.1.0(typescript@5.9.3)(zod@4.4.3)
+      '@themoss/simulator':
+        specifier: 0.1.0
+        version: 0.1.0(typescript@5.9.3)(zod@4.4.3)
       viem:
         specifier: 2.55.5
         version: 2.55.5(typescript@5.9.3)(zod@4.4.3)
@@ -1111,6 +1120,15 @@ packages:
     resolution: {integrity: sha512-yRg2pfOCxIs4ZJW3XYYHU/WgtD04FHSnfHlpRT7h7pR77hwkdRG4wxbKe4aq6P0RvXUTBSQpQeadS1SUYUe+KA==}
     peerDependencies:
       react: ^18 || ^19
+
+  '@themoss/core@0.1.0':
+    resolution: {integrity: sha512-nG8g9raqoI7+rF9DiX30u4XyzKQU0BjlmrIJA3BjXkzm43gaUv91vLVYpgLRugjbkuEYvDZxPRTbG6TVL+KjjQ==}
+
+  '@themoss/erc@0.1.0':
+    resolution: {integrity: sha512-vyaVuCrn5nLONieKmJeGrvttDV+AJFvOg1vEv4MxCiAMtWKiasy2THOwy1mkge39vMJirH2XPEuSGOxYoXeBYQ==}
+
+  '@themoss/simulator@0.1.0':
+    resolution: {integrity: sha512-scCXQtyIsm4E2ZeWAqUxm7o2O7lxrHvxVoVaj5/hJlQ9KW58jaV/hKuohBfe0HIjR9dmAPwQ3+/px4PPgR70ww==}
 
   '@tybys/wasm-util@0.10.3':
     resolution: {integrity: sha512-F3fo1MYrRJYL3zER0OUOmkutjr1Vp23m7OsSgp7nq4SP6OqX6C/56XFIPAl5bt3zaBRjmW7SGz3u/6LwFpYcOg==}
@@ -3848,6 +3866,35 @@ snapshots:
     dependencies:
       '@tanstack/query-core': 5.101.4
       react: 19.2.8
+
+  '@themoss/core@0.1.0(typescript@5.9.3)(zod@4.4.3)':
+    dependencies:
+      viem: 2.55.5(typescript@5.9.3)(zod@4.4.3)
+    transitivePeerDependencies:
+      - bufferutil
+      - typescript
+      - utf-8-validate
+      - zod
+
+  '@themoss/erc@0.1.0(typescript@5.9.3)(zod@4.4.3)':
+    dependencies:
+      '@themoss/core': 0.1.0(typescript@5.9.3)(zod@4.4.3)
+      viem: 2.55.5(typescript@5.9.3)(zod@4.4.3)
+    transitivePeerDependencies:
+      - bufferutil
+      - typescript
+      - utf-8-validate
+      - zod
+
+  '@themoss/simulator@0.1.0(typescript@5.9.3)(zod@4.4.3)':
+    dependencies:
+      '@themoss/core': 0.1.0(typescript@5.9.3)(zod@4.4.3)
+      viem: 2.55.5(typescript@5.9.3)(zod@4.4.3)
+    transitivePeerDependencies:
+      - bufferutil
+      - typescript
+      - utf-8-validate
+      - zod
 
   '@tybys/wasm-util@0.10.3':
     dependencies:

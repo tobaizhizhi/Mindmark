@@ -9,6 +9,11 @@ import type {
   RunnerRepository,
   SavedChunkResult,
   ToolCallingModel,
+  MossRewardStage,
+  PreparedWorkerReward,
+  WorkerReward,
+  WorkerRewardReceipt,
+  WorkerRewardRepository,
 } from "../src/types.js";
 import type { Hex } from "viem";
 
@@ -109,8 +114,9 @@ export function workerScript(chunkId: number): AgentToolCall[] {
   ];
 }
 
-export class InMemoryRepository implements RunnerRepository {
+export class InMemoryRepository implements RunnerRepository, WorkerRewardRepository {
   readonly events: Array<{ type: string; chunkId?: number }> = [];
+  readonly rewards: WorkerReward[] = [];
 
   constructor(public state = createBundle()) {}
 
@@ -188,6 +194,25 @@ export class InMemoryRepository implements RunnerRepository {
     const chunk = this.state.chunks[chunkId]!;
     chunk.status = "CONFIRMED";
     if (confirmation.txHash) chunk.commitTxHash = confirmation.txHash;
+    if (!this.rewards.some((reward) => reward.chunkId === chunkId)) {
+      this.rewards.push({
+        journeyId: this.state.journey.journeyId,
+        chunkId,
+        treasuryAddress: address("e"),
+        recipientAddress: chunk.workerAddress!,
+        amountWei: 1_000_000_000_000_000n,
+        status: "PENDING",
+        attempt: 0,
+        mossStage: "PENDING",
+        mossPlanHash: null,
+        simulationStatus: "NOT_RUN",
+        simulationWarningCodes: [],
+        simulationGas: null,
+        signedTransaction: null,
+        treasuryNonce: null,
+        txHash: null,
+      });
+    }
   }
 
   async markChunkRetryable(
@@ -228,6 +253,84 @@ export class InMemoryRepository implements RunnerRepository {
 
   async recordAgentEvent(event: { type: string; chunkId?: number }): Promise<void> {
     this.events.push({ type: event.type, ...(event.chunkId === undefined ? {} : { chunkId: event.chunkId }) });
+  }
+
+  async claimNextWorkerReward(): Promise<WorkerReward | null> {
+    const reward = this.rewards.find((candidate) =>
+      ["PENDING", "RETRYABLE", "PREPARED", "SUBMITTING"].includes(candidate.status),
+    );
+    if (!reward) return null;
+    if (reward.status === "PENDING" || reward.status === "RETRYABLE") {
+      reward.status = "PROCESSING";
+    }
+    reward.attempt += 1;
+    return structuredClone(reward);
+  }
+
+  async markWorkerRewardStage(
+    _journeyId: Hex,
+    chunkId: number,
+    stage: Exclude<MossRewardStage, "PENDING" | "SIMULATED">,
+  ): Promise<void> {
+    this.rewards.find((reward) => reward.chunkId === chunkId)!.mossStage = stage;
+  }
+
+  async markWorkerRewardPrepared(
+    _journeyId: Hex,
+    chunkId: number,
+    prepared: PreparedWorkerReward,
+  ): Promise<void> {
+    Object.assign(this.rewards.find((reward) => reward.chunkId === chunkId)!, {
+      status: "PREPARED",
+      mossStage: "SIMULATED",
+      simulationStatus: "PASSED",
+      mossPlanHash: prepared.mossPlanHash,
+      simulationWarningCodes: prepared.simulationWarningCodes,
+      simulationGas: prepared.simulationGas,
+      signedTransaction: prepared.signedTransaction,
+      treasuryNonce: prepared.treasuryNonce,
+      txHash: prepared.txHash,
+    });
+  }
+
+  async markWorkerRewardSubmitting(_journeyId: Hex, chunkId: number, txHash: Hex): Promise<void> {
+    Object.assign(this.rewards.find((reward) => reward.chunkId === chunkId)!, {
+      status: "SUBMITTING",
+      txHash,
+    });
+  }
+
+  async markWorkerRewardConfirmed(
+    _journeyId: Hex,
+    chunkId: number,
+    receipt: WorkerRewardReceipt,
+  ): Promise<void> {
+    Object.assign(this.rewards.find((reward) => reward.chunkId === chunkId)!, {
+      status: "CONFIRMED",
+      txHash: receipt.txHash,
+    });
+  }
+
+  async markWorkerRewardRetryable(
+    _journeyId: Hex,
+    chunkId: number,
+    message: string,
+  ): Promise<void> {
+    void message;
+    const reward = this.rewards.find((candidate) => candidate.chunkId === chunkId)!;
+    reward.status = reward.signedTransaction ? "PREPARED" : "RETRYABLE";
+  }
+
+  async markWorkerRewardBlocked(
+    _journeyId: Hex,
+    chunkId: number,
+    _message: string,
+    warningCodes: string[] = [],
+  ): Promise<void> {
+    const reward = this.rewards.find((candidate) => candidate.chunkId === chunkId)!;
+    reward.status = "BLOCKED";
+    reward.simulationStatus = "FAILED";
+    reward.simulationWarningCodes = warningCodes;
   }
 }
 

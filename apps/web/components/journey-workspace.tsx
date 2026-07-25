@@ -8,6 +8,7 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
+  Keyboard,
   LoaderCircle,
   LogOut,
   RefreshCw,
@@ -23,6 +24,7 @@ import {
 import { JourneyDetailResponseSchema } from "@mindmark/shared/schemas";
 import { usePublicClient } from "wagmi";
 import { z } from "zod";
+import { formatEther } from "viem";
 import { monadChain, registryAddress } from "@/lib/client/chain";
 import { buildStudyChapters } from "@/lib/client/chapters";
 import {
@@ -43,6 +45,26 @@ const statusLabels: Record<JourneyDetailResponse["chunks"][number]["status"], st
   MERGED: "已合并",
   RETRYABLE: "等待重试",
 };
+
+const rewardStatusLabels: Record<JourneyDetailResponse["rewards"][number]["status"], string> = {
+  PENDING: "等待 Moss",
+  PROCESSING: "Moss 处理中",
+  PREPARED: "模拟通过",
+  SUBMITTING: "奖励提交",
+  CONFIRMED: "已发放",
+  RETRYABLE: "等待重试",
+  BLOCKED: "已阻断",
+};
+
+const rewardStageLabels: Record<JourneyDetailResponse["rewards"][number]["mossStage"], string> = {
+  PENDING: "等待资格",
+  DISCOVERED: "已发现",
+  LOADED: "已加载",
+  BUILT: "已构建",
+  SIMULATED: "已模拟",
+};
+
+const mossStages = ["DISCOVERED", "LOADED", "BUILT", "SIMULATED"] as const;
 
 const ratingLabels: Array<{ rating: ReviewRating; label: string; className: string }> = [
   { rating: "again", label: "忘记", className: "rating-again" },
@@ -92,6 +114,8 @@ export function JourneyWorkspace(props: {
   const [submitting, setSubmitting] = useState(false);
   const [sessionResult, setSessionResult] = useState<CompleteSessionResponse | null>(null);
   const initialTabSelected = useRef(false);
+  const workspaceStateLoaded = useRef(false);
+  const readyStateSeen = useRef(false);
   const sessionId = useRef<string | null>(null);
   const cardStartedAt = useRef(clockMs());
 
@@ -103,9 +127,30 @@ export function JourneyWorkspace(props: {
       );
       if (!initialTabSelected.current) {
         initialTabSelected.current = true;
-        setTab(parsed.status === "READY" ? "study" : "progress");
+        let savedTab: "progress" | "study" | null = null;
+        let savedChapterId: string | null = null;
+        try {
+          const saved = window.localStorage.getItem(`mindmark_workspace:${props.journeyId}`);
+          if (saved) {
+            const state = JSON.parse(saved) as { tab?: unknown; chapterId?: unknown };
+            if (state.tab === "progress" || state.tab === "study") savedTab = state.tab;
+            if (typeof state.chapterId === "string") savedChapterId = state.chapterId;
+          }
+        } catch {
+          // A malformed local preference should never block opening a Journey.
+        }
+        setTab(parsed.status === "READY" && savedTab !== "progress" ? "study" : "progress");
+        if (savedChapterId) setSelectedChapterId(savedChapterId);
+        workspaceStateLoaded.current = true;
       }
-      if (parsed.status === "READY") cardStartedAt.current = clockMs();
+      if (parsed.status === "READY") {
+        if (!readyStateSeen.current) {
+          readyStateSeen.current = true;
+          cardStartedAt.current = clockMs();
+        }
+      } else {
+        readyStateSeen.current = false;
+      }
       setDetail(parsed);
       setError(null);
       return parsed;
@@ -123,10 +168,26 @@ export function JourneyWorkspace(props: {
   }, [loadDetail]);
 
   useEffect(() => {
-    if (!detail || ["READY", "CANCELLED"].includes(detail.status)) return;
+    if (
+      !detail ||
+      (["READY", "CANCELLED"].includes(detail.status) &&
+        !detail.rewards.some((reward) => !["CONFIRMED", "BLOCKED"].includes(reward.status)))
+    ) return;
     const timer = window.setInterval(() => void loadDetail(), 3_000);
     return () => window.clearInterval(timer);
   }, [detail, loadDetail]);
+
+  useEffect(() => {
+    if (!workspaceStateLoaded.current) return;
+    try {
+      window.localStorage.setItem(
+        `mindmark_workspace:${props.journeyId}`,
+        JSON.stringify({ tab, chapterId: selectedChapterId }),
+      );
+    } catch {
+      // Persistence is a convenience; private browsing must not break study.
+    }
+  }, [props.journeyId, selectedChapterId, tab]);
 
   const studyChapters = useMemo(
     () =>
@@ -236,7 +297,7 @@ export function JourneyWorkspace(props: {
     }
   }
 
-  async function completeSession() {
+  const completeSession = useCallback(async () => {
     if (!sessionId.current) return;
     const result = await parseResponse<CompleteSessionResponse>(
       await fetch(`/api/journeys/${props.journeyId}/sessions/complete`, {
@@ -247,9 +308,9 @@ export function JourneyWorkspace(props: {
     );
     setSessionResult(result);
     await loadDetail();
-  }
+  }, [loadDetail, props.journeyId]);
 
-  async function rateCard(rating: ReviewRating) {
+  const rateCard = useCallback(async (rating: ReviewRating) => {
     if (!activeItem || submitting) return;
     sessionId.current ??= window.crypto.randomUUID();
     setSubmitting(true);
@@ -296,7 +357,44 @@ export function JourneyWorkspace(props: {
     } finally {
       setSubmitting(false);
     }
-  }
+  }, [activeChapter, activeItem, completeSession, detail, props.journeyId, reviewedCardIdSet, reviewedCardIds, studyChapters, submitting]);
+
+  useEffect(() => {
+    if (tab !== "study") return;
+
+    function onKeyDown(event: KeyboardEvent) {
+      const target = event.target as HTMLElement | null;
+      if (
+        target?.isContentEditable ||
+        target?.tagName === "INPUT" ||
+        target?.tagName === "TEXTAREA" ||
+        target?.tagName === "SELECT"
+      ) return;
+      if (!activeItem || submitting) return;
+
+      if (!revealed && (event.key === " " || event.key === "Enter")) {
+        event.preventDefault();
+        sessionId.current ??= window.crypto.randomUUID();
+        setRevealed(true);
+        return;
+      }
+
+      if (!revealed) return;
+      const ratingByKey: Record<string, ReviewRating> = {
+        "1": "again",
+        "2": "hard",
+        "3": "good",
+        "4": "easy",
+      };
+      const rating = ratingByKey[event.key];
+      if (!rating) return;
+      event.preventDefault();
+      void rateCard(rating);
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [activeItem, rateCard, revealed, submitting, tab]);
 
   return (
     <main className="min-h-screen bg-[var(--background)] text-[var(--ink)]">
@@ -341,8 +439,27 @@ export function JourneyWorkspace(props: {
             <h1 className="font-display mt-2 text-3xl font-semibold">知识卡工作台</h1>
           </div>
           <div className="workspace-tabs" role="tablist" aria-label="学习项目视图">
-            <button type="button" data-active={tab === "progress"} onClick={() => setTab("progress")}>生成与验证</button>
-            <button type="button" data-active={tab === "study"} onClick={() => setTab("study")} disabled={detail?.status !== "READY"}>今日学习</button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === "progress"}
+              aria-controls="journey-progress-panel"
+              data-active={tab === "progress"}
+              onClick={() => setTab("progress")}
+            >
+              生成与验证
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === "study"}
+              aria-controls="journey-study-panel"
+              data-active={tab === "study"}
+              onClick={() => setTab("study")}
+              disabled={detail?.status !== "READY"}
+            >
+              今日学习
+            </button>
           </div>
         </div>
       </div>
@@ -360,12 +477,13 @@ export function JourneyWorkspace(props: {
           <LoaderCircle aria-hidden="true" className="size-5 animate-spin" />
         </div>
       ) : detail && tab === "progress" ? (
-        <div className="mx-auto w-full max-w-7xl px-5 py-7 md:px-8 md:py-9">
-          <section className="mb-8 grid gap-0 border-y border-[var(--line)] bg-white md:grid-cols-4">
+        <div id="journey-progress-panel" role="tabpanel" aria-label="生成与验证" className="mx-auto w-full max-w-7xl px-5 py-7 md:px-8 md:py-9">
+          <section className="mb-8 grid gap-0 border-y border-[var(--line)] bg-white md:grid-cols-5">
             <div className="metric-cell"><span>状态</span><strong>{detail.status}</strong></div>
             <div className="metric-cell"><span>Worker</span><strong>{detail.chunks.filter((chunk) => chunk.workerAddress).length} / {detail.chunks.length}</strong></div>
             <div className="metric-cell"><span>知识卡</span><strong>{detail.deck?.length ?? detail.chunks.reduce((sum, chunk) => sum + (chunk.cardCount ?? 0), 0)}</strong></div>
             <div className="metric-cell"><span>Monad 卡组</span><strong>{detail.finalizeTxHash ? "已确认" : "等待"}</strong></div>
+            <div className="metric-cell"><span>Moss 奖励</span><strong>{detail.rewards.filter((reward) => reward.status === "CONFIRMED").length} / {detail.rewards.length || detail.chunks.length}</strong></div>
           </section>
 
           <section>
@@ -375,7 +493,7 @@ export function JourneyWorkspace(props: {
             </div>
             <div className="overflow-x-auto border-y border-[var(--line)] bg-white">
               <table className="progress-table">
-                <thead><tr><th>章节</th><th>Worker</th><th>状态</th><th>卡片</th><th>交易</th><th>区块</th><th>Gas</th><th>确认</th></tr></thead>
+                <thead><tr><th>章节</th><th>Worker</th><th>状态</th><th>卡片</th><th>交易</th><th>区块</th><th>Gas</th><th>确认</th><th>Moss 奖励</th></tr></thead>
                 <tbody>
                   {detail.chunks.map((chunk) => (
                     <tr key={chunk.chunkId}>
@@ -387,10 +505,78 @@ export function JourneyWorkspace(props: {
                       <td className="font-mono">{chunk.confirmedBlock ?? "-"}</td>
                       <td className="font-mono">{chunk.gasUsed ? Number(chunk.gasUsed).toLocaleString() : "-"}</td>
                       <td className="font-mono">{chunk.confirmationMs === null ? "-" : `${chunk.confirmationMs} ms`}</td>
+                      <td>
+                        {(() => {
+                          const reward = detail.rewards.find((candidate) => candidate.chunkId === chunk.chunkId);
+                          if (!reward) return <span className="text-[var(--muted)]">等待 Chunk 确认</span>;
+                          return (
+                            <div className="reward-cell">
+                              <span className={`status-chip status-${reward.status.toLowerCase()}`}>
+                                {reward.status === "PROCESSING" ? `Moss ${rewardStageLabels[reward.mossStage]}` : rewardStatusLabels[reward.status]}
+                              </span>
+                              <span>{formatEther(BigInt(reward.amountWei))} MON</span>
+                              {reward.txHash ? <a href={explorerTransaction(reward.txHash)} target="_blank" rel="noreferrer" className="inline-link">{shortHex(reward.txHash)}<ExternalLink aria-hidden="true" className="size-3" /></a> : null}
+                            </div>
+                          );
+                        })()}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+            </div>
+          </section>
+
+          <section className="mt-10">
+            <div className="mb-4">
+              <p className="section-kicker">Moss Settlement</p>
+              <h2 className="font-display mt-1 text-xl font-semibold">Worker 奖励验证</h2>
+            </div>
+            <div className="moss-settlement-list">
+              {detail.chunks.map((chunk) => {
+                const reward = detail.rewards.find((candidate) => candidate.chunkId === chunk.chunkId);
+                const reachedStage = reward ? mossStages.indexOf(
+                  reward.mossStage as (typeof mossStages)[number],
+                ) : -1;
+                return (
+                  <div className="moss-settlement-row" key={chunk.chunkId}>
+                    <div className="moss-settlement-identity">
+                      <span>Chunk {chunk.chunkId + 1}</span>
+                      <strong>erc20.transfer</strong>
+                      <small>{reward ? `${formatEther(BigInt(reward.amountWei))} MON` : "等待资格"}</small>
+                    </div>
+                    <div className="moss-stage-track" aria-label={`Chunk ${chunk.chunkId + 1} Moss 阶段`}>
+                      {mossStages.map((stage, stageIndex) => (
+                        <span
+                          className="moss-stage"
+                          data-complete={stageIndex <= reachedStage}
+                          data-blocked={reward?.status === "BLOCKED" && stageIndex === Math.max(reachedStage, 0)}
+                          key={stage}
+                        >
+                          {rewardStageLabels[stage]}
+                        </span>
+                      ))}
+                    </div>
+                    <dl className="moss-evidence">
+                      <div><dt>Plan</dt><dd className="font-mono">{shortHex(reward?.mossPlanHash ?? null)}</dd></div>
+                      <div><dt>Warnings</dt><dd className="font-mono">{reward?.simulationWarningCodes.length ?? "-"}</dd></div>
+                      <div><dt>Sim Gas</dt><dd className="font-mono">{reward?.simulationGas ? Number(reward.simulationGas).toLocaleString() : "-"}</dd></div>
+                      <div><dt>Result</dt><dd>{reward ? rewardStatusLabels[reward.status] : "等待"}</dd></div>
+                    </dl>
+                    {reward?.status === "BLOCKED" ? (
+                      <p className="moss-settlement-reason moss-settlement-reason-danger">
+                        安全模拟未通过，奖励不会发送；这不会影响你的学习内容。
+                      </p>
+                    ) : reward?.status === "RETRYABLE" ? (
+                      <p className="moss-settlement-reason">
+                        网络或余额暂时不可用，系统会自动重试；这不会影响你的学习内容。
+                      </p>
+                    ) : reward?.lastError ? (
+                      <p className="moss-settlement-reason">结算遇到暂时问题，系统会继续处理。</p>
+                    ) : null}
+                  </div>
+                );
+              })}
             </div>
           </section>
 
@@ -419,7 +605,7 @@ export function JourneyWorkspace(props: {
           </section>
         </div>
       ) : detail ? (
-        <div className="chapter-study-shell">
+        <div id="journey-study-panel" role="tabpanel" aria-label="今日学习" className="chapter-study-shell">
           <aside className="study-chapter-rail" aria-label="学习章节">
             <div className="chapter-rail-heading">
               <div>
@@ -527,6 +713,10 @@ export function JourneyWorkspace(props: {
                     </span>
                   </div>
                   <span className="font-mono text-xs text-[var(--muted)]">P.{activeItem.card.source.page}</span>
+                </div>
+                <div className="study-keyboard-hint" aria-label="键盘操作提示">
+                  <Keyboard aria-hidden="true" className="size-3.5" />
+                  <span>空格显示答案 · 1–4 评分</span>
                 </div>
                 <h3 className="font-display mt-8 text-2xl font-semibold leading-relaxed">{activeItem.card.question}</h3>
                 {revealed ? (

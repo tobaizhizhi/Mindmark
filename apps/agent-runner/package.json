@@ -15,6 +15,9 @@
   "dependencies": {
     "@mindmark/shared": "workspace:*",
     "@supabase/supabase-js": "2.110.8",
+    "@themoss/core": "0.1.0",
+    "@themoss/erc": "0.1.0",
+    "@themoss/simulator": "0.1.0",
     "viem": "2.55.5",
     "zod": "4.4.3"
   }

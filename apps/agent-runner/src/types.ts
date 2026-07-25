@@ -5,14 +5,15 @@ import type {
   ReviewPlan,
   SourcePage,
 } from "@mindmark/shared";
-import type { Hex } from "viem";
+import type { Hex, TransactionSerialized } from "viem";
 
 export type AgentRole =
   | "coordinator"
   | "worker-0"
   | "worker-1"
   | "worker-2"
-  | "finalizer";
+  | "finalizer"
+  | "settlement";
 
 export type JourneyStatus =
   | "PREPARING"
@@ -90,6 +91,59 @@ export type FinalizationRecord = {
   planHash: Hex;
 };
 
+export type WorkerRewardStatus =
+  | "PENDING"
+  | "PROCESSING"
+  | "PREPARED"
+  | "SUBMITTING"
+  | "CONFIRMED"
+  | "RETRYABLE"
+  | "BLOCKED";
+
+export type MossRewardStage =
+  | "PENDING"
+  | "DISCOVERED"
+  | "LOADED"
+  | "BUILT"
+  | "SIMULATED";
+
+export type WorkerReward = {
+  journeyId: Hex;
+  chunkId: number;
+  treasuryAddress: `0x${string}`;
+  recipientAddress: `0x${string}`;
+  amountWei: bigint;
+  status: WorkerRewardStatus;
+  attempt: number;
+  mossStage: MossRewardStage;
+  mossPlanHash: Hex | null;
+  simulationStatus: "NOT_RUN" | "PASSED" | "FAILED";
+  simulationWarningCodes: string[];
+  simulationGas: bigint | null;
+  signedTransaction: TransactionSerialized | null;
+  treasuryNonce: bigint | null;
+  txHash: Hex | null;
+};
+
+export type PreparedWorkerReward = {
+  treasuryAddress: `0x${string}`;
+  recipientAddress: `0x${string}`;
+  amountWei: bigint;
+  mossPlanHash: Hex;
+  simulationWarningCodes: string[];
+  simulationGas: bigint | null;
+  signedTransaction: TransactionSerialized;
+  treasuryNonce: bigint;
+  txHash: Hex;
+};
+
+export type WorkerRewardReceipt = {
+  txHash: Hex;
+  blockNumber: bigint;
+  gasUsed: bigint;
+  confirmationMs: number;
+};
+
 export interface RunnerRepository {
   listRecoverableJourneyIds(): Promise<Hex[]>;
   recoverStaleChunks(): Promise<number>;
@@ -131,6 +185,33 @@ export interface RunnerRepository {
     payload?: Record<string, unknown>;
     txHash?: Hex;
   }): Promise<void>;
+}
+
+export interface WorkerRewardRepository {
+  claimNextWorkerReward(): Promise<WorkerReward | null>;
+  markWorkerRewardStage(
+    journeyId: Hex,
+    chunkId: number,
+    stage: Exclude<MossRewardStage, "PENDING" | "SIMULATED">,
+  ): Promise<void>;
+  markWorkerRewardPrepared(
+    journeyId: Hex,
+    chunkId: number,
+    prepared: PreparedWorkerReward,
+  ): Promise<void>;
+  markWorkerRewardSubmitting(journeyId: Hex, chunkId: number, txHash: Hex): Promise<void>;
+  markWorkerRewardConfirmed(
+    journeyId: Hex,
+    chunkId: number,
+    receipt: WorkerRewardReceipt,
+  ): Promise<void>;
+  markWorkerRewardRetryable(journeyId: Hex, chunkId: number, message: string): Promise<void>;
+  markWorkerRewardBlocked(
+    journeyId: Hex,
+    chunkId: number,
+    message: string,
+    warningCodes?: string[],
+  ): Promise<void>;
 }
 
 export type ChainChunkCommitment = {
@@ -184,6 +265,20 @@ export interface RegistryGateway {
   }): Promise<ChainReceipt>;
   getJourneyCreatedIds(fromBlock: bigint): Promise<Hex[]>;
   watchJourneyCreated(onJourney: (journeyId: Hex) => void): () => void;
+}
+
+export interface WorkerRewardGateway {
+  treasuryAddress(): `0x${string}`;
+  prepare(
+    input: { recipientAddress: `0x${string}`; amountWei: bigint },
+    onStage?: (
+      stage: Exclude<MossRewardStage, "PENDING" | "SIMULATED">,
+    ) => Promise<void>,
+  ): Promise<PreparedWorkerReward>;
+  settlePrepared(
+    input: PreparedWorkerReward,
+    onSubmitted?: (txHash: Hex) => Promise<void>,
+  ): Promise<WorkerRewardReceipt>;
 }
 
 export type AgentToolDefinition = {

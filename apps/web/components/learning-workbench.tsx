@@ -246,7 +246,7 @@ function MindmarkHome(props: {
             </div>
           </div>
 
-          {props.isConnected ? (
+          {props.isConnected && props.sessionMatchesWallet ? (
             <div className="flex items-center gap-2">
               <span className="hidden text-sm text-[var(--muted)] sm:inline">
                 {props.sessionMatchesWallet
@@ -280,7 +280,13 @@ function MindmarkHome(props: {
               ) : (
                 <Wallet aria-hidden="true" className="size-4" />
               )}
-              {props.isConnecting ? "正在连接" : props.phase === "wallet" ? "请确认签名" : "连接并登录"}
+              {props.isConnecting
+                ? "正在连接"
+                : props.phase === "wallet"
+                  ? "请确认签名"
+                  : props.isConnected
+                    ? "完成登录"
+                    : "连接并登录"}
             </button>
           )}
         </div>
@@ -320,25 +326,6 @@ function MindmarkHome(props: {
                 点击一次后会先连接钱包，再自动请求登录签名。签名不会发起交易，也不会消耗测试币。
               </p>
             </div>
-            <button
-              type="button"
-              onClick={props.onConnect}
-              disabled={authBusy}
-              className="command-button command-button-dark"
-            >
-              {authBusy ? (
-                <LoaderCircle aria-hidden="true" className="size-4 animate-spin" />
-              ) : (
-                <Wallet aria-hidden="true" className="size-4" />
-              )}
-              {props.isConnecting
-                ? "正在连接钱包"
-                : props.phase === "wallet"
-                  ? "请确认登录签名"
-                  : props.isConnected
-                    ? "继续完成登录"
-                    : "连接并登录"}
-            </button>
           </div>
         ) : props.journeysLoading ? (
           <div className="home-project-browser mt-8" aria-label="正在载入学习项目">
@@ -1003,7 +990,7 @@ export function LearningWorkbench() {
 
   return (
     <main className="min-h-screen bg-[var(--background)] text-[var(--ink)]">
-      <header className="border-b border-[var(--line)] bg-white">
+      <header className="sticky top-0 z-20 border-b border-[var(--line)] bg-white">
         <div className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between px-5 md:px-8">
           <button
             type="button"
@@ -1020,7 +1007,7 @@ export function LearningWorkbench() {
             </div>
           </button>
 
-          {isConnected ? (
+          {isConnected && sessionMatchesWallet ? (
             <div className="flex items-center gap-2">
               <span className="hidden text-sm text-[var(--muted)] sm:inline">
                 {sessionMatchesWallet
@@ -1054,7 +1041,13 @@ export function LearningWorkbench() {
               ) : (
                 <Wallet aria-hidden="true" className="size-4" />
               )}
-              {isConnecting ? "正在连接" : phase === "wallet" ? "请确认签名" : "连接并登录"}
+              {isConnecting
+                ? "正在连接"
+                : phase === "wallet"
+                  ? "请确认签名"
+                  : isConnected
+                    ? "完成登录"
+                    : "连接并登录"}
             </button>
           )}
         </div>
@@ -1177,25 +1170,9 @@ export function LearningWorkbench() {
               原始文件保留在本机
             </div>
             {!sessionMatchesWallet ? (
-              <button
-                type="button"
-                onClick={() => void connectAndSignIn()}
-                disabled={busy || isConnecting}
-                className="command-button command-button-dark"
-              >
-                {isConnecting || phase === "wallet" ? (
-                  <LoaderCircle aria-hidden="true" className="size-4 animate-spin" />
-                ) : (
-                  <Wallet aria-hidden="true" className="size-4" />
-                )}
-                {isConnecting
-                  ? "正在连接钱包"
-                  : phase === "wallet"
-                    ? "请确认登录签名"
-                    : isConnected
-                      ? "继续完成登录"
-                      : "连接并登录"}
-              </button>
+              <span className="text-sm text-[var(--muted)]">
+                {isConnected ? "请在顶部完成登录" : "登录后即可开始创建"}
+              </span>
             ) : prepared ? (
               <button
                 type="button"

@@ -45,6 +45,10 @@ Coordinator 验证引用、去重并合并 4～30 张卡
         ↓
 Finalizer 提交最终 deckRoot + initialPlanHash
         ↓
+ChunkCommitted 确认后创建 Worker Reward 资格
+        ↓
+Settlement Agent 用 stock Moss 验证固定小额 MON transfer，独立 Treasury 签名广播
+        ↓
 用户按今日计划逐张复习并选择四档评分
         ↓
 FSRS 更新单卡记忆状态
@@ -52,7 +56,7 @@ FSRS 更新单卡记忆状态
 Learning Coach 达到触发条件时在链下生成 Plan v2
 ```
 
-链上服务失败不能丢失已经生成的卡片或复习记录。Worker 结果先保存到 Supabase，链上提交可以幂等重试；未确认前明确显示“等待 Monad 验证”，不能伪装成已验证。
+链上服务失败不能丢失已经生成的卡片或复习记录。Worker 结果先保存到 Supabase，链上提交可以幂等重试；未确认前明确显示“等待 Monad 验证”，不能伪装成已验证。奖励是独立队列：Moss 或 Treasury RPC 失败只影响奖励，不回滚已确认的 Chunk 或 `READY` Journey。
 
 ## 3. 项目亮点
 
@@ -64,10 +68,11 @@ MVP 对用户只提供一个持久化的 `Learning Coach`，内部由固定、�
 - `Worker Agent × 3`：各自拥有独立上下文、分段任务和 Monad 钱包，并行提取知识点、生成卡片、验证引用和提交分段承诺。
 - `Finalizer`：由 Coordinator 执行最终工具步骤，读取全部分段，检查覆盖率、跨分段重复和总卡片数，生成初始计划并提交最终 Deck。
 - `Learning Coach`：卡组完成后持续读取 FSRS 汇总，必要时调整链下复习计划。
+- `Settlement Agent`：消费已确认的 Worker Reward，运行 Moss 验证并交给独立 Reward Treasury 广播；不生成卡片、不改变 Journey 状态。
 
 Worker 可以使用相同模型和同一套工具，但必须拥有独立任务上下文、钱包和执行日志。它们不是通过换 Prompt 伪装出的角色，也不互相聊天；Coordinator 只负责明确的分派、状态机、超时和一次重试。
 
-每个 Agent 都在最大步骤、超时和模型预算内运行。页面只展示任务状态、结构化结果和交易，不展示或保存模型隐藏推理。
+每个 Agent 都在最大步骤、超时和模型预算内运行。页面只展示任务状态、结构化结果和交易，不展示或保存模型隐藏推理。Settlement Agent 只处理结构化奖励资格，不接受模型提供的地址、金额或 calldata。
 
 ### 3.2 AI 与 FSRS 分工
 
@@ -138,6 +143,17 @@ Coordinator 负责任务拆分、调度、超时、重试和结果合并；Monad
 
 演示结果只说明本项目交易在当时网络环境下的表现，不包装成 Monad 最大 TPS 基准，也不声称 AI 推理因上链而变快。
 
+### 3.5 Moss 是受控 Worker Reward 的验证层
+
+Moss 不负责生成卡片、不决定奖励金额、不持有私钥，也不发送交易。它在 `ChunkCommitted` 已经被 Registry 确认后承担四步可展示的验证工作：
+
+1. `discover` 找到 stock `erc20.transfer` capability。
+2. `load` 读取它的 `fundOut` 风险和参数描述。
+3. `action` 用 `token: "native"`、Worker 地址和固定 MON 金额构建 unsigned Plan。
+4. `simulate` 通过 Monad RPC trace 检查 Plan hash、revert、warnings、native outflow 和唯一 recipient。
+
+只有 Plan 和模拟 effects 逐字段匹配数据库冻结的奖励意图，且没有 Warning，Settlement Agent 才把 unsigned transaction 交给独立 Reward Treasury 的 viem signer。Moss 不会把 `commitChunk` 冒充成 `mint` 或 `transfer`；Registry 写入仍由现有 viem Adapter 完成。由于原生 MON transfer 没有合约级幂等键，signed raw transaction、nonce 和 hash 必须在广播前持久化，恢复时只重播相同 raw transaction。
+
 ## 4. 一周 MVP 范围
 
 ### P0：必须完成
@@ -176,8 +192,16 @@ Monad：
 - Coordinator/Finalizer 使用独立钱包，在全部分段确认后调用 `finalizeDeck`。
 - 每个 `commitChunk` 只写独立分段状态，不写共享完成计数器。
 - 页面实时展示每个分段的 Agent 地址、交易、区块、Gas 和确认耗时。
-- 合约只保存哈希、数量和 Agent 地址，不保存资料正文、卡片正文、评分或资金。
+- Registry 合约只保存哈希、数量和 Agent 地址，不保存资料正文、卡片正文、评分或资金；奖励由链下独立 Reward Treasury 结算。
 - 提供同一钱包连续 nonce 与三钱包独立 nonce 的可重复并发测试脚本。
+
+Moss Reward：
+
+- `ChunkCommitted` receipt 确认和 Worker Reward 资格创建必须是同一个数据库事务，主 Chunk 状态与奖励状态互不覆盖。
+- Settlement Agent 展示 `discover → load → action → simulate` 阶段、Moss Plan hash、模拟 Gas 和 Warning 数量。
+- 只有模拟零 Warning 且 effects 精确等于一个 native MON 到实际 Worker 地址的 transfer 才能签名。
+- 预签名 raw transaction、Treasury nonce 和 tx hash 在广播前持久化；`PREPARED`/`SUBMITTING` 重启只恢复同一 hash。
+- 奖励 RPC、Moss endpoint 或余额失败只能将奖励置为 `RETRYABLE`；Plan/effects 不匹配进入 `BLOCKED`，不自动付款。
 
 ### P1：稳定后再做
 
@@ -194,7 +218,7 @@ Monad：
 
 ### 本周不做
 
-- Agent 市场、第三方 Agent 接入、Agent 竞赛、赏金、支付、质押和争议。
+- Agent 市场、第三方 Agent 接入、Agent 竞赛、开放式支付、质押和争议；P0 只保留项目方控制的固定小额 Worker Reward。
 - USDC、Token、NFT、DAO 和跨链。
 - OCR、扫描件、音视频和网页抓取。
 - 长文档 RAG、向量数据库和 embedding 管道。
@@ -216,6 +240,8 @@ Monad：
 - 页面刷新后能恢复学习项目、计划和卡片状态。
 - PDF、卡片正文和具体评分不上链。
 - Monad 验证面板展示至少三笔 Worker 交易的确认耗时与 Gas。
+- 每个已确认 `ChunkCommitted` 都创建一条唯一 Worker Reward；页面能展示 Moss 四阶段、模拟 Plan hash、Warning 数量和奖励交易。
+- Moss Warning、revert、Plan hash 或 effects 不匹配时不签名；奖励失败不改变已经 `READY` 的 Journey。
 - 同钱包与三钱包脚本均记录广播、交易 nonce、上块和最终确认时间，不用串行等待 receipt 人为放大差异。
 - 公共环境完成至少 5 次端到端彩排。
 
@@ -235,14 +261,15 @@ Monad：
              ▼                        ▼
 ┌──────────────────────────────────────────────────┐
 │ Learning Coach Agent Runner                      │
-│ Coordinator │ Worker × 3 │ Finalizer │ 4 wallets│
+│ Coordinator │ Worker × 3 │ Finalizer │ Settlement│
+│ Registry signer │ Reward Treasury signer │ Moss   │
 └──────────────────────────────────────────────────┘
 ```
 
 部署单元只有：
 
 1. Next.js Web/API。
-2. 一个常驻 Node.js Agent Runner，内部并发运行 Coordinator 和三个 Worker，不拆成微服务。
+2. 一个常驻 Node.js Agent Runner，内部并发运行 Coordinator、三个 Worker、Finalizer 和独立 Settlement Agent，不拆成微服务；Settlement 使用单独 Reward Treasury EOA。
 3. 一个 Supabase 项目。
 4. 一个 Monad 合约。
 
@@ -261,6 +288,7 @@ Monad：
 | 数据 | Supabase Postgres |
 | 合约 | Solidity + Foundry |
 | 链交互 | viem + wagmi |
+| Reward verification | `@themoss/core` + `@themoss/erc` + `@themoss/simulator` 0.1.0 |
 
 Monad 网络、RPC、Chain ID 和浏览器地址在 Day 1 按赛事官方文档确认，通过环境变量注入。
 
@@ -317,6 +345,25 @@ type ChunkResult = {
   status: "QUEUED" | "GENERATING" | "SUBMITTING" | "CONFIRMED" | "MERGED";
 };
 ```
+
+```ts
+type WorkerReward = {
+  journeyId: `0x${string}`;
+  chunkId: number;
+  treasuryAddress: `0x${string}`;
+  recipientAddress: `0x${string}`;  // 从已确认 Chunk 的链上 agent 派生
+  amountWei: string;                 // 固定小额 MON，资格创建后冻结
+  status: "PENDING" | "PROCESSING" | "PREPARED" | "SUBMITTING" | "CONFIRMED" | "RETRYABLE" | "BLOCKED";
+  mossStage: "PENDING" | "DISCOVERED" | "LOADED" | "BUILT" | "SIMULATED";
+  simulationStatus: "NOT_RUN" | "PASSED" | "FAILED";
+  mossPlanHash: `0x${string}` | null;
+  simulationWarningCodes: string[];
+  signedTransaction: `0x${string}` | null; // 仅 Runner service role 可读
+  txHash: `0x${string}` | null;
+};
+```
+
+`worker_rewards` 以 `(journeyId, chunkId)` 为主键；`confirm_chunk_and_enqueue_reward` 在同一事务中更新 Chunk 和插入资格。`PREPARED`/`SUBMITTING` 保存 raw transaction、nonce 和 hash，避免原生转账在广播确认窗口重复付款。Moss 的 Warning、Plan hash 或 effects 不匹配进入 `BLOCKED`，RPC 或广播故障进入 `RETRYABLE`。
 
 `sourceHash`、`sourceChunkHash`、`cardsRoot` 和 `deckRoot` 必须使用固定字段顺序和规范化 JSON 生成。卡片叶子同时包含 `journeyId`、`chunkId`、卡片内容哈希和引用哈希，防止跨项目复用。`deckRoot` 由最终选中的卡片叶子及其来源 `chunkId` 生成，Finalizer 只能选择已经存在于某个 `cardsRoot` 的卡片。相同输入必须得到相同 Root，并提供独立的本地校验函数。
 
@@ -392,6 +439,8 @@ type SessionSummary = {
 6. 保存 `ChunkResult`，计算确定性的 `cardsRoot`。
 7. 使用本 Worker 的钱包调用 `commitChunk`，等待 receipt 后标记为 `CONFIRMED`。
 
+`CONFIRMED` 更新与 Worker Reward 资格创建在同一数据库事务完成。此后 Settlement Agent 独立消费资格：它先读取链上 `chunks[journeyId][chunkId]`，确认 `agent` 等于冻结的 recipient，再运行 Moss 四阶段。奖励状态不写回 Chunk/Journey 状态，因此即使 Moss 进入 `BLOCKED` 或 RPC 进入 `RETRYABLE`，其他 Worker 和已经 `READY` 的 Journey 仍保持原状。
+
 每个 Worker 最多 8 次工具调用、一次内容修正、60 秒超时和固定模型预算。不同 Worker 通过 `Promise.allSettled` 并发执行；一个 Worker 失败不能取消已完成分段。
 
 ### Finalizer 合并
@@ -441,6 +490,15 @@ P0 的计划更新不上链。Monad 主线集中在多 Agent 并行生成、分�
 - `importance`、`initialDifficulty` 在 1～5。
 
 卡片少于 4 张、超过 30 张，或第二次仍存在无效卡片时，学习项目显示可重试错误，不提交初始计划。
+
+### Worker Reward Settlement
+
+1. Runner 在 `ChunkCommitted` receipt 确认时原子创建一条固定金额资格。
+2. Settlement Agent 串行处理同一 Reward Treasury 的队列，优先恢复 `SUBMITTING` 和 `PREPARED`。
+3. Moss `discover`、`load`、`action`、`simulate` 的真实阶段写入 `worker_rewards`，而不是前端模拟进度。
+4. 模拟 gate 同时要求 `planHashValid`、无 revert、零 Warning、单笔 native MON outflow、唯一 Worker recipient、无 approval/NFT/inflow。
+5. 通过 gate 后 viem signer 只签名；raw tx/hash/nonce 先持久化，再 `sendRawTransaction`，receipt 成功后标记 `CONFIRMED`。
+6. 任何不可修复的意图或 effects 不匹配进入 `BLOCKED`；网络、余额和发送故障进入 `RETRYABLE`，下一轮可恢复。
 
 ## 9. 复习计划规则
 
@@ -546,10 +604,11 @@ cancelJourney(bytes32 journeyId)
 
 ## 11. 链下存储与接口
 
-Supabase Postgres 保留四类数据：
+Supabase Postgres 保留五类数据：
 
 - `learning_journeys`：用户、最终 Deck、Plan、FSRS states、Root 和版本。
 - `source_chunks`：临时分段文本、哈希、Merkle proof、Worker、Root 和状态。
+- `worker_rewards`：每个已确认 Chunk 的唯一奖励资格、冻结 Treasury/Worker/金额、Moss 阶段与模拟证据、预签名 raw tx 和 receipt。
 - `review_logs`：不可变的卡片评分事件，按 session 分组。
 - `agent_events`：Coordinator/Worker 的脱敏工具事件、任务尝试和交易状态。
 
@@ -572,6 +631,8 @@ PUT  /api/internal/journeys/{id}/revised-plan
 POST /api/internal/journeys/{id}/events
 ```
 
+`GET /api/journeys/{id}` 返回独立的 `rewards` 集合。它不会把奖励状态拼进 Chunk 的主状态；前端按 `chunkId` 合并展示，保证“Chunk 已确认”和“Moss 奖励已发放”可以同时成立。
+
 用户通过一次钱包签名建立短期 Web session。每个内部 Agent 使用独立 token，服务端将 token 身份与预期钱包地址绑定；所有写入重新校验 schema、权限、哈希和乐观版本。Agent 私钥只存在于 Runner 的服务端 secret 中。
 
 ## 12. 页面
@@ -591,6 +652,8 @@ POST /api/internal/journeys/{id}/events
 - 三个 Worker 同时运行时并排更新，不用虚假进度条模拟并行。
 - 分开显示推理耗时、RPC 广播耗时和链上确认耗时。
 - 单个分段失败时只重试或重派该分段，不清空其他已经确认的结果。
+- 每行独立展示 Moss 阶段（发现、加载、构建、模拟）、模拟 Plan hash/Warning 数量、固定 MON 金额和奖励交易。
+- 奖励处于 `BLOCKED` 时显示阻断状态，不显示“已发放”；奖励处于 `RETRYABLE` 时允许下一轮 Runner 恢复，不能影响 Deck 状态。
 
 ### 学习 Dashboard
 
@@ -630,7 +693,7 @@ POST /api/internal/journeys/{id}/events
 
 - PDF 解析、粘贴文本和输入限制。
 - Coordinator 生成 2～12 个章节子分段、卡片预算和 `chunkManifestRoot`。
-- Supabase 四类数据、钱包 session 和临时文本清理字段。
+- Supabase 五类数据、钱包 session 和临时文本清理字段。
 - `prepare/create` API、用户钱包交易和 receipt。
 - Runner 捕获 `JourneyCreated` 并恢复对应分段任务。
 
@@ -642,6 +705,7 @@ POST /api/internal/journeys/{id}/events
 - 三个独立上下文与钱包通过 `Promise.allSettled` 并行运行。
 - 每个 Worker 保存结果并调用 `commitChunk`，失败任务支持重派和幂等重试。
 - 页面逐行展示 Worker、交易、区块、Gas 和确认耗时。
+- `ChunkCommitted` 确认后写入 Worker Reward 资格；不把奖励失败抛回 Worker lane。
 
 退出标准：真实资料的三个分段并行生成，并产生三个可在浏览器查看的 `ChunkCommitted`。
 
@@ -670,6 +734,7 @@ POST /api/internal/journeys/{id}/events
 - Agent 失败时 FSRS 兜底。
 - 部署正式 Web、Runner 和合约。
 - 完成实时 Monad 验证面板，展示真实确认耗时、Gas 和 Agent 地址。
+- 接入 stock Moss `erc20.transfer(native)`，完成四阶段证据、严格 effects gate、预签名 raw tx 恢复和彩排奖励交易。
 - 完成同钱包连续 nonce 与三钱包独立 nonce 的并发对照脚本，各重复至少 5 次并记录广播、receipt 和区块数据。
 - 完成 5 次端到端测试。
 
@@ -703,6 +768,9 @@ POST /api/internal/journeys/{id}/events
 - 连续遗忘后，Agent 提高对应标签优先级。
 - Worker 或链上失败不会删除其他已经保存的分段结果。
 - 数据库卡片被修改后，本地 Root 校验能够发现与链上承诺不一致。
+- `ChunkCommitted` 确认与 Worker Reward 资格创建原子且重复确认只有一条资格。
+- Moss warning、Plan hash、revert、from/to/value 或 effects mismatch 均阻止签名并进入 `BLOCKED`。
+- Reward Treasury 广播前崩溃会恢复同一 signed raw tx/hash，不会重复付款；奖励故障不改变 Journey 状态。
 
 降级策略：
 
@@ -713,6 +781,7 @@ POST /api/internal/journeys/{id}/events
 | 计划生成失败 | 使用 FSRS 基础到期队列 |
 | Runner 漏事件 | 按 `journeyId` replay |
 | Monad RPC 不稳定 | 保留已生成结果，按唯一分段 key 幂等重试交易 |
+| Moss simulator 不可用 | 保留 `PENDING/RETRYABLE` 奖励资格，不伪装已发放；Chunk 和 READY Journey 继续可用 |
 | 时间不足 | 删除 Plan v2 和全部 P1，保留三个 Worker、分段承诺与 Deck Finalize |
 
 ## 15. 三分钟演示
@@ -721,8 +790,10 @@ POST /api/internal/journeys/{id}/events
 2. User 在 Monad 创建学习项目，页面出现三个 Worker 行和各自钱包地址。
 3. 三个 Worker 并行生成知识卡并分别确认 `ChunkCommitted`；页面实时出现卡片数、交易、区块、Gas 和确认耗时。
 4. Finalizer 合并卡片、提交 `DeckFinalized`，页面显示最终 `deckRoot` 和“Monad 已验证”。
-5. 打开两张知识卡，展示知识点、答案和可定位的原文引用，再完成一次四档评分。
-6. 打开验证面板或 Monad 浏览器，展示三个 Worker EOA 写入三个独立 `chunkId`，并展示同钱包与三钱包测试的原始数据，不承诺三笔交易能构成吞吐基准。
+5. 展示一条 `ChunkCommitted → Worker Reward` 支路：Moss 真实完成 discover、load、action、simulate，页面出现零 Warning、模拟 Gas 和固定金额。
+6. Reward Treasury 广播奖励交易，展示同一 tx hash；说明 Moss 没有私钥，签名仍由独立 viem signer 完成。
+7. 打开两张知识卡，展示知识点、答案和可定位的原文引用，再完成一次四档评分。
+8. 打开验证面板或 Monad 浏览器，展示三个 Worker EOA 写入三个独立 `chunkId`，并展示同钱包与三钱包测试的原始数据，不承诺三笔交易能构成吞吐基准。
 
 超过演示时间时切换到明确标记的真实历史学习项目。
 
@@ -733,6 +804,8 @@ POST /api/internal/journeys/{id}/events
 - 每个 Worker 生成的引用有效卡片均产生可核验的 `cardsRoot` 和 `ChunkCommitted`。
 - Finalizer 根据 Knowledge Map 合并出 4～30 张知识卡，并提交唯一的 `deckRoot`。
 - Agent 生成包含知识顺序、新卡量和重点标签的滚动计划。
+- 每个确认 Chunk 都有一条可恢复的 Worker Reward；Moss 证据显示真实四阶段和零 Warning，奖励 tx 可在浏览器核验。
+- Reward Treasury 与 Coordinator/Worker 使用不同 EOA；Moss 不拥有私钥、不签名、不广播。
 - 用户能逐张复习并提交四档反馈。
 - FSRS 正确更新，重复提交不会产生重复日志。
 - 达到重排条件后 Agent 能根据薄弱标签生成 Plan v2。

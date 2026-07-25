@@ -3,7 +3,7 @@ import { pathToFileURL } from "node:url";
 
 export const runnerIdentity = Object.freeze({
   name: "Mindmark Agent Runner",
-  roles: ["coordinator", "worker-0", "worker-1", "worker-2", "finalizer"],
+  roles: ["coordinator", "worker-0", "worker-1", "worker-2", "finalizer", "settlement"],
 });
 
 export function describeRunner(): string {
@@ -23,6 +23,7 @@ export * from "./coordinator.js";
 export * from "./finalizer.js";
 export * from "./model.js";
 export * from "./repository.js";
+export * from "./reward.js";
 export * from "./runtime.js";
 export * from "./types.js";
 export * from "./validation.js";

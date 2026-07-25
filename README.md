@@ -41,12 +41,14 @@ PDF / 文本
 → Finalizer 选卡与初始 7 日计划
 → DeckFinalized
 → 浏览器验证 cardsRoot / deckRoot
+→ ChunkConfirmed 后 Settlement Agent 用 Moss 模拟 0.001 MON Worker 奖励
 → FSRS 四档复习
 → 必要时生成链下 Plan v2
 ```
 
 Monad 保存轻量承诺、Worker 地址和确认顺序；Supabase 保存业务数据。Monad 不调度模型，
-也不证明卡片语义正确。
+也不证明卡片语义正确。独立 Reward Treasury 不属于 Registry 合约：Moss 只发现、构建和模拟
+`erc20.transfer(native)`，通过严格效果校验后由 viem signer 广播同一笔预签名交易。
 
 ## 并发对照
 
@@ -69,6 +71,7 @@ nonce 与三个钱包独立 nonce 的确认观测值，保留逐笔原始数据�
 - Registry：部署后填写
 - Coordinator：部署后填写
 - Worker 0 / 1 / 2：部署后填写
+- Reward Treasury：部署后填写（必须不同于 Coordinator 和三个 Worker）
 - 部署区块：部署后填写
 
 详细步骤见 [Step 3-5](docs/STEP_3_5_RUNBOOK.md)、

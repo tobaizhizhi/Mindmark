@@ -8,7 +8,7 @@ import {
 } from "@mindmark/shared";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
-import type { Hex } from "viem";
+import type { Hex, TransactionSerialized } from "viem";
 import type {
   AgentRole,
   FinalizationRecord,
@@ -17,6 +17,12 @@ import type {
   RunnerChunk,
   RunnerRepository,
   SavedChunkResult,
+  PreparedWorkerReward,
+  WorkerReward,
+  WorkerRewardRepository,
+  WorkerRewardReceipt,
+  WorkerRewardStatus,
+  MossRewardStage,
 } from "./types.js";
 
 const JourneyRowSchema = z.object({
@@ -56,6 +62,24 @@ const ChunkRowSchema = z.object({
   commit_tx_hash: Bytes32Schema.nullable(),
 });
 
+const RewardRowSchema = z.object({
+  journey_id: Bytes32Schema,
+  chunk_id: z.number().int(),
+  treasury_address: AddressSchema,
+  recipient_address: AddressSchema,
+  amount_wei: z.union([z.string(), z.number()]),
+  status: z.string(),
+  attempt: z.number().int(),
+  moss_stage: z.string(),
+  moss_plan_hash: Bytes32Schema.nullable(),
+  simulation_status: z.string(),
+  simulation_warning_codes: z.unknown(),
+  simulation_gas: z.union([z.string(), z.number()]).nullable(),
+  signed_transaction: z.string().nullable(),
+  treasury_nonce: z.union([z.string(), z.number()]).nullable(),
+  tx_hash: Bytes32Schema.nullable(),
+});
+
 const journeyStatuses = new Set<JourneyStatus>([
   "PREPARING",
   "AWAITING_CREATE_TX",
@@ -76,6 +100,23 @@ const chunkStatuses = new Set<RunnerChunk["status"]>([
   "CONFIRMED",
   "MERGED",
   "RETRYABLE",
+]);
+
+const rewardStatuses = new Set<WorkerRewardStatus>([
+  "PENDING",
+  "PROCESSING",
+  "PREPARED",
+  "SUBMITTING",
+  "CONFIRMED",
+  "RETRYABLE",
+  "BLOCKED",
+]);
+const rewardStages = new Set<MossRewardStage>([
+  "PENDING",
+  "DISCOVERED",
+  "LOADED",
+  "BUILT",
+  "SIMULATED",
 ]);
 
 const allowedEventPayloadKeys = new Set([
@@ -104,6 +145,34 @@ function parseChunkStatus(value: string): RunnerChunk["status"] {
   return value as RunnerChunk["status"];
 }
 
+function parseReward(value: Record<string, unknown>): WorkerReward {
+  const row = RewardRowSchema.parse(value);
+  if (!rewardStatuses.has(row.status as WorkerRewardStatus)) {
+    throw new Error(`Unknown Worker reward status: ${row.status}`);
+  }
+  if (!rewardStages.has(row.moss_stage as MossRewardStage)) {
+    throw new Error(`Unknown Moss reward stage: ${row.moss_stage}`);
+  }
+  const warningCodes = z.array(z.string().max(80)).parse(row.simulation_warning_codes);
+  return {
+    journeyId: row.journey_id,
+    chunkId: row.chunk_id,
+    treasuryAddress: row.treasury_address,
+    recipientAddress: row.recipient_address,
+    amountWei: BigInt(row.amount_wei),
+    status: row.status as WorkerRewardStatus,
+    attempt: row.attempt,
+    mossStage: row.moss_stage as MossRewardStage,
+    mossPlanHash: row.moss_plan_hash,
+    simulationStatus: row.simulation_status as WorkerReward["simulationStatus"],
+    simulationWarningCodes: warningCodes,
+    simulationGas: row.simulation_gas === null ? null : BigInt(row.simulation_gas),
+    signedTransaction: row.signed_transaction as TransactionSerialized | null,
+    treasuryNonce: row.treasury_nonce === null ? null : BigInt(row.treasury_nonce),
+    txHash: row.tx_hash,
+  };
+}
+
 function assertEventPayload(payload: Record<string, unknown>): void {
   for (const [key, value] of Object.entries(payload)) {
     if (!allowedEventPayloadKeys.has(key)) {
@@ -119,16 +188,24 @@ function errorMessage(error: { message: string } | null, operation: string): str
   return error ? `${operation}: ${error.message}` : `${operation}: no row was updated`;
 }
 
-export class SupabaseRunnerRepository implements RunnerRepository {
-  static connect(url: string, serviceRoleKey: string): SupabaseRunnerRepository {
+export class SupabaseRunnerRepository implements RunnerRepository, WorkerRewardRepository {
+  static connect(
+    url: string,
+    serviceRoleKey: string,
+    rewardIntent: { treasuryAddress: `0x${string}`; amountWei: bigint },
+  ): SupabaseRunnerRepository {
     return new SupabaseRunnerRepository(
       createClient(url, serviceRoleKey, {
         auth: { persistSession: false, autoRefreshToken: false },
       }),
+      rewardIntent,
     );
   }
 
-  constructor(private readonly client: SupabaseClient) {}
+  constructor(
+    private readonly client: SupabaseClient,
+    private readonly rewardIntent: { treasuryAddress: `0x${string}`; amountWei: bigint },
+  ) {}
 
   async listRecoverableJourneyIds(): Promise<Hex[]> {
     const { data, error } = await this.client
@@ -313,19 +390,16 @@ export class SupabaseRunnerRepository implements RunnerRepository {
       confirmationMs: number;
     },
   ): Promise<void> {
-    const { error } = await this.client
-      .from("source_chunks")
-      .update({
-        status: "CONFIRMED",
-        commit_tx_hash: confirmation.txHash,
-        confirmed_block: confirmation.blockNumber.toString(),
-        gas_used: confirmation.gasUsed?.toString() ?? null,
-        confirmation_ms: confirmation.confirmationMs,
-        chunk_lease_until: null,
-        last_error: null,
-      })
-      .eq("journey_id", journeyId)
-      .eq("chunk_id", chunkId);
+    const { error } = await this.client.rpc("confirm_chunk_and_enqueue_reward", {
+      p_journey_id: journeyId,
+      p_chunk_id: chunkId,
+      p_tx_hash: confirmation.txHash,
+      p_block_number: confirmation.blockNumber.toString(),
+      p_gas_used: confirmation.gasUsed?.toString() ?? null,
+      p_confirmation_ms: confirmation.confirmationMs,
+      p_treasury_address: this.rewardIntent.treasuryAddress,
+      p_amount_wei: this.rewardIntent.amountWei.toString(),
+    });
     if (error) throw new Error(errorMessage(error, "mark chunk confirmed"));
   }
 
@@ -431,5 +505,117 @@ export class SupabaseRunnerRepository implements RunnerRepository {
       tx_hash: event.txHash ?? null,
     });
     if (error) throw new Error(errorMessage(error, "record agent event"));
+  }
+
+  async claimNextWorkerReward(): Promise<WorkerReward | null> {
+    const { data, error } = await this.client.rpc("claim_worker_reward");
+    if (error) throw new Error(errorMessage(error, "claim Worker reward"));
+    const rows = z.array(z.record(z.string(), z.unknown())).parse(data ?? []);
+    return rows[0] ? parseReward(rows[0]) : null;
+  }
+
+  async markWorkerRewardStage(
+    journeyId: Hex,
+    chunkId: number,
+    stage: Exclude<MossRewardStage, "PENDING" | "SIMULATED">,
+  ): Promise<void> {
+    const { error } = await this.client
+      .from("worker_rewards")
+      .update({
+        moss_stage: stage,
+        [`${stage.toLowerCase()}_at`]: new Date().toISOString(),
+      })
+      .eq("journey_id", journeyId)
+      .eq("chunk_id", chunkId);
+    if (error) throw new Error(errorMessage(error, "record Moss reward stage"));
+  }
+
+  async markWorkerRewardPrepared(
+    journeyId: Hex,
+    chunkId: number,
+    prepared: PreparedWorkerReward,
+  ): Promise<void> {
+    const { error } = await this.client
+      .from("worker_rewards")
+      .update({
+        status: "PREPARED",
+        moss_stage: "SIMULATED",
+        simulation_status: "PASSED",
+        simulated_at: new Date().toISOString(),
+        simulation_warning_codes: prepared.simulationWarningCodes,
+        simulation_warning_count: prepared.simulationWarningCodes.length,
+        simulation_gas: prepared.simulationGas?.toString() ?? null,
+        moss_plan_hash: prepared.mossPlanHash,
+        signed_transaction: prepared.signedTransaction,
+        treasury_nonce: prepared.treasuryNonce.toString(),
+        tx_hash: prepared.txHash,
+        last_error: null,
+      })
+      .eq("journey_id", journeyId)
+      .eq("chunk_id", chunkId);
+    if (error) throw new Error(errorMessage(error, "persist prepared Worker reward"));
+  }
+
+  async markWorkerRewardSubmitting(journeyId: Hex, chunkId: number, txHash: Hex): Promise<void> {
+    const { error } = await this.client
+      .from("worker_rewards")
+      .update({ status: "SUBMITTING", tx_hash: txHash, submitted_at: new Date().toISOString() })
+      .eq("journey_id", journeyId)
+      .eq("chunk_id", chunkId)
+      .in("status", ["PREPARED", "SUBMITTING"]);
+    if (error) throw new Error(errorMessage(error, "mark Worker reward submitting"));
+  }
+
+  async markWorkerRewardConfirmed(
+    journeyId: Hex,
+    chunkId: number,
+    receipt: WorkerRewardReceipt,
+  ): Promise<void> {
+    const { error } = await this.client
+      .from("worker_rewards")
+      .update({
+        status: "CONFIRMED",
+        tx_hash: receipt.txHash,
+        confirmed_block: receipt.blockNumber.toString(),
+        gas_used: receipt.gasUsed.toString(),
+        confirmation_ms: receipt.confirmationMs,
+        lease_until: null,
+        last_error: null,
+      })
+      .eq("journey_id", journeyId)
+      .eq("chunk_id", chunkId);
+    if (error) throw new Error(errorMessage(error, "mark Worker reward confirmed"));
+  }
+
+  async markWorkerRewardRetryable(journeyId: Hex, chunkId: number, message: string): Promise<void> {
+    const { error } = await this.client.rpc("release_worker_reward", {
+      p_journey_id: journeyId,
+      p_chunk_id: chunkId,
+      p_error: message.slice(0, 500),
+    });
+    if (error) throw new Error(errorMessage(error, "mark Worker reward retryable"));
+  }
+
+  async markWorkerRewardBlocked(
+    journeyId: Hex,
+    chunkId: number,
+    message: string,
+    warningCodes: string[] = [],
+  ): Promise<void> {
+    const { error } = await this.client
+      .from("worker_rewards")
+      .update({
+        status: "BLOCKED",
+        moss_stage: "SIMULATED",
+        simulation_status: "FAILED",
+        simulated_at: new Date().toISOString(),
+        simulation_warning_codes: warningCodes,
+        simulation_warning_count: warningCodes.length,
+        lease_until: null,
+        last_error: message.slice(0, 500),
+      })
+      .eq("journey_id", journeyId)
+      .eq("chunk_id", chunkId);
+    if (error) throw new Error(errorMessage(error, "block Worker reward"));
   }
 }
