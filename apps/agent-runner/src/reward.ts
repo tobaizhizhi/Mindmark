@@ -21,12 +21,9 @@ import { privateKeyToAccount } from "viem/accounts";
 import type {
   MossRewardStage,
   PreparedWorkerReward,
-  RegistryGateway,
-  WorkerReward,
   WorkerRewardGateway,
   WorkerRewardReceipt,
-  WorkerRewardRepository,
-} from "./types.js";
+} from "./runtime-types.js";
 
 export class WorkerRewardVerificationError extends Error {
   constructor(
@@ -311,102 +308,5 @@ export class MossViemRewardGateway implements WorkerRewardGateway {
       gasUsed: receipt.gasUsed,
       confirmationMs: Math.round(performance.now() - startedAt),
     };
-  }
-}
-
-function preparedFromReward(reward: WorkerReward): PreparedWorkerReward {
-  if (
-    !reward.mossPlanHash ||
-    !reward.signedTransaction ||
-    reward.treasuryNonce === null ||
-    !reward.txHash
-  ) {
-    throw new WorkerRewardVerificationError("Prepared reward is missing persisted transaction data");
-  }
-  return {
-    treasuryAddress: reward.treasuryAddress,
-    recipientAddress: reward.recipientAddress,
-    amountWei: reward.amountWei,
-    mossPlanHash: reward.mossPlanHash,
-    simulationWarningCodes: reward.simulationWarningCodes,
-    simulationGas: reward.simulationGas,
-    signedTransaction: reward.signedTransaction,
-    treasuryNonce: reward.treasuryNonce,
-    txHash: reward.txHash,
-  };
-}
-
-export class SettlementAgent {
-  constructor(
-    private readonly repository: WorkerRewardRepository,
-    private readonly registry: RegistryGateway,
-    private readonly rewardGateway: WorkerRewardGateway,
-    private readonly options: { maxRewardsPerRun?: number } = {},
-  ) {}
-
-  async runOnce(): Promise<number> {
-    let processed = 0;
-    for (let index = 0; index < (this.options.maxRewardsPerRun ?? 12); index += 1) {
-      const reward = await this.repository.claimNextWorkerReward();
-      if (!reward) break;
-      await this.process(reward);
-      processed += 1;
-    }
-    return processed;
-  }
-
-  private async process(reward: WorkerReward): Promise<void> {
-    try {
-      let prepared: PreparedWorkerReward;
-      if (reward.status === "PREPARED" || reward.status === "SUBMITTING") {
-        prepared = preparedFromReward(reward);
-      } else {
-        const commitment = await this.registry.readChunk(reward.journeyId, reward.chunkId);
-        if (!commitment || !sameAddress(commitment.agent, reward.recipientAddress)) {
-          throw new WorkerRewardVerificationError(
-            "Worker reward recipient does not match the confirmed on-chain commitment",
-          );
-        }
-        if (!sameAddress(reward.treasuryAddress, this.rewardGateway.treasuryAddress())) {
-          throw new WorkerRewardVerificationError("Reward eligibility targets another Treasury");
-        }
-        prepared = await this.rewardGateway.prepare(
-          {
-            recipientAddress: reward.recipientAddress,
-            amountWei: reward.amountWei,
-          },
-          (stage) =>
-            this.repository.markWorkerRewardStage(reward.journeyId, reward.chunkId, stage),
-        );
-        await this.repository.markWorkerRewardPrepared(
-          reward.journeyId,
-          reward.chunkId,
-          prepared,
-        );
-      }
-      const receipt = await this.rewardGateway.settlePrepared(prepared, (txHash) =>
-        this.repository.markWorkerRewardSubmitting(reward.journeyId, reward.chunkId, txHash),
-      );
-      await this.repository.markWorkerRewardConfirmed(
-        reward.journeyId,
-        reward.chunkId,
-        receipt,
-      );
-    } catch (error) {
-      if (error instanceof WorkerRewardVerificationError) {
-        await this.repository.markWorkerRewardBlocked(
-          reward.journeyId,
-          reward.chunkId,
-          error.message,
-          error.warningCodes,
-        );
-        return;
-      }
-      await this.repository.markWorkerRewardRetryable(
-        reward.journeyId,
-        reward.chunkId,
-        error instanceof Error ? error.message : "Unknown Worker reward failure",
-      );
-    }
   }
 }

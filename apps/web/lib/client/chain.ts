@@ -21,10 +21,10 @@ export const monadChain = defineChain({
   },
 });
 
-const rawRegistryAddress = process.env.NEXT_PUBLIC_REGISTRY_ADDRESS;
-export const registryAddress =
-  rawRegistryAddress && isAddress(rawRegistryAddress) && !/^0x0{40}$/u.test(rawRegistryAddress)
-    ? rawRegistryAddress
+const rawRegistryV2Address = process.env.NEXT_PUBLIC_REGISTRY_V2_ADDRESS;
+export const registryV2Address =
+  rawRegistryV2Address && isAddress(rawRegistryV2Address) && !/^0x0{40}$/u.test(rawRegistryV2Address)
+    ? rawRegistryV2Address
     : null;
 
 export const wagmiConfig = createConfig({

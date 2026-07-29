@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 
@@ -11,29 +12,18 @@ export class ApiError extends Error {
   }
 }
 
-export function jsonError(error: unknown): NextResponse {
+export function jsonError(error: unknown, requestId = randomUUID()): NextResponse {
+  const response = (status: number, code: string, message: string) => NextResponse.json(
+    { error: { code, message, requestId } },
+    { status, headers: { "x-request-id": requestId } },
+  );
   if (error instanceof ApiError) {
-    return NextResponse.json(
-      { error: { code: error.code, message: error.message } },
-      { status: error.status },
-    );
+    return response(error.status, error.code, error.message);
   }
   if (error instanceof ZodError) {
-    return NextResponse.json(
-      {
-        error: {
-          code: "invalid_request",
-          message: error.issues[0]?.message ?? "Request validation failed",
-        },
-      },
-      { status: 400 },
-    );
+    return response(400, "invalid_request", error.issues[0]?.message ?? "Request validation failed");
   }
 
-  console.error("Unhandled API error", error);
-  return NextResponse.json(
-    { error: { code: "internal_error", message: "The request could not be completed" } },
-    { status: 500 },
-  );
+  console.error("Unhandled API error", { requestId, error });
+  return response(500, "internal_error", "The request could not be completed");
 }
-

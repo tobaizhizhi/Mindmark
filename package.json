@@ -12,8 +12,7 @@
     "test": "pnpm -r --if-present test",
     "build": "pnpm -r --if-present build",
     "fixtures:demo": "node scripts/generate-demo-fixtures.mjs",
-    "fixtures:vectors": "pnpm --filter @mindmark/shared generate:vectors",
-    "fixtures:generate": "pnpm fixtures:demo && pnpm fixtures:vectors"
+    "fixtures:generate": "pnpm fixtures:demo"
   },
   "devDependencies": {
     "@eslint/js": "9.39.5",

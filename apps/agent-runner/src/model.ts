@@ -3,7 +3,7 @@ import type {
   AgentToolCall,
   AgentTranscriptEntry,
   ToolCallingModel,
-} from "./types.js";
+} from "./runtime-types.js";
 
 const ToolCallResponseSchema = z.object({
   choices: z
@@ -107,4 +107,3 @@ export class OpenAICompatibleToolModel implements ToolCallingModel {
     };
   }
 }
-

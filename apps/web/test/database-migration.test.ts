@@ -2,66 +2,51 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { PGlite } from "@electric-sql/pglite";
+import {
+  hashGoal,
+  intakeSource,
+  WorkflowOperationsSnapshotSchema,
+  hashCardBlueprintV3,
+  hashChapterConceptInventoryV3,
+  hashFrozenProjectDesignV3,
+  materializeCardBlueprint,
+  materializeChapterConceptInventory,
+  planBlueprintWorkUnits,
+  planChaptersDeterministically,
+  planWorkUnits,
+} from "@mindmark/shared";
+import type { Hex } from "viem";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
-const journeyId = `0x${"11".repeat(32)}`;
-const secondJourneyId = `0x${"22".repeat(32)}`;
-const runnerJourneyId = `0x${"44".repeat(32)}`;
-const reviewJourneyId = `0x${"55".repeat(32)}`;
-const largeJourneyId = `0x${"66".repeat(32)}`;
-const learnerAddress = `0x${"aa".repeat(20)}`;
-const hash = (byte: string) => `0x${byte.repeat(64)}`;
-
+const projectId = `0x${"77".repeat(32)}` as Hex;
+const workflowProjectId = `0x${"88".repeat(32)}` as Hex;
+const designProjectId = `0x${"99".repeat(32)}` as Hex;
+const owner = `0x${"aa".repeat(20)}`;
 let database: PGlite;
 
 beforeAll(async () => {
   database = new PGlite();
   for (const migration of [
-    "00000000000000_workspace_bootstrap.sql",
-    "20260722000100_learning_data.sql",
-    "20260722000200_runner_orchestration.sql",
-    "20260722000300_reviews_and_sessions.sql",
-    "20260723000100_expand_material_capacity.sql",
-    "20260725000100_worker_rewards.sql",
+    "20260724000100_v2_foundation.sql",
+    "20260725000200_chapter_first_v2.sql",
+    "20260726000100_v2_runner_pipeline.sql",
+    "20260727000100_material_chapter_card_correction.sql",
+    "20260727000200_document_library.sql",
+    "20260728000100_workflow_jobs.sql",
+    "20260728000200_workflow_dispatch.sql",
+    "20260728000300_operations_diagnostics.sql",
+    "20260729000100_runner_constraint_alignment.sql",
+    "20260730000100_learning_design_v3.sql",
   ]) {
-    const sql = await readFile(path.join(root, "supabase/migrations", migration), "utf8");
-    await database.exec(sql);
+    await database.exec(await readFile(path.join(root, "supabase/migrations", migration), "utf8"));
   }
 });
 
-afterAll(async () => {
-  await database.close();
-});
+afterAll(async () => database.close());
 
-function journeyPayload(id: string, chunkCount = 2) {
-  return {
-    journey_id: id,
-    learner_address: learnerAddress,
-    goal: "Understand reentrancy",
-    source_hash: hash("3"),
-    goal_hash: hash("4"),
-    chunk_manifest_root: hash("5"),
-    chunk_count: chunkCount,
-  };
-}
-
-function chunksPayload(chunkCount = 2) {
-  return Array.from({ length: chunkCount }, (_, chunkId) => ({
-    chunk_id: chunkId,
-    page_start: chunkId + 1,
-    page_end: chunkId + 1,
-    title: `Chunk ${chunkId}`,
-    source_text: `Source text ${chunkId}`,
-    source_pages: [{ pageNumber: chunkId + 1, text: `Source text ${chunkId}` }],
-    source_chunk_hash: hash(((chunkId % 10) + 1).toString(16)),
-    manifest_proof: [hash("8")],
-    card_budget: 3,
-  }));
-}
-
-describe("Step 4 Supabase migration", () => {
-  it("creates all private tables with RLS and no browser policies", async () => {
+describe("V2 database baseline", () => {
+  it("creates V2 and additive V3 learning tables with forced RLS and no browser policies", async () => {
     const result = await database.query<{
       relname: string;
       relrowsecurity: boolean;
@@ -71,338 +56,503 @@ describe("Step 4 Supabase migration", () => {
       from pg_class
       where relnamespace = 'public'::regnamespace
         and relname in (
-          'learning_journeys',
-          'source_chunks',
-          'review_logs',
-          'agent_events',
-          'auth_nonces',
-          'wallet_sessions'
-          ,'session_summaries'
-          ,'worker_rewards'
+          'auth_nonces', 'wallet_sessions', 'project_folders', 'learning_projects',
+          'source_blocks', 'project_outline_versions', 'project_outline_items',
+          'chapters', 'work_units', 'knowledge_cards', 'card_learning_states',
+          'review_sessions', 'project_review_logs', 'project_agent_events', 'work_unit_rewards',
+          'workflow_jobs', 'workflow_events', 'chapter_design_runs',
+          'card_blueprint_slots', 'card_quality_evaluations', 'knowledge_card_feedback'
         )
-      order by relname
     `);
-
-    expect(result.rows).toHaveLength(8);
-    expect(result.rows.every((row) => row.relrowsecurity && row.relforcerowsecurity)).toBe(
-      true,
-    );
+    expect(result.rows).toHaveLength(21);
+    expect(result.rows.every((row) => row.relrowsecurity && row.relforcerowsecurity)).toBe(true);
     const policies = await database.query<{ count: number }>(
       "select count(*)::integer as count from pg_policies where schemaname = 'public'",
     );
     expect(policies.rows[0]?.count).toBe(0);
   });
 
-  it("atomically inserts one journey and its contiguous chunks", async () => {
-    await database.query(
-      "select public.prepare_learning_journey($1::jsonb, $2::jsonb)",
-      [JSON.stringify(journeyPayload(journeyId)), JSON.stringify(chunksPayload())],
-    );
-
-    const journeys = await database.query<{ status: string; chunk_count: number }>(
-      "select status, chunk_count from public.learning_journeys where journey_id = $1",
-      [journeyId],
-    );
-    const chunks = await database.query<{ chunk_id: number }>(
-      "select chunk_id from public.source_chunks where journey_id = $1 order by chunk_id",
-      [journeyId],
-    );
-    expect(journeys.rows).toEqual([{ status: "AWAITING_CREATE_TX", chunk_count: 2 }]);
-    expect(chunks.rows.map((row) => row.chunk_id)).toEqual([0, 1]);
-  });
-
-  it("rejects a duplicate chunk payload before inserting the journey", async () => {
-    const duplicateChunks = chunksPayload().map((chunk) => ({ ...chunk, chunk_id: 0 }));
-    await expect(
-      database.query(
-        "select public.prepare_learning_journey($1::jsonb, $2::jsonb)",
-        [JSON.stringify(journeyPayload(secondJourneyId)), JSON.stringify(duplicateChunks)],
-      ),
-    ).rejects.toThrow(/unique and contiguous/u);
-
-    const result = await database.query<{ count: number }>(
-      "select count(*)::integer as count from public.learning_journeys where journey_id = $1",
-      [secondJourneyId],
-    );
-    expect(result.rows[0]?.count).toBe(0);
-  });
-
-  it("accepts twelve contiguous chunks and allows the last chunk to be claimed", async () => {
-    await database.query(
-      "select public.prepare_learning_journey($1::jsonb, $2::jsonb)",
-      [JSON.stringify(journeyPayload(largeJourneyId, 12)), JSON.stringify(chunksPayload(12))],
-    );
-    await database.query(
-      "update public.learning_journeys set status = 'GENERATING' where journey_id = $1",
-      [largeJourneyId],
-    );
-    const claimed = await database.query<{ claimed: boolean }>(
-      "select public.claim_chunk_generation($1, 11, $2) as claimed",
-      [largeJourneyId, learnerAddress],
-    );
-    const chunks = await database.query<{ count: number }>(
-      "select count(*)::integer as count from public.source_chunks where journey_id = $1",
-      [largeJourneyId],
-    );
-
-    expect(claimed.rows[0]?.claimed).toBe(true);
-    expect(chunks.rows[0]?.count).toBe(12);
-  });
-
-  it("enforces idempotent review and chunk keys", async () => {
-    const sessionId = "123e4567-e89b-12d3-a456-426614174000";
-    const insertReview = `
-      insert into public.review_logs (
-        journey_id, session_id, card_id, rating, response_ms, reviewed_at
-      ) values ($1, $2, $3, 'good', 1200, now())
-    `;
-    await database.query(insertReview, [journeyId, sessionId, hash("9")]);
-    await expect(
-      database.query(insertReview, [journeyId, sessionId, hash("9")]),
-    ).rejects.toThrow(/unique/u);
-
-    await expect(
-      database.query(
-        `insert into public.source_chunks (
-          journey_id, chunk_id, page_start, page_end, title, source_text,
-          source_chunk_hash, manifest_proof, card_budget, status
-        ) values ($1, 0, 1, 1, 'Duplicate', 'text', $2, '[]', 2, 'QUEUED')`,
-        [journeyId, hash("a")],
-      ),
-    ).rejects.toThrow(/unique/u);
-  });
-
-  it("atomically creates exactly one Worker Reward after Chunk confirmation", async () => {
-    const worker = `0x${"bb".repeat(20)}`;
-    await database.query(
-      `update public.source_chunks
-       set worker_address = $2, status = 'SUBMITTING'
-       where journey_id = $1 and chunk_id = 0`,
-      [journeyId, worker],
-    );
-    const confirm = `select public.confirm_chunk_and_enqueue_reward(
-      $1, 0, $2, 123, 80000, 25, $3, 1000000000000000
-    ) as confirmed`;
-    await database.query(confirm, [journeyId, hash("d"), learnerAddress]);
-    await database.query(confirm, [journeyId, hash("e"), learnerAddress]);
-    const rewards = await database.query<{ count: number; status: string; recipient_address: string }>(
-      `select count(*)::integer as count, max(status) as status, max(recipient_address) as recipient_address
-       from public.worker_rewards where journey_id = $1 and chunk_id = 0`,
-      [journeyId],
-    );
-    expect(rewards.rows[0]).toEqual({ count: 1, status: "PENDING", recipient_address: worker });
-  });
-
-  it("leases reward work and preserves prepared raw transactions for recovery", async () => {
-    const claimed = await database.query<{ status: string; attempt: number }>(
-      "select status, attempt from public.claim_worker_reward()",
-    );
-    expect(claimed.rows[0]).toEqual({ status: "PROCESSING", attempt: 1 });
-    const duplicateClaim = await database.query<{ count: number }>(
-      "select count(*)::integer as count from public.claim_worker_reward()",
-    );
-    expect(duplicateClaim.rows[0]?.count).toBe(0);
-    const rawTransaction = `0x02${"11".repeat(40)}`;
-    await database.query(
-      `update public.worker_rewards
-       set status = 'PREPARED', signed_transaction = $3, tx_hash = $2, treasury_nonce = 1,
-           moss_plan_hash = $4, simulation_status = 'PASSED', moss_stage = 'SIMULATED'
-       where journey_id = $1 and chunk_id = 0`,
-      [journeyId, hash("f"), rawTransaction, hash("a")],
-    );
-    await database.query(
-      "select public.release_worker_reward($1, 0, 'temporary RPC failure')",
-      [journeyId],
-    );
-    const prepared = await database.query<{ status: string; signed_transaction: string }>(
-      "select status, signed_transaction from public.worker_rewards where journey_id = $1 and chunk_id = 0",
-      [journeyId],
-    );
-    expect(prepared.rows[0]).toEqual({ status: "PREPARED", signed_transaction: rawTransaction });
-  });
-
-  it("consumes a valid auth nonce only once", async () => {
-    await database.query(
-      `insert into public.auth_nonces (nonce, wallet_address, expires_at)
-       values ('validnonce123', $1, now() + interval '10 minutes')`,
-      [learnerAddress],
-    );
-    const first = await database.query<{ consumed: boolean }>(
-      "select public.consume_auth_nonce('validnonce123', $1) as consumed",
-      [learnerAddress],
-    );
-    const second = await database.query<{ consumed: boolean }>(
-      "select public.consume_auth_nonce('validnonce123', $1) as consumed",
-      [learnerAddress],
-    );
-    expect(first.rows[0]?.consumed).toBe(true);
-    expect(second.rows[0]?.consumed).toBe(false);
-  });
-
-  it("claims generation work idempotently and recovers stale chunks", async () => {
-    await database.query(
-      "select public.prepare_learning_journey($1::jsonb, $2::jsonb)",
-      [JSON.stringify(journeyPayload(runnerJourneyId)), JSON.stringify(chunksPayload())],
-    );
-    await database.query(
-      "update public.learning_journeys set status = 'CREATED' where journey_id = $1",
-      [runnerJourneyId],
-    );
-    const firstClaim = await database.query<{ claimed: boolean }>(
-      "select public.claim_journey_generation($1) as claimed",
-      [runnerJourneyId],
-    );
-    const duplicateClaim = await database.query<{ claimed: boolean }>(
-      "select public.claim_journey_generation($1) as claimed",
-      [runnerJourneyId],
-    );
-    expect(firstClaim.rows[0]?.claimed).toBe(true);
-    expect(duplicateClaim.rows[0]?.claimed).toBe(false);
-
-    const chunkClaim = await database.query<{ claimed: boolean }>(
-      "select public.claim_chunk_generation($1, 0, $2) as claimed",
-      [runnerJourneyId, learnerAddress],
-    );
-    expect(chunkClaim.rows[0]?.claimed).toBe(true);
-    await database.query(
-      "update public.source_chunks set chunk_lease_until = now() - interval '1 second' where journey_id = $1 and chunk_id = 0",
-      [runnerJourneyId],
-    );
-    const recovery = await database.query<{ count: number }>(
-      "select public.recover_stale_chunks() as count",
-    );
-    expect(recovery.rows[0]?.count).toBe(1);
-    const status = await database.query<{ status: string; attempt: number }>(
-      "select status, attempt from public.source_chunks where journey_id = $1 and chunk_id = 0",
-      [runnerJourneyId],
-    );
-    expect(status.rows[0]).toEqual({ status: "RETRYABLE", attempt: 1 });
-  });
-
-  it("cleans source text and drafts on READY without deleting proofs or final data", async () => {
-    await database.query(
-      `update public.source_chunks
-       set cards = '[{"id":"draft"}]'::jsonb
-       where journey_id = $1`,
-      [journeyId],
-    );
-    await database.query(
-      `update public.learning_journeys
-       set status = 'READY',
-           deck = '{"cards":[{"id":"selected"}]}'::jsonb,
-           card_provenance = '{"selected":{"chunkId":0}}'::jsonb,
-           deck_root = $2
-       where journey_id = $1`,
-      [journeyId, hash("b")],
-    );
-
-    const chunks = await database.query<{
-      source_text: string | null;
-      source_pages: unknown[] | null;
-      cards: unknown[];
-      manifest_proof: string[];
-    }>(
-      "select source_text, source_pages, cards, manifest_proof from public.source_chunks where journey_id = $1",
-      [journeyId],
-    );
-    expect(chunks.rows.every((chunk) => chunk.source_text === null)).toBe(true);
-    expect(chunks.rows.every((chunk) => chunk.source_pages === null)).toBe(true);
-    expect(chunks.rows.every((chunk) => chunk.cards.length === 0)).toBe(true);
-    expect(chunks.rows.every((chunk) => chunk.manifest_proof.length > 0)).toBe(true);
-
-    const journey = await database.query<{ deck: unknown; card_provenance: unknown }>(
-      "select deck, card_provenance from public.learning_journeys where journey_id = $1",
-      [journeyId],
-    );
-    expect(journey.rows[0]?.deck).toEqual({ cards: [{ id: "selected" }] });
-    expect(journey.rows[0]?.card_provenance).toEqual({ selected: { chunkId: 0 } });
-  });
-
-  it("advances FSRS exactly once for a duplicate review and enforces ownership", async () => {
-    const cardId = hash("c");
-    const sessionId = "223e4567-e89b-12d3-a456-426614174000";
-    await database.query(
-      "select public.prepare_learning_journey($1::jsonb, $2::jsonb)",
-      [JSON.stringify(journeyPayload(reviewJourneyId)), JSON.stringify(chunksPayload())],
-    );
-    await database.query(
-      `update public.learning_journeys
-       set status = 'READY', deck = $2::jsonb
-       where journey_id = $1`,
-      [reviewJourneyId, JSON.stringify([{ id: cardId }])],
-    );
-    const firstState = {
-      due: "2026-07-23T00:00:00.000Z",
-      reps: 1,
-    };
-    const secondState = {
-      due: "2026-08-01T00:00:00.000Z",
-      reps: 99,
-    };
-    const submit = `select public.submit_learning_review(
-      $1, $2, $3::uuid, $4, 'good', 1000, '2026-07-22T00:00:00Z',
-      null::jsonb, $5::jsonb
-    ) as result`;
-    const first = await database.query<{ result: { duplicate: boolean; nextReviewAt: string } }>(
-      submit,
-      [reviewJourneyId, learnerAddress, sessionId, cardId, JSON.stringify(firstState)],
-    );
-    const duplicate = await database.query<{
-      result: { duplicate: boolean; nextReviewAt: string };
-    }>(submit, [reviewJourneyId, learnerAddress, sessionId, cardId, JSON.stringify(secondState)]);
-    expect(first.rows[0]?.result.duplicate).toBe(false);
-    expect(duplicate.rows[0]?.result).toEqual({
-      duplicate: true,
-      accepted: true,
-      nextReviewAt: firstState.due,
-    });
-    const state = await database.query<{ fsrs: unknown; count: number }>(
-      `select fsrs_states->$2 as fsrs,
-        (select count(*)::integer from public.review_logs where journey_id = $1) as count
-       from public.learning_journeys where journey_id = $1`,
-      [reviewJourneyId, cardId],
-    );
-    expect(state.rows[0]).toEqual({ fsrs: firstState, count: 1 });
-    await expect(
-      database.query(submit, [
-        reviewJourneyId,
-        `0x${"bb".repeat(20)}`,
-        sessionId,
-        cardId,
-        JSON.stringify(firstState),
-      ]),
-    ).rejects.toThrow(/ready owned journey card not found/u);
-
-    const summary = {
-      sessionId,
-      journeyId: reviewJourneyId,
-      reviewedAt: "2026-07-22T00:00:00.000Z",
-      reviewedCount: 1,
-      forgottenCount: 0,
-      averageResponseMs: 1000,
-      dueForecast: [0, 1, 0, 0, 0, 0, 0],
-      weakTags: [],
-      triggerReasons: [],
-    };
-    const complete = `select public.complete_learning_session(
-      $1, $2, $3::uuid, $4::jsonb, null::jsonb, 1
-    ) as result`;
-    const completed = await database.query<{
-      result: { planUpdated: boolean; planVersion: number };
-    }>(complete, [reviewJourneyId, learnerAddress, sessionId, JSON.stringify(summary)]);
-    const duplicateCompletion = await database.query<{
-      result: { summary: { reviewedCount: number }; planUpdated: boolean; planVersion: number };
-    }>(complete, [
-      reviewJourneyId,
-      learnerAddress,
-      sessionId,
-      JSON.stringify({ ...summary, reviewedCount: 0 }),
+  it("queues, retries, completes and recovers outline planning jobs", async () => {
+    const source = intakeSource([
+      { pageNumber: 1, text: "# 调用原理\n\n外部调用会把执行控制权交给未知代码。" },
     ]);
-    expect(completed.rows[0]?.result).toMatchObject({ planUpdated: false, planVersion: 1 });
-    expect(duplicateCompletion.rows[0]?.result).toMatchObject({
-      planUpdated: false,
-      planVersion: 1,
-      summary: { reviewedCount: 1 },
+    const request = {
+      project_id: workflowProjectId,
+      owner_address: owner,
+      client_request_id: "workflow-intake-1",
+      title: "章节队列资料",
+      goal: "理解可恢复的章节规划",
+      source_hash: source.sourceHash,
+      goal_hash: hashGoal("理解可恢复的章节规划"),
+      source_filename: "workflow.pdf",
+      source_mime_type: "application/pdf",
+      source_page_count: 1,
+      source_character_count: source.characterCount,
+    };
+    const blocks = source.blocks.map((block) => ({
+      block_index: block.blockIndex,
+      page_number: block.pageNumber,
+      kind: block.kind,
+      text: block.text,
+      block_hash: block.blockHash,
+      heading_level: block.headingLevel,
+    }));
+    await database.query(
+      "select public.register_learning_project_source_v2($1::jsonb, $2::jsonb)",
+      [JSON.stringify(request), JSON.stringify(blocks)],
+    );
+
+    const queued = await database.query<{ job_id: string }>(
+      "select public.enqueue_outline_planning_v2($1, $2) as job_id",
+      [workflowProjectId, owner],
+    );
+    const queuedAgain = await database.query<{ job_id: string }>(
+      "select public.enqueue_outline_planning_v2($1, $2) as job_id",
+      [workflowProjectId, owner],
+    );
+    const firstJobId = queued.rows[0]!.job_id;
+    expect(queuedAgain.rows[0]?.job_id).toBe(firstJobId);
+
+    const claimed = await database.query<{ job_id: string; status: string; attempt: number }>(
+      "select job_id, status, attempt from public.claim_next_workflow_job_v2(array['PLAN_OUTLINE']::text[])",
+    );
+    expect(claimed.rows[0]).toEqual({ job_id: firstJobId, status: "RUNNING", attempt: 1 });
+    await database.query("select public.retry_workflow_job_v2($1::uuid, $2)", [
+      firstJobId,
+      "temporary model failure",
+    ]);
+    const retried = await database.query<{ status: string; last_error: string }>(
+      "select status, last_error from public.workflow_jobs where job_id = $1::uuid",
+      [firstJobId],
+    );
+    expect(retried.rows[0]).toEqual({ status: "RETRYABLE", last_error: "temporary model failure" });
+
+    await database.query("update public.workflow_jobs set available_at = now() where job_id = $1::uuid", [firstJobId]);
+    const claimedAgain = await database.query<{ attempt: number }>(
+      "select attempt from public.claim_next_workflow_job_v2(array['PLAN_OUTLINE']::text[])",
+    );
+    expect(claimedAgain.rows[0]?.attempt).toBe(2);
+    await database.query("select public.complete_workflow_job_v2($1::uuid, $2::jsonb)", [
+      firstJobId,
+      JSON.stringify({ outlineVersion: 1, chapterCount: 1 }),
+    ]);
+    const completed = await database.query<{ status: string }>(
+      "select status from public.workflow_jobs where job_id = $1::uuid",
+      [firstJobId],
+    );
+    expect(completed.rows[0]?.status).toBe("SUCCEEDED");
+
+    const stale = await database.query<{ job_id: string }>(
+      "select public.enqueue_outline_planning_v2($1, $2) as job_id",
+      [workflowProjectId, owner],
+    );
+    const staleJobId = stale.rows[0]!.job_id;
+    await database.query("select * from public.claim_next_workflow_job_v2(array['PLAN_OUTLINE']::text[])");
+    await database.query(
+      "update public.workflow_jobs set attempt = 3, lease_until = now() - interval '1 second' where job_id = $1::uuid",
+      [staleJobId],
+    );
+    await expect(database.query<{ recovered: number }>(
+      "select public.recover_stale_workflow_jobs_v2() as recovered",
+    )).resolves.toMatchObject({ rows: [{ recovered: 1 }] });
+    const staleState = await database.query<{ status: string; project_status: string }>(`
+      select jobs.status, projects.status as project_status
+      from public.workflow_jobs as jobs
+      join public.learning_projects as projects on projects.project_id = jobs.project_id
+      where jobs.job_id = $1::uuid
+    `, [staleJobId]);
+    expect(staleState.rows[0]).toEqual({ status: "FAILED", project_status: "FAILED_RETRYABLE" });
+  });
+
+  it("keeps one source idempotent, versions its outline, and only materializes Chapters on confirmation", async () => {
+    const source = intakeSource([
+      { pageNumber: 1, text: "# 第一章 原理\n\n外部调用把控制权交给未知代码，状态必须先更新。" },
+      { pageNumber: 2, text: "# 第二章 防御\n\n检查条件、更新状态，最后执行外部交互。" },
+    ]);
+    const request = {
+      project_id: projectId,
+      owner_address: owner,
+      client_request_id: "project-intake-1",
+      title: "重入安全资料",
+      goal: "理解原理与防御",
+      source_hash: source.sourceHash,
+      goal_hash: hashGoal("理解原理与防御"),
+      source_filename: "security.pdf",
+      source_mime_type: "application/pdf",
+      source_page_count: 2,
+      source_character_count: source.characterCount,
+    };
+    const blocks = source.blocks.map((block) => ({
+      block_index: block.blockIndex,
+      page_number: block.pageNumber,
+      kind: block.kind,
+      text: block.text,
+      block_hash: block.blockHash,
+      heading_level: block.headingLevel,
+    }));
+    const first = await database.query<{ project_id: Hex }>(
+      "select public.register_learning_project_source_v2($1::jsonb, $2::jsonb) as project_id",
+      [JSON.stringify(request), JSON.stringify(blocks)],
+    );
+    const retry = await database.query<{ project_id: Hex }>(
+      "select public.register_learning_project_source_v2($1::jsonb, $2::jsonb) as project_id",
+      [JSON.stringify(request), JSON.stringify(blocks)],
+    );
+    expect(first.rows[0]?.project_id).toBe(projectId);
+    expect(retry.rows[0]?.project_id).toBe(projectId);
+
+    const outline = planChaptersDeterministically(projectId, source.blocks);
+    const items = outline.chapters.map((chapter) => ({
+      item_id: `chapter-${chapter.chapterId}`,
+      position: chapter.position,
+      title: chapter.title,
+      summary: chapter.summary,
+      start_block: chapter.startBlock,
+      end_block: chapter.endBlock,
+      page_start: chapter.pageStart,
+      page_end: chapter.pageEnd,
+      source_hash: chapter.sourceHash,
+      importance: chapter.importance,
+      min_card_count: 3,
+      target_card_count: 4,
+      max_card_count: 6,
+    }));
+    const draft = await database.query<{ version: number }>(
+      "select public.save_project_outline_draft_v2($1, $2, null, $3, 'deterministic-v2', $4::jsonb) as version",
+      [projectId, owner, outline.outlineHash, JSON.stringify(items)],
+    );
+    expect(draft.rows[0]?.version).toBe(1);
+    const beforeConfirmation = await database.query<{ chapters: number }>(
+      "select count(*)::integer as chapters from public.chapters where project_id = $1",
+      [projectId],
+    );
+    expect(beforeConfirmation.rows[0]?.chapters).toBe(0);
+
+    const workPlan = planWorkUnits(projectId, outline.chapters, source.blocks);
+    const chapters = outline.chapters.map((chapter) => ({
+      chapter_id: chapter.chapterId,
+      position: chapter.position,
+      title: chapter.title,
+      summary: chapter.summary,
+      start_block: chapter.startBlock,
+      end_block: chapter.endBlock,
+      page_start: chapter.pageStart,
+      page_end: chapter.pageEnd,
+      source_hash: chapter.sourceHash,
+      importance: chapter.importance,
+      min_card_count: 3,
+      target_card_count: 4,
+      max_card_count: 6,
+    }));
+    const workUnits = workPlan.workUnits.map((unit) => ({
+      work_unit_id: unit.workUnitId,
+      chapter_id: unit.chapterId,
+      unit_index: unit.unitIndex,
+      start_block: unit.startBlock,
+      end_block: unit.endBlock,
+      source_text: unit.sourceText,
+      source_blocks: unit.sourceBlocks,
+      source_unit_hash: unit.sourceUnitHash,
+      manifest_proof: unit.manifestProof,
+      card_minimum: unit.cardMinimum,
+      card_target: unit.cardTarget,
+      card_budget: unit.cardBudget,
+    }));
+    await database.query(
+      "select public.confirm_project_outline_draft_v2($1, $2, 1, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb)",
+      [
+        projectId,
+        owner,
+        outline.outlineHash,
+        workPlan.workUnitManifestRoot,
+        JSON.stringify(chapters),
+        JSON.stringify(workUnits),
+        JSON.stringify({ projectId, outlineVersion: 1 }),
+      ],
+    );
+    const materialized = await database.query<{ status: string; chapters: number; work_units: number }>(`
+      select projects.status,
+        (select count(*)::integer from public.chapters where project_id = projects.project_id) as chapters,
+        (select count(*)::integer from public.work_units where project_id = projects.project_id) as work_units
+      from public.learning_projects as projects where project_id = $1
+    `, [projectId]);
+    expect(materialized.rows[0]).toEqual({
+      status: "AWAITING_REGISTRY",
+      chapters: outline.chapters.length,
+      work_units: workPlan.workUnits.length,
     });
+  });
+
+  it("keeps folder operations separate from source and outline commitments", async () => {
+    const folder = await database.query<{ folder_id: string }>(
+      "select public.create_project_folder_v2($1, $2, null) as folder_id",
+      [owner, "安全资料"],
+    );
+    const folderId = folder.rows[0]!.folder_id;
+    await database.query("select public.move_learning_project_to_folder_v2($1, $2, $3::uuid)", [
+      owner,
+      projectId,
+      folderId,
+    ]);
+    const library = await database.query<{ result: { documents: Array<{ projectId: string; chapterCount: number }> } }>(
+      "select public.get_document_library_v2($1, $2::uuid, now()) as result",
+      [owner, folderId],
+    );
+    expect(library.rows[0]?.result.documents).toEqual([
+      { projectId, chapterCount: 2, readyChapterCount: 0, cardCount: 0, dueCount: 0, folderId, sourceFilename: "security.pdf", sourceMimeType: "application/pdf", sourcePageCount: 2, status: "AWAITING_REGISTRY", title: "重入安全资料", updatedAt: expect.any(String) },
+    ]);
+  });
+
+  it("accepts Chapter quality-gate audit events", async () => {
+    await expect(database.query(`
+      insert into public.project_agent_events (
+        project_id, agent_role, event_type, payload
+      ) values ($1, 'chapter-quality-gate', 'CHAPTER_CANDIDATES_APPROVED', '{}'::jsonb)
+    `, [projectId])).resolves.toBeDefined();
+  });
+
+  it("creates exact Runner jobs from Project and Work Unit state transitions", async () => {
+    await database.query(
+      "update public.learning_projects set status = 'GENERATING' where project_id = $1",
+      [projectId],
+    );
+    const generationJobs = await database.query<{
+      kind: string;
+      chapter_id: number | null;
+      work_unit_id: number | null;
+      status: string;
+    }>(`
+      select kind, chapter_id, work_unit_id, status
+      from public.workflow_jobs
+      where project_id = $1 and kind = 'GENERATE_WORK_UNIT'
+      order by work_unit_id
+    `, [projectId]);
+    const unitCount = await database.query<{ count: number }>(
+      "select count(*)::integer as count from public.work_units where project_id = $1",
+      [projectId],
+    );
+    expect(generationJobs.rows).toHaveLength(unitCount.rows[0]!.count);
+    expect(generationJobs.rows.every((job) => job.status === "QUEUED" && job.chapter_id !== null)).toBe(true);
+
+    const firstJob = generationJobs.rows[0]!;
+    const claimed = await database.query<{ status: string; worker_address: string }>(
+      "select status, worker_address from public.claim_work_unit_for_workflow_v2($1, $2, $3)",
+      [projectId, firstJob.work_unit_id, `0x${"11".repeat(20)}`],
+    );
+    expect(claimed.rows[0]).toMatchObject({ status: "GENERATING", worker_address: `0x${"11".repeat(20)}` });
+
+    await database.query(
+      "update public.work_units set status = 'RETRYABLE', attempt = 3 where project_id = $1 and work_unit_id = $2",
+      [projectId, firstJob.work_unit_id],
+    );
+    const fourthAttempt = await database.query<{ status: string; attempt: number }>(
+      "select status, attempt from public.claim_work_unit_for_workflow_v2($1, $2, $3)",
+      [projectId, firstJob.work_unit_id, `0x${"11".repeat(20)}`],
+    );
+    expect(fourthAttempt.rows[0]).toMatchObject({ status: "GENERATING", attempt: 4 });
+
+    await database.query(
+      "update public.work_units set status = 'CANDIDATE_READY' where project_id = $1",
+      [projectId],
+    );
+    const qualityJobs = await database.query<{ kind: string; chapter_id: number }>(`
+      select kind, chapter_id from public.workflow_jobs
+      where project_id = $1 and kind = 'QUALITY_CHECK_CHAPTER' and status = 'QUEUED'
+      order by chapter_id
+    `, [projectId]);
+    const chapterCount = await database.query<{ count: number }>(
+      "select count(*)::integer as count from public.chapters where project_id = $1",
+      [projectId],
+    );
+    expect(qualityJobs.rows).toHaveLength(chapterCount.rows[0]!.count);
+
+    const obsoleteClaims = await database.query<{ count: number }>(`
+      select count(*)::integer as count
+      from pg_proc as functions
+      join pg_namespace as namespaces on namespaces.oid = functions.pronamespace
+      where namespaces.nspname = 'public'
+        and functions.proname in (
+          'claim_next_work_unit_v2',
+          'recover_stale_work_units_v2',
+          'claim_next_chapter_quality_check_v2',
+          'claim_next_chapter_assembly_v2',
+          'claim_next_project_finalization_v2',
+          'claim_work_unit_reward_v2'
+        )
+    `);
+    expect(obsoleteClaims.rows[0]?.count).toBe(0);
+
+    const operations = await database.query<{ snapshot: unknown }>(
+      "select public.get_workflow_operations_v2() as snapshot",
+    );
+    const snapshot = WorkflowOperationsSnapshotSchema.parse(operations.rows[0]?.snapshot);
+    expect(snapshot.metrics.queuedJobs).toBeGreaterThan(0);
+    expect(snapshot.jobs.some((job) => job.kind === "GENERATE_WORK_UNIT")).toBe(true);
+    expect(JSON.stringify(snapshot)).not.toContain("source_text");
+  });
+
+  it("freezes only fully validated V3 Chapter designs before creating Work Units", async () => {
+    const source = intakeSource([
+      {
+        pageNumber: 1,
+        text: "# 重入防御\n\n外部调用会把执行控制权交给未知代码。\n\n在外部交互之前更新状态可以降低重入风险。",
+      },
+    ]);
+    const request = {
+      project_id: designProjectId,
+      owner_address: owner,
+      client_request_id: "design-v3-intake-1",
+      title: "设计质量资料",
+      goal: "理解重入防御",
+      source_hash: source.sourceHash,
+      goal_hash: hashGoal("理解重入防御"),
+      source_filename: "design.pdf",
+      source_mime_type: "application/pdf",
+      source_page_count: 1,
+      source_character_count: source.characterCount,
+    };
+    const blocks = source.blocks.map((block) => ({
+      block_index: block.blockIndex,
+      page_number: block.pageNumber,
+      kind: block.kind,
+      text: block.text,
+      block_hash: block.blockHash,
+      heading_level: block.headingLevel,
+    }));
+    await database.query(
+      "select public.register_learning_project_source_v2($1::jsonb, $2::jsonb)",
+      [JSON.stringify(request), JSON.stringify(blocks)],
+    );
+    const outline = planChaptersDeterministically(designProjectId, source.blocks);
+    const items = outline.chapters.map((chapter) => ({
+      item_id: `chapter-${chapter.chapterId}`,
+      position: chapter.position,
+      title: chapter.title,
+      summary: chapter.summary,
+      start_block: chapter.startBlock,
+      end_block: chapter.endBlock,
+      page_start: chapter.pageStart,
+      page_end: chapter.pageEnd,
+      source_hash: chapter.sourceHash,
+      importance: chapter.importance,
+      min_card_count: 2,
+      target_card_count: 3,
+      max_card_count: 4,
+    }));
+    await database.query(
+      "select public.save_project_outline_draft_v2($1, $2, null, $3, 'test-v3', $4::jsonb)",
+      [designProjectId, owner, outline.outlineHash, JSON.stringify(items)],
+    );
+    await database.query(
+      "select public.confirm_project_outline_design_v3($1, $2, 1, $3, $4::jsonb)",
+      [designProjectId, owner, outline.outlineHash, JSON.stringify(items.map((item, chapterId) => ({
+        ...item,
+        chapter_id: chapterId,
+      })))],
+    );
+    const initial = await database.query<{ status: string; chapters: number; work_units: number; jobs: number }>(`
+      select projects.status,
+        (select count(*)::integer from public.chapters where project_id = projects.project_id) as chapters,
+        (select count(*)::integer from public.work_units where project_id = projects.project_id) as work_units,
+        (select count(*)::integer from public.workflow_jobs where project_id = projects.project_id and kind = 'DESIGN_CHAPTER') as jobs
+      from public.learning_projects as projects where projects.project_id = $1
+    `, [designProjectId]);
+    expect(initial.rows[0]).toEqual({ status: "DESIGNING_CARDS", chapters: 1, work_units: 0, jobs: 1 });
+
+    const chapter = outline.chapters[0]!;
+    const inventory = materializeChapterConceptInventory({
+      projectId: designProjectId,
+      chapterId: chapter.chapterId,
+      outlineVersion: 1,
+      sourceHash: chapter.sourceHash,
+      concepts: [{
+        name: "重入风险",
+        importance: 5,
+        learningObjective: "解释外部调用如何引入重入风险。",
+        sourceBlockIndexes: [1],
+        prerequisites: [],
+        misconceptions: ["外部调用本身一定不安全。"],
+      }],
+    });
+    const inventoryHash = hashChapterConceptInventoryV3(inventory);
+    const blueprint = materializeCardBlueprint({
+      projectId: designProjectId,
+      chapterId: chapter.chapterId,
+      outlineVersion: 1,
+      inventoryHash,
+      slots: [
+        {
+          conceptId: inventory.concepts[0]!.conceptId,
+          type: "concept",
+          objective: "解释重入发生的条件。",
+          difficulty: 2,
+          sourceBlockIndexes: [1],
+          required: true,
+        },
+        {
+          conceptId: inventory.concepts[0]!.conceptId,
+          type: "misconception",
+          objective: "纠正对外部调用风险的误解。",
+          difficulty: 3,
+          sourceBlockIndexes: [1],
+          required: true,
+        },
+      ],
+    });
+    const blueprintHash = hashCardBlueprintV3(blueprint);
+    const run = await database.query<{ design_run_id: string }>(
+      "select public.start_chapter_design_v3($1, $2, 1) as design_run_id",
+      [designProjectId, chapter.chapterId],
+    );
+    await database.query(
+      "select public.complete_chapter_design_v3($1::uuid, $2::jsonb, $3::jsonb, $4, $5, 'test-v3', 'fake-model', '{}'::jsonb)",
+      [run.rows[0]!.design_run_id, JSON.stringify(inventory), JSON.stringify(blueprint), inventoryHash, blueprintHash],
+    );
+    const freezeJob = await database.query<{ kind: string; status: string }>(`
+      select kind, status from public.workflow_jobs
+      where project_id = $1 and kind = 'FREEZE_PROJECT_DESIGN'
+    `, [designProjectId]);
+    expect(freezeJob.rows).toEqual([{ kind: "FREEZE_PROJECT_DESIGN", status: "QUEUED" }]);
+
+    const plan = planBlueprintWorkUnits(designProjectId, outline.chapters, source.blocks, [blueprint]);
+    const frozenDesignHash = hashFrozenProjectDesignV3({
+      projectId: designProjectId,
+      outlineVersion: 1,
+      designs: [{ chapterId: chapter.chapterId, inventoryHash, blueprintHash }],
+    });
+    await database.query(
+      "select public.freeze_project_design_v3($1, 1, $2, $3::jsonb, $4::jsonb, $5, $6::jsonb)",
+      [
+        designProjectId,
+        plan.workUnitManifestRoot,
+        JSON.stringify(plan.workUnits.map((unit) => ({
+          work_unit_id: unit.workUnitId,
+          chapter_id: unit.chapterId,
+          unit_index: unit.unitIndex,
+          start_block: unit.startBlock,
+          end_block: unit.endBlock,
+          source_text: unit.sourceText,
+          source_blocks: unit.sourceBlocks,
+          source_unit_hash: unit.sourceUnitHash,
+          manifest_proof: unit.manifestProof,
+          card_minimum: unit.cardMinimum,
+          card_target: unit.cardTarget,
+          card_budget: unit.cardBudget,
+        }))),
+        JSON.stringify(plan.slotAssignments.map((assignment) => ({
+          slot_id: assignment.slotId,
+          work_unit_id: assignment.workUnitId,
+        }))),
+        frozenDesignHash,
+        JSON.stringify({ projectId: designProjectId, outlineVersion: 1 }),
+      ],
+    );
+    const frozen = await database.query<{ status: string; work_units: number; assigned_slots: number }>(`
+      select projects.status,
+        (select count(*)::integer from public.work_units where project_id = projects.project_id) as work_units,
+        (select count(*)::integer from public.card_blueprint_slots where project_id = projects.project_id and assigned_work_unit_id is not null) as assigned_slots
+      from public.learning_projects as projects where project_id = $1
+    `, [designProjectId]);
+    expect(frozen.rows[0]).toEqual({ status: "AWAITING_REGISTRY", work_units: 1, assigned_slots: 2 });
   });
 });

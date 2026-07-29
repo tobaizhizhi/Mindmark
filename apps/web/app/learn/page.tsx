@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
-import { LearningWorkbench } from "@/components/learning-workbench";
+import { DocumentLibraryWorkspace } from "@/components/document-library-workspace";
 
 export const metadata: Metadata = {
-  title: "学习工作台 | Mindmark",
-  description: "新建 AI 知识卡学习项目，或继续以前的间隔复习。",
+  title: "资料和文件夹 | Mindmark",
+  description: "整理 PDF 资料，从章节进入知识卡学习。",
 };
 
 export default function LearnPage() {
-  return <LearningWorkbench />;
+  return <DocumentLibraryWorkspace />;
 }

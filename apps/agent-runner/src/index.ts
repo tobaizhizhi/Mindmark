@@ -18,16 +18,26 @@ export function isDirectExecution(
   return Boolean(argvEntry && moduleUrl === pathToFileURL(resolve(cwd, argvEntry)).href);
 }
 
-export * from "./chain.js";
-export * from "./coordinator.js";
-export * from "./finalizer.js";
+export * from "./chain-v2.js";
+export * from "./chapter-planner.js";
+export * from "./chapter-design-agent.js";
+export * from "./chapter-quality-gate.js";
+export * from "./chapter-assembler.js";
+export * from "./coordinator-v2.js";
+export * from "./project-finalizer-v2.js";
+export * from "./project-design-freezer.js";
 export * from "./model.js";
-export * from "./repository.js";
+export * from "./outline-planning-agent.js";
+export * from "./repository-v2.js";
+export * from "./registry-reconciler-v2.js";
 export * from "./reward.js";
+export * from "./reward-v2.js";
+export * from "./runtime-types.js";
 export * from "./runtime.js";
-export * from "./types.js";
-export * from "./validation.js";
-export * from "./worker.js";
+export * from "./types-v2.js";
+export * from "./validation-v2.js";
+export * from "./worker-v2.js";
+export * from "./workflow-dispatcher-v2.js";
 
 if (isDirectExecution(import.meta.url, process.argv[1])) {
   const { startRunnerFromEnvironment } = await import("./runtime.js");

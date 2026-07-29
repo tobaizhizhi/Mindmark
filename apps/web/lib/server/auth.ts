@@ -133,3 +133,11 @@ export async function requireWalletSession(): Promise<WalletSession> {
   if (!session) throw new ApiError(401, "authentication_required", "Connect and sign in first");
   return session;
 }
+
+export async function requireOperatorSession(): Promise<WalletSession> {
+  const session = await requireWalletSession();
+  if (!getServerEnvironment().OPERATOR_WALLET_ADDRESSES.includes(session.address)) {
+    throw new ApiError(403, "operator_access_required", "This wallet is not allowed to view operations");
+  }
+  return session;
+}

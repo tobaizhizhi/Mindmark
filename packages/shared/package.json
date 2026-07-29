@@ -20,8 +20,9 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "generate:vectors": "tsx scripts/generate-hash-vectors.ts",
-    "lint": "eslint src test scripts",
+    "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
+    "lint": "eslint src test",
+    "prebuild": "pnpm clean",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
