@@ -6,6 +6,7 @@ import {
   ChapterConceptInventorySchema,
   type ChapterConceptInventory,
 } from "./chapter-concepts.js";
+import { ChapterCardPolicySchema, type ChapterCardPolicy } from "./card-policy.js";
 import { Bytes32Schema } from "./schemas.js";
 import type { ChapterOutlineItem, WorkUnit } from "./project-v2.js";
 
@@ -142,14 +143,19 @@ export function validateCardBlueprint(
   rawBlueprint: CardBlueprint,
   rawInventory: ChapterConceptInventory,
   chapter: ChapterOutlineItem,
+  rawCardPolicy: ChapterCardPolicy,
 ): CardBlueprint {
   const blueprint = CardBlueprintSchema.parse(rawBlueprint);
   const inventory = ChapterConceptInventorySchema.parse(rawInventory);
+  const cardPolicy = ChapterCardPolicySchema.parse(rawCardPolicy);
   if (blueprint.projectId !== inventory.projectId || blueprint.chapterId !== inventory.chapterId) {
     throw new Error("Card Blueprint does not belong to its Concept Inventory");
   }
   if (blueprint.chapterId !== chapter.chapterId) {
     throw new Error("Card Blueprint chapterId does not match the Chapter");
+  }
+  if (cardPolicy.chapterId !== chapter.chapterId) {
+    throw new Error("Chapter Card Policy does not match the Card Blueprint");
   }
   const concepts = new Map(inventory.concepts.map((concept) => [concept.conceptId, concept]));
   const slotIds = new Set<string>();
@@ -179,6 +185,16 @@ export function validateCardBlueprint(
         throw new Error(`Important Concept with misconceptions needs a required misconception Slot: ${concept.name}`);
       }
     }
+  }
+  if (blueprint.slots.length < cardPolicy.minCardCount) {
+    throw new Error(
+      `Card Blueprint has ${blueprint.slots.length} Slots but Chapter minimum is ${cardPolicy.minCardCount}`,
+    );
+  }
+  if (blueprint.slots.length > cardPolicy.maxCardCount) {
+    throw new Error(
+      `Card Blueprint has ${blueprint.slots.length} Slots and exceeds Chapter maximum ${cardPolicy.maxCardCount}`,
+    );
   }
   return blueprint;
 }

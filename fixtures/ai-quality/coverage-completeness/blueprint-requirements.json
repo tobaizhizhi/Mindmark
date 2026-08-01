@@ -1,0 +1,5 @@
+{
+  "fixtureId": "coverage-completeness",
+  "requiredCardTypes": ["process", "application"],
+  "maximumCardCount": 4
+}

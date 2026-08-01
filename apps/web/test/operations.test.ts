@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { ApiError, jsonError } from "@/lib/server/http";
-import { getWorkflowOperations, type OperationsStore } from "@/lib/server/operations";
+import {
+  getLearningQualityOperations,
+  getWorkflowOperations,
+  type OperationsStore,
+} from "@/lib/server/operations";
 
 const projectId = `0x${"71".repeat(32)}`;
 const generatedAt = "2026-07-28T00:00:00.000Z";
@@ -55,6 +59,39 @@ class MemoryOperationsStore implements OperationsStore {
       }],
     };
   }
+
+  async loadLearningQualityReport() {
+    return {
+      generatedAt,
+      feedback: { totalCount: 3, upCount: 1, downCount: 0, incorrectCount: 1, unclearCount: 1 },
+      chapters: [{
+        projectId,
+        chapterId: 0,
+        slotCount: 3,
+        requiredSlotCount: 2,
+        acceptedSlotCount: 2,
+        evaluationCount: 4,
+        approvedEvaluationCount: 2,
+        repairRequestedEvaluationCount: 2,
+        failedEvaluationCount: 0,
+        feedback: { totalCount: 3, upCount: 1, downCount: 0, incorrectCount: 1, unclearCount: 1 },
+      }],
+      slots: [{
+        projectId,
+        chapterId: 0,
+        slotId: `0x${"72".repeat(32)}`,
+        cardType: "concept",
+        required: true,
+        status: "ACCEPTED",
+        evaluationCount: 2,
+        approvedEvaluationCount: 1,
+        repairRequestedEvaluationCount: 1,
+        failedEvaluationCount: 0,
+        feedback: { totalCount: 1, upCount: 0, downCount: 0, incorrectCount: 1, unclearCount: 0 },
+      }],
+      failureCategories: [{ code: "CITATION_INSUFFICIENT", count: 2 }],
+    };
+  }
 }
 
 describe("Workflow operations", () => {
@@ -65,6 +102,16 @@ describe("Workflow operations", () => {
     expect(snapshot.alerts[0]).toMatchObject({ code: "FAILED_JOBS", count: 1 });
     expect(snapshot.jobs[0]).toMatchObject({ kind: "GENERATE_WORK_UNIT", workUnitId: 0 });
     expect(JSON.stringify(snapshot)).not.toContain("sourceText");
+  });
+
+  it("returns aggregate learning quality signals without feedback prose or card content", async () => {
+    const report = await getLearningQualityOperations(new MemoryOperationsStore());
+
+    expect(report.feedback).toMatchObject({ totalCount: 3, incorrectCount: 1 });
+    expect(report.chapters[0]).toMatchObject({ acceptedSlotCount: 2, repairRequestedEvaluationCount: 2 });
+    expect(report.slots[0]).toMatchObject({ cardType: "concept", status: "ACCEPTED" });
+    expect(JSON.stringify(report)).not.toContain("答案遗漏");
+    expect(JSON.stringify(report)).not.toContain("sourceText");
   });
 });
 

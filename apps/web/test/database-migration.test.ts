@@ -3,8 +3,12 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import {
+  buildCardTree,
+  deriveCardIdV2,
   hashGoal,
+  hashKnowledgeCard,
   intakeSource,
+  LearningQualityOperationsReportSchema,
   WorkflowOperationsSnapshotSchema,
   hashCardBlueprintV3,
   hashChapterConceptInventoryV3,
@@ -20,8 +24,10 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const projectId = `0x${"77".repeat(32)}` as Hex;
+const duplicateSourceProjectId = `0x${"66".repeat(32)}` as Hex;
 const workflowProjectId = `0x${"88".repeat(32)}` as Hex;
 const designProjectId = `0x${"99".repeat(32)}` as Hex;
+const relevanceProjectId = `0x${"55".repeat(32)}` as Hex;
 const owner = `0x${"aa".repeat(20)}`;
 let database: PGlite;
 
@@ -38,6 +44,9 @@ beforeAll(async () => {
     "20260728000300_operations_diagnostics.sql",
     "20260729000100_runner_constraint_alignment.sql",
     "20260730000100_learning_design_v3.sql",
+    "20260730000200_learning_quality_operations.sql",
+    "20260730000300_allow_duplicate_project_sources.sql",
+    "20260731000100_outline_learning_relevance.sql",
   ]) {
     await database.exec(await readFile(path.join(root, "supabase/migrations", migration), "utf8"));
   }
@@ -61,10 +70,11 @@ describe("V2 database baseline", () => {
           'chapters', 'work_units', 'knowledge_cards', 'card_learning_states',
           'review_sessions', 'project_review_logs', 'project_agent_events', 'work_unit_rewards',
           'workflow_jobs', 'workflow_events', 'chapter_design_runs',
-          'card_blueprint_slots', 'card_quality_evaluations', 'knowledge_card_feedback'
+          'card_blueprint_slots', 'card_slot_candidates', 'card_quality_evaluations',
+          'knowledge_card_feedback', 'project_outline_exclusions'
         )
     `);
-    expect(result.rows).toHaveLength(21);
+    expect(result.rows).toHaveLength(23);
     expect(result.rows.every((row) => row.relrowsecurity && row.relforcerowsecurity)).toBe(true);
     const policies = await database.query<{ count: number }>(
       "select count(*)::integer as count from pg_policies where schemaname = 'public'",
@@ -164,7 +174,7 @@ describe("V2 database baseline", () => {
     expect(staleState.rows[0]).toEqual({ status: "FAILED", project_status: "FAILED_RETRYABLE" });
   });
 
-  it("keeps one source idempotent, versions its outline, and only materializes Chapters on confirmation", async () => {
+  it("keeps one intake request idempotent, versions its outline, and allows the same PDF in a new Project", async () => {
     const source = intakeSource([
       { pageNumber: 1, text: "# 第一章 原理\n\n外部调用把控制权交给未知代码，状态必须先更新。" },
       { pageNumber: 2, text: "# 第二章 防御\n\n检查条件、更新状态，最后执行外部交互。" },
@@ -281,6 +291,28 @@ describe("V2 database baseline", () => {
       chapters: outline.chapters.length,
       work_units: workPlan.workUnits.length,
     });
+
+    const duplicateRequest = {
+      ...request,
+      project_id: duplicateSourceProjectId,
+      client_request_id: "project-intake-duplicate-pdf",
+    };
+    const duplicate = await database.query<{ project_id: Hex }>(
+      "select public.register_learning_project_source_v2($1::jsonb, $2::jsonb) as project_id",
+      [JSON.stringify(duplicateRequest), JSON.stringify(blocks)],
+    );
+    expect(duplicate.rows[0]?.project_id).toBe(duplicateSourceProjectId);
+    const duplicateProjects = await database.query<{ project_count: number; block_count: number }>(`
+      select count(distinct projects.project_id)::integer as project_count,
+        count(blocks.block_index)::integer as block_count
+      from public.learning_projects as projects
+      join public.source_blocks as blocks on blocks.project_id = projects.project_id
+      where projects.owner_address = $1 and projects.source_hash = $2
+    `, [owner, source.sourceHash]);
+    expect(duplicateProjects.rows[0]).toEqual({
+      project_count: 2,
+      block_count: blocks.length * 2,
+    });
   });
 
   it("keeps folder operations separate from source and outline commitments", async () => {
@@ -395,7 +427,7 @@ describe("V2 database baseline", () => {
     const source = intakeSource([
       {
         pageNumber: 1,
-        text: "# 重入防御\n\n外部调用会把执行控制权交给未知代码。\n\n在外部交互之前更新状态可以降低重入风险。",
+        text: "# 重入防御\n\n外部调用会把执行控制权交给未知代码，并可能再次调用原合约。\n\n在外部交互之前更新状态可以降低重入风险。",
       },
     ]);
     const request = {
@@ -554,5 +586,378 @@ describe("V2 database baseline", () => {
       from public.learning_projects as projects where project_id = $1
     `, [designProjectId]);
     expect(frozen.rows[0]).toEqual({ status: "AWAITING_REGISTRY", work_units: 1, assigned_slots: 2 });
+
+    const workUnit = plan.workUnits[0]!;
+    const drafts = blueprint.slots.map((slot) => {
+      const evidence = source.blocks.find((block) => block.blockIndex === slot.sourceBlockIndexes[0])!;
+      const content = {
+        type: slot.type === "concept" ? "concept" as const : "qa" as const,
+        question: `${slot.objective}？`,
+        answer: evidence.text,
+        keyPoint: slot.objective,
+        source: { page: evidence.pageNumber, quote: evidence.text },
+        tags: ["重入防御"],
+        importance: 5,
+        initialDifficulty: slot.difficulty,
+      };
+      const cardHash = hashKnowledgeCard(content);
+      return {
+        slotId: slot.slotId,
+        content,
+        cardHash,
+        id: deriveCardIdV2(designProjectId, workUnit.chapterId, workUnit.workUnitId, cardHash),
+      };
+    });
+    const cardTree = buildCardTree(drafts.map((draft) => draft.id));
+    const candidates = drafts.map((draft) => ({
+      slot_id: draft.slotId,
+      card: {
+        ...draft.content,
+        id: draft.id,
+        cardHash: draft.cardHash,
+        projectId: designProjectId,
+        chapterId: workUnit.chapterId,
+        workUnitId: workUnit.workUnitId,
+        workerProof: cardTree.cards.find((card) => card.cardId === draft.id)!.proof,
+      },
+    }));
+    await database.query(
+      "update public.learning_projects set status = 'GENERATING' where project_id = $1",
+      [designProjectId],
+    );
+    await database.query(
+      "update public.work_units set status = 'VALIDATING' where project_id = $1 and work_unit_id = $2",
+      [designProjectId, workUnit.workUnitId],
+    );
+
+    await expect(database.query(
+      "select public.save_work_unit_candidates_v3($1, $2, $3, 25, $4::jsonb)",
+      [designProjectId, workUnit.workUnitId, cardTree.root, JSON.stringify(candidates.slice(0, 1))],
+    )).rejects.toThrow(/every assigned Blueprint Slot/u);
+    const afterRejectedSave = await database.query<{ status: string; candidates: number }>(`
+      select units.status,
+        (select count(*)::integer from public.card_slot_candidates where project_id = units.project_id) as candidates
+      from public.work_units as units
+      where units.project_id = $1 and units.work_unit_id = $2
+    `, [designProjectId, workUnit.workUnitId]);
+    expect(afterRejectedSave.rows[0]).toEqual({ status: "VALIDATING", candidates: 0 });
+
+    await database.query(
+      "select public.save_work_unit_candidates_v3($1, $2, $3, 25, $4::jsonb)",
+      [designProjectId, workUnit.workUnitId, cardTree.root, JSON.stringify(candidates)],
+    );
+    const saved = await database.query<{
+      status: string;
+      card_count: number;
+      cards_root: string;
+      worker_card_count: number;
+      candidate_count: number;
+      min_revision: number;
+      max_revision: number;
+      ready_slots: number;
+    }>(`
+      select units.status, units.card_count, units.cards_root,
+        jsonb_array_length(units.worker_cards) as worker_card_count,
+        (select count(*)::integer from public.card_slot_candidates as candidates
+          where candidates.project_id = units.project_id and candidates.work_unit_id = units.work_unit_id
+        ) as candidate_count,
+        (select min(candidate_revision)::integer from public.card_slot_candidates as candidates
+          where candidates.project_id = units.project_id and candidates.work_unit_id = units.work_unit_id
+        ) as min_revision,
+        (select max(candidate_revision)::integer from public.card_slot_candidates as candidates
+          where candidates.project_id = units.project_id and candidates.work_unit_id = units.work_unit_id
+        ) as max_revision,
+        (select count(*)::integer from public.card_blueprint_slots as slots
+          where slots.project_id = units.project_id and slots.assigned_work_unit_id = units.work_unit_id
+            and slots.status = 'CANDIDATE_READY'
+        ) as ready_slots
+      from public.work_units as units
+      where units.project_id = $1 and units.work_unit_id = $2
+    `, [designProjectId, workUnit.workUnitId]);
+    expect(saved.rows[0]).toEqual({
+      status: "CANDIDATE_READY",
+      card_count: 2,
+      cards_root: cardTree.root,
+      worker_card_count: 2,
+      candidate_count: 2,
+      min_revision: 1,
+      max_revision: 1,
+      ready_slots: 2,
+    });
+    await expect(database.query(
+      "update public.card_slot_candidates set card = '{}'::jsonb where project_id = $1",
+      [designProjectId],
+    )).rejects.toThrow(/immutable/u);
+
+    await database.query(
+      "update public.chapters set status = 'QUALITY_CHECK' where project_id = $1 and chapter_id = $2",
+      [designProjectId, workUnit.chapterId],
+    );
+    const firstEvaluation = candidates.map((candidate, index) => ({
+      slot_id: candidate.slot_id,
+      card_id: candidate.card.id,
+      candidate_revision: 1,
+      verdict: index === 0 ? "APPROVED" : "REPAIR_REQUESTED",
+      hard_failures: index === 0 ? [] : ["SEMANTIC_DUPLICATE"],
+      rubric_scores: {
+        cardId: candidate.card.id,
+        citationSufficient: true,
+        factuality: 4,
+        learningValue: 4,
+        clarity: 4,
+        completeness: 4,
+        citationRelevance: 4,
+        difficultyFit: 5,
+        verdict: index === 0 ? "ACCEPT" : "REPAIR",
+        reasons: index === 0 ? [] : ["Candidate repeats another Slot."],
+      },
+    }));
+    await database.query(
+      "select public.request_chapter_slot_repairs_v3($1, $2, $3::uuid, $4::jsonb, $5::jsonb, $6::jsonb, $7::jsonb, $8, $9)",
+      [
+        designProjectId,
+        workUnit.chapterId,
+        run.rows[0]!.design_run_id,
+        JSON.stringify(firstEvaluation),
+        JSON.stringify([{ slot_id: candidates[1]!.slot_id, reason: "Semantic duplicate" }]),
+        JSON.stringify({ passes: false, weightedCoverage: 1 }),
+        JSON.stringify([{ leftCandidateId: candidates[0]!.card.id, rightCandidateId: candidates[1]!.card.id }]),
+        "deterministic-test",
+        "quality-v3-test-1",
+      ],
+    );
+    const repairState = await database.query<{
+      unit_status: string;
+      accepted_slots: number;
+      repair_slots: number;
+      accepted_candidates: number;
+      rejected_candidates: number;
+      repair_reason: string;
+    }>(`
+      select units.status as unit_status,
+        (select count(*)::integer from public.card_blueprint_slots
+          where project_id = units.project_id and status = 'ACCEPTED') as accepted_slots,
+        (select count(*)::integer from public.card_blueprint_slots
+          where project_id = units.project_id and status = 'REPAIR_REQUESTED') as repair_slots,
+        (select count(*)::integer from public.card_slot_candidates
+          where project_id = units.project_id and status = 'ACCEPTED') as accepted_candidates,
+        (select count(*)::integer from public.card_slot_candidates
+          where project_id = units.project_id and status = 'REJECTED') as rejected_candidates,
+        (select repair_reason from public.card_quality_evaluations
+          where project_id = units.project_id and slot_id = $3
+          order by created_at desc limit 1) as repair_reason
+      from public.work_units as units where units.project_id = $1 and units.work_unit_id = $2
+    `, [designProjectId, workUnit.workUnitId, candidates[1]!.slot_id]);
+    expect(repairState.rows[0]).toEqual({
+      unit_status: "REPAIRING",
+      accepted_slots: 1,
+      repair_slots: 1,
+      accepted_candidates: 1,
+      rejected_candidates: 1,
+      repair_reason: "Semantic duplicate",
+    });
+
+    const repairedContent = {
+      ...drafts[1]!.content,
+      question: "怎样纠正对外部调用风险的误解？",
+      keyPoint: "外部调用转移控制权，但风险取决于调用前后的状态处理",
+    };
+    const repairedHash = hashKnowledgeCard(repairedContent);
+    const repairedId = deriveCardIdV2(
+      designProjectId,
+      workUnit.chapterId,
+      workUnit.workUnitId,
+      repairedHash,
+    );
+    const repairedTree = buildCardTree([repairedId]);
+    const repairedCard = {
+      ...repairedContent,
+      id: repairedId,
+      cardHash: repairedHash,
+      projectId: designProjectId,
+      chapterId: workUnit.chapterId,
+      workUnitId: workUnit.workUnitId,
+      workerProof: repairedTree.cards[0]!.proof,
+    };
+    await database.query(
+      "update public.work_units set status = 'VALIDATING' where project_id = $1 and work_unit_id = $2",
+      [designProjectId, workUnit.workUnitId],
+    );
+    await database.query(
+      "select public.save_work_unit_candidates_v3($1, $2, $3, 30, $4::jsonb)",
+      [
+        designProjectId,
+        workUnit.workUnitId,
+        repairedTree.root,
+        JSON.stringify([{ slot_id: candidates[1]!.slot_id, card: repairedCard }]),
+      ],
+    );
+
+    const finalDraftCards = [candidates[0]!.card, repairedCard];
+    const finalTree = buildCardTree(finalDraftCards.map((card) => card.id));
+    const finalCards = finalDraftCards.map((card) => ({
+      ...card,
+      workerProof: finalTree.cards.find((entry) => entry.cardId === card.id)!.proof,
+    }));
+    await database.query(
+      "update public.chapters set status = 'QUALITY_CHECK' where project_id = $1 and chapter_id = $2",
+      [designProjectId, workUnit.chapterId],
+    );
+    await database.query(
+      "select public.approve_chapter_candidates_v3($1, $2, $3::uuid, $4::jsonb, $5::jsonb, $6::jsonb, $7::jsonb, $8, $9)",
+      [
+        designProjectId,
+        workUnit.chapterId,
+        run.rows[0]!.design_run_id,
+        JSON.stringify([
+          { ...firstEvaluation[0], verdict: "APPROVED", hard_failures: [] },
+          {
+            slot_id: candidates[1]!.slot_id,
+            card_id: repairedId,
+            candidate_revision: 2,
+            verdict: "APPROVED",
+            hard_failures: [],
+            rubric_scores: {
+              cardId: repairedId,
+              citationSufficient: true,
+              factuality: 4,
+              learningValue: 4,
+              clarity: 4,
+              completeness: 4,
+              citationRelevance: 4,
+              difficultyFit: 5,
+              verdict: "ACCEPT",
+              reasons: [],
+            },
+          },
+        ]),
+        JSON.stringify([{
+          work_unit_id: workUnit.workUnitId,
+          worker_cards: finalCards,
+          cards_root: finalTree.root,
+          card_count: finalCards.length,
+        }]),
+        JSON.stringify({ passes: true, weightedCoverage: 1 }),
+        "[]",
+        "deterministic-test",
+        "quality-v3-test-1",
+      ],
+    );
+    const approved = await database.query<{
+      unit_status: string;
+      accepted_slots: number;
+      accepted_candidates: number;
+      rejected_candidates: number;
+      evaluations: number;
+    }>(`
+      select units.status as unit_status,
+        (select count(*)::integer from public.card_blueprint_slots
+          where project_id = units.project_id and status = 'ACCEPTED') as accepted_slots,
+        (select count(*)::integer from public.card_slot_candidates
+          where project_id = units.project_id and status = 'ACCEPTED') as accepted_candidates,
+        (select count(*)::integer from public.card_slot_candidates
+          where project_id = units.project_id and status = 'REJECTED') as rejected_candidates,
+        (select count(*)::integer from public.card_quality_evaluations
+          where project_id = units.project_id) as evaluations
+      from public.work_units as units where units.project_id = $1 and units.work_unit_id = $2
+    `, [designProjectId, workUnit.workUnitId]);
+    expect(approved.rows[0]).toEqual({
+      unit_status: "APPROVED",
+      accepted_slots: 2,
+      accepted_candidates: 2,
+      rejected_candidates: 1,
+      evaluations: 4,
+    });
+  });
+
+  it("returns bounded aggregate V3 quality operations without card or source content", async () => {
+    const result = await database.query<{ report: unknown }>(
+      "select public.get_learning_quality_operations_v3() as report",
+    );
+    const report = LearningQualityOperationsReportSchema.parse(result.rows[0]?.report);
+
+    expect(report.chapters.some((chapter) => chapter.projectId === designProjectId)).toBe(true);
+    expect(report.slots.some((slot) => slot.projectId === designProjectId && slot.status === "ACCEPTED")).toBe(true);
+    expect(report.chapters.length).toBeLessThanOrEqual(384);
+    expect(report.slots.length).toBeLessThanOrEqual(480);
+    expect(JSON.stringify(report)).not.toContain("外部调用会");
+    expect(JSON.stringify(report)).not.toContain("答案遗漏");
+  });
+
+  it("persists non-learning notice exclusions while confirming only learning Chapters", async () => {
+    const source = intakeSource([
+      { pageNumber: 1, text: "# 2026 年考纲变化\n\n新增考点：外部调用。" },
+      { pageNumber: 2, text: "# 第一章 调用原理\n\n外部调用会转移执行控制权。" },
+      { pageNumber: 3, text: "# 考试安排\n\n报名时间为 9 月 1 日，考试日期为 11 月 20 日。" },
+      { pageNumber: 4, text: "# 第二章 防御顺序\n\n先更新状态，再执行外部调用。" },
+    ]);
+    const request = {
+      project_id: relevanceProjectId,
+      owner_address: owner,
+      client_request_id: "outline-relevance-intake-1",
+      title: "学习内容相关性",
+      goal: "只保留可学习知识",
+      source_hash: source.sourceHash,
+      goal_hash: hashGoal("只保留可学习知识"),
+      source_filename: "relevance.pdf",
+      source_mime_type: "application/pdf",
+      source_page_count: source.pageCount,
+      source_character_count: source.characterCount,
+    };
+    await database.query(
+      "select public.register_learning_project_source_v2($1::jsonb, $2::jsonb)",
+      [JSON.stringify(request), JSON.stringify(source.blocks.map((block) => ({
+        block_index: block.blockIndex,
+        page_number: block.pageNumber,
+        kind: block.kind,
+        text: block.text,
+        block_hash: block.blockHash,
+        heading_level: block.headingLevel,
+      })))],
+    );
+    const outline = planChaptersDeterministically(relevanceProjectId, source.blocks);
+    const items = outline.chapters.map((chapter) => ({
+      item_id: `chapter-${chapter.chapterId}`,
+      chapter_id: chapter.chapterId,
+      position: chapter.position,
+      title: chapter.title,
+      summary: chapter.summary,
+      start_block: chapter.startBlock,
+      end_block: chapter.endBlock,
+      page_start: chapter.pageStart,
+      page_end: chapter.pageEnd,
+      source_hash: chapter.sourceHash,
+      importance: chapter.importance,
+      min_card_count: 2,
+      target_card_count: 3,
+      max_card_count: 4,
+    }));
+    const exclusions = outline.excludedRanges.map((range) => ({
+      start_block: range.startBlock,
+      end_block: range.endBlock,
+      category: range.category,
+      reason: range.reason,
+    }));
+    await database.query(
+      "select public.save_project_outline_draft_v2($1, $2, null, $3, 'relevance-v4', $4::jsonb, $5::jsonb)",
+      [relevanceProjectId, owner, outline.outlineHash, JSON.stringify(items), JSON.stringify(exclusions)],
+    );
+    const saved = await database.query<{ categories: string[] }>(`
+      select array_agg(category order by exclusion_index) as categories
+      from public.project_outline_exclusions
+      where project_id = $1 and outline_version = 1
+    `, [relevanceProjectId]);
+    expect(saved.rows[0]?.categories).toEqual(expect.arrayContaining(["EXAM_UPDATE", "SCHEDULE_NOTICE"]));
+
+    await database.query(
+      "select public.confirm_project_outline_design_v3($1, $2, 1, $3, $4::jsonb)",
+      [relevanceProjectId, owner, outline.outlineHash, JSON.stringify(items)],
+    );
+    const confirmed = await database.query<{ status: string; chapter_count: number }>(`
+      select projects.status,
+        (select count(*)::integer from public.chapters where project_id = projects.project_id) as chapter_count
+      from public.learning_projects as projects where projects.project_id = $1
+    `, [relevanceProjectId]);
+    expect(confirmed.rows[0]).toEqual({ status: "DESIGNING_CARDS", chapter_count: 2 });
   });
 });

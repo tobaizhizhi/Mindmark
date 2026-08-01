@@ -122,6 +122,45 @@ export const ChapterProposalListSchema = z
   .min(1)
   .max(MAX_PROJECT_CHAPTERS);
 
+export const SourceExclusionCategorySchema = z.enum([
+  "REPEATED_HEADER_FOOTER",
+  "PAGE_NUMBER",
+  "TABLE_OF_CONTENTS",
+  "COPYRIGHT",
+  "PROMOTIONAL",
+  "ADMINISTRATIVE",
+  "EXAM_UPDATE",
+  "VERSION_NOTICE",
+  "SCHEDULE_NOTICE",
+  "OTHER",
+]);
+
+export const SourceExclusionRangeSchema = z.object({
+  startBlock: z.number().int().min(0).max(65_535),
+  endBlock: z.number().int().min(0).max(65_535),
+  category: SourceExclusionCategorySchema,
+  reason: z.string().trim().min(1).max(300),
+}).strict().superRefine((range, context) => {
+  if (range.endBlock < range.startBlock) {
+    context.addIssue({
+      code: "custom",
+      message: "endBlock must be greater than or equal to startBlock",
+      path: ["endBlock"],
+    });
+  }
+});
+
+export const SourceExclusionRangeListSchema = z.array(SourceExclusionRangeSchema).max(256);
+
+export const ChapterPlanningProposalSchema = z.object({
+  chapters: ChapterProposalListSchema,
+  excludedRanges: SourceExclusionRangeListSchema,
+}).strict();
+
+export const ChapterOutlineDraftSchema = ChapterOutlineSchema.extend({
+  excludedRanges: SourceExclusionRangeListSchema,
+}).strict();
+
 export const LearningProjectSchema = z
   .object({
     projectId: Bytes32Schema,
@@ -186,17 +225,16 @@ export const WorkUnitSchema = z
         path: ["cardMinimum"],
       });
     }
-    const expected = Array.from(
-      { length: workUnit.endBlock - workUnit.startBlock + 1 },
-      (_, index) => workUnit.startBlock + index,
-    );
     if (
-      workUnit.sourceBlockIndexes.length !== expected.length ||
-      workUnit.sourceBlockIndexes.some((value, index) => value !== expected[index])
+      workUnit.sourceBlockIndexes.some((value, index) =>
+        value < workUnit.startBlock
+        || value > workUnit.endBlock
+        || (index > 0 && value <= workUnit.sourceBlockIndexes[index - 1]!)
+      )
     ) {
       context.addIssue({
         code: "custom",
-        message: "sourceBlockIndexes must exactly cover the Work Unit range",
+        message: "sourceBlockIndexes must be unique, ordered, and inside the Work Unit range",
         path: ["sourceBlockIndexes"],
       });
     }
@@ -294,6 +332,7 @@ export const ProjectIntakeResponseSchema = z
     outlineVersion: z.number().int().positive(),
     outlineHash: Bytes32Schema,
     chapters: z.array(ChapterOutlineItemSchema).min(1).max(MAX_PROJECT_CHAPTERS),
+    excludedRanges: SourceExclusionRangeListSchema.default([]),
   })
   .strict();
 
@@ -376,6 +415,54 @@ export const WorkflowOperationsSnapshotSchema = z.object({
   events: z.array(WorkflowOperationsEventSchema).max(80),
 }).strict();
 
+export const LearningQualityFeedbackSummarySchema = z.object({
+  totalCount: z.number().int().nonnegative(),
+  upCount: z.number().int().nonnegative(),
+  downCount: z.number().int().nonnegative(),
+  incorrectCount: z.number().int().nonnegative(),
+  unclearCount: z.number().int().nonnegative(),
+}).strict();
+
+export const LearningQualityChapterSummarySchema = z.object({
+  projectId: Bytes32Schema,
+  chapterId: z.number().int().min(0).max(MAX_PROJECT_CHAPTERS - 1),
+  slotCount: z.number().int().nonnegative(),
+  requiredSlotCount: z.number().int().nonnegative(),
+  acceptedSlotCount: z.number().int().nonnegative(),
+  evaluationCount: z.number().int().nonnegative(),
+  approvedEvaluationCount: z.number().int().nonnegative(),
+  repairRequestedEvaluationCount: z.number().int().nonnegative(),
+  failedEvaluationCount: z.number().int().nonnegative(),
+  feedback: LearningQualityFeedbackSummarySchema,
+}).strict();
+
+export const LearningQualitySlotSummarySchema = z.object({
+  projectId: Bytes32Schema,
+  chapterId: z.number().int().min(0).max(MAX_PROJECT_CHAPTERS - 1),
+  slotId: Bytes32Schema,
+  cardType: z.enum(["concept", "comparison", "process", "application", "misconception"]),
+  required: z.boolean(),
+  status: z.enum(["PLANNED", "ASSIGNED", "CANDIDATE_READY", "REPAIR_REQUESTED", "ACCEPTED", "REJECTED"]),
+  evaluationCount: z.number().int().nonnegative(),
+  approvedEvaluationCount: z.number().int().nonnegative(),
+  repairRequestedEvaluationCount: z.number().int().nonnegative(),
+  failedEvaluationCount: z.number().int().nonnegative(),
+  feedback: LearningQualityFeedbackSummarySchema,
+}).strict();
+
+export const LearningQualityFailureCategorySchema = z.object({
+  code: z.string().trim().min(1).max(100),
+  count: z.number().int().positive(),
+}).strict();
+
+export const LearningQualityOperationsReportSchema = z.object({
+  generatedAt: z.string().datetime({ offset: true }),
+  feedback: LearningQualityFeedbackSummarySchema,
+  chapters: z.array(LearningQualityChapterSummarySchema).max(MAX_PROJECT_CHAPTERS * 24),
+  slots: z.array(LearningQualitySlotSummarySchema).max(MAX_PROJECT_CHAPTERS * 30),
+  failureCategories: z.array(LearningQualityFailureCategorySchema).max(20),
+}).strict();
+
 export const OutlinePlanningOperationSchema = z
   .object({
     operationId: z.string().uuid(),
@@ -430,6 +517,11 @@ export const RenameFolderRequestSchema = z.object({
 
 export type OutlinePlanningOperation = z.infer<typeof OutlinePlanningOperationSchema>;
 export type WorkflowOperationsSnapshot = z.infer<typeof WorkflowOperationsSnapshotSchema>;
+export type LearningQualityFeedbackSummary = z.infer<typeof LearningQualityFeedbackSummarySchema>;
+export type LearningQualityChapterSummary = z.infer<typeof LearningQualityChapterSummarySchema>;
+export type LearningQualitySlotSummary = z.infer<typeof LearningQualitySlotSummarySchema>;
+export type LearningQualityFailureCategory = z.infer<typeof LearningQualityFailureCategorySchema>;
+export type LearningQualityOperationsReport = z.infer<typeof LearningQualityOperationsReportSchema>;
 
 export const FolderMutationResponseSchema = z.object({
   folderId: z.string().uuid(),
@@ -540,7 +632,7 @@ export const ChapterStudyResponseSchema = z.object({
   chapterId: z.number().int().min(0).max(MAX_PROJECT_CHAPTERS - 1),
   status: ChapterStatusSchema,
   cards: z.array(ChapterStudyCardSchema).max(30),
-  queue: z.array(Bytes32Schema).max(15),
+  queue: z.array(Bytes32Schema).max(MAX_PROJECT_CARDS),
   dueCount: z.number().int().nonnegative(),
   newCount: z.number().int().nonnegative(),
 }).strict();
@@ -555,7 +647,7 @@ export const ProjectStudyResponseSchema = z.object({
   projectId: Bytes32Schema,
   status: ProjectStatusSchema,
   readyChapterCount: z.number().int().min(0).max(MAX_PROJECT_CHAPTERS),
-  queue: z.array(ProjectStudyCardSchema).max(15),
+  queue: z.array(ProjectStudyCardSchema).max(MAX_PROJECT_CARDS),
   dueCount: z.number().int().nonnegative(),
   newCount: z.number().int().nonnegative(),
 }).strict();
@@ -570,6 +662,48 @@ export const CompleteProjectSessionResponseSchema = z.object({
   forgottenCount: z.number().int().min(0).max(15),
   averageResponseMs: z.number().int().nonnegative(),
   completedAt: z.string().datetime({ offset: true }),
+}).strict();
+
+export const KnowledgeCardFeedbackRatingSchema = z.enum(["UP", "DOWN", "INCORRECT", "UNCLEAR"]);
+
+export const KnowledgeCardCorrectionSchema = z.object({
+  question: z.string().trim().min(1).max(500).optional(),
+  answer: z.string().trim().min(1).max(1_500).optional(),
+  keyPoint: z.string().trim().min(1).max(500).optional(),
+}).strict().refine(
+  (correction) => Object.values(correction).some((value) => value !== undefined),
+  "A correction must contain at least one card field",
+);
+
+export const SubmitKnowledgeCardFeedbackRequestSchema = z.object({
+  chapterId: z.number().int().min(0).max(MAX_PROJECT_CHAPTERS - 1),
+  cardId: Bytes32Schema,
+  rating: KnowledgeCardFeedbackRatingSchema,
+  reason: z.string().trim().min(1).max(500).optional(),
+  correctedContent: KnowledgeCardCorrectionSchema.optional(),
+}).strict().superRefine((feedback, context) => {
+  if ((feedback.rating === "INCORRECT" || feedback.rating === "UNCLEAR") && !feedback.reason) {
+    context.addIssue({
+      code: "custom",
+      path: ["reason"],
+      message: "Incorrect and unclear feedback requires a reason",
+    });
+  }
+});
+
+export const KnowledgeCardFeedbackSchema = z.object({
+  feedbackId: z.string().uuid(),
+  projectId: Bytes32Schema,
+  chapterId: z.number().int().min(0).max(MAX_PROJECT_CHAPTERS - 1),
+  cardId: Bytes32Schema,
+  rating: KnowledgeCardFeedbackRatingSchema,
+  reason: z.string().nullable(),
+  correctedContent: KnowledgeCardCorrectionSchema.nullable(),
+  createdAt: z.string().datetime({ offset: true }),
+}).strict();
+
+export const KnowledgeCardFeedbackListResponseSchema = z.object({
+  feedback: z.array(KnowledgeCardFeedbackSchema).max(100),
 }).strict();
 
 export type ProjectStatus = z.infer<typeof ProjectStatusSchema>;
@@ -600,6 +734,10 @@ export type FolderMutationResponse = z.infer<typeof FolderMutationResponseSchema
 export type MoveProjectRequest = z.infer<typeof MoveProjectRequestSchema>;
 export type ChapterListResponse = z.infer<typeof ChapterListResponseSchema>;
 export type ChapterProposal = z.infer<typeof ChapterProposalSchema>;
+export type SourceExclusionCategory = z.infer<typeof SourceExclusionCategorySchema>;
+export type SourceExclusionRange = z.infer<typeof SourceExclusionRangeSchema>;
+export type ChapterPlanningProposal = z.infer<typeof ChapterPlanningProposalSchema>;
+export type ChapterOutlineDraft = z.infer<typeof ChapterOutlineDraftSchema>;
 export type ProjectConfirmationResponse = z.infer<typeof ProjectConfirmationResponseSchema>;
 export type ProjectDesignAcceptedResponse = z.infer<typeof ProjectDesignAcceptedResponseSchema>;
 export type ProjectOutlineConfirmationResponse = z.infer<typeof ProjectOutlineConfirmationResponseSchema>;
@@ -611,3 +749,8 @@ export type ChapterStudyResponse = z.infer<typeof ChapterStudyResponseSchema>;
 export type ProjectStudyCard = z.infer<typeof ProjectStudyCardSchema>;
 export type ProjectStudyResponse = z.infer<typeof ProjectStudyResponseSchema>;
 export type CompleteProjectSessionResponse = z.infer<typeof CompleteProjectSessionResponseSchema>;
+export type KnowledgeCardFeedbackRating = z.infer<typeof KnowledgeCardFeedbackRatingSchema>;
+export type KnowledgeCardCorrection = z.infer<typeof KnowledgeCardCorrectionSchema>;
+export type SubmitKnowledgeCardFeedbackRequest = z.infer<typeof SubmitKnowledgeCardFeedbackRequestSchema>;
+export type KnowledgeCardFeedback = z.infer<typeof KnowledgeCardFeedbackSchema>;
+export type KnowledgeCardFeedbackListResponse = z.infer<typeof KnowledgeCardFeedbackListResponseSchema>;

@@ -1,0 +1,5 @@
+{
+  "fixtureId": "oracle-difficulty",
+  "requiredCardTypes": ["concept", "application"],
+  "maximumCardCount": 4
+}

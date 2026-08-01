@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { ChapterOutlineItem, SourceBlock } from "./project-v2.js";
 
-export const CHAPTER_CARD_POLICY_VERSION = 2;
+export const CHAPTER_CARD_POLICY_VERSION = 3;
 export const MIN_CHAPTER_CARD_COUNT = 2;
 export const DEFAULT_CHAPTER_CARD_COUNT = 3;
 export const MAX_CHAPTER_CARD_COUNT = 30;

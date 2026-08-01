@@ -18,6 +18,11 @@ import {
   type ToolCallingModel,
 } from "./runtime-types.js";
 import type { ChapterDesignRepositoryV3, ChapterDesignSourceV3 } from "./types-v2.js";
+import {
+  detectLearningOutputLanguage,
+  learnerFacingLanguageIssues,
+  learningOutputLanguageInstruction,
+} from "./language-policy.js";
 
 const EmptyArgumentsSchema = z.object({}).strict();
 const ProposeInventoryArgumentsSchema = z.object({
@@ -113,6 +118,12 @@ export class ChapterDesignModule {
   ) {}
 
   async design(source: ChapterDesignSourceV3): Promise<DesignedChapter> {
+    const outputLanguage = detectLearningOutputLanguage(source.sourceBlocks, [
+      source.goal,
+      source.chapter.title,
+      source.chapter.summary,
+    ]);
+    const languageInstruction = learningOutputLanguageInstruction(outputLanguage);
     const controller = new AbortController();
     const timeout = setTimeout(
       () => controller.abort(new Error("Chapter Design timed out")),
@@ -132,6 +143,8 @@ export class ChapterDesignModule {
             "You are Mindmark's Chapter Design Agent.",
             "First identify the concepts a learner must master; then design cited card slots for them.",
             "Use only assigned Source Blocks. Do not write learner cards yet.",
+            `Create ${source.cardPolicy.minCardCount}-${source.cardPolicy.maxCardCount} total Blueprint Slots, aiming for ${source.cardPolicy.targetCardCount}.`,
+            languageInstruction,
             "Never invent IDs, hashes, status, wallet, proofs, or transaction fields.",
           ].join(" "),
           task: `Design learning coverage for Chapter ${source.chapter.chapterId}: ${source.chapter.title}. Learning goal: ${source.goal ?? "not specified"}.`,
@@ -154,7 +167,13 @@ export class ChapterDesignModule {
               importantConceptNeedsRequiredSlot: true,
               importantMisconceptionNeedsRequiredSlot: true,
               cardTypes: ["concept", "comparison", "process", "application", "misconception"],
+              cardCount: {
+                minimum: source.cardPolicy.minCardCount,
+                target: source.cardPolicy.targetCardCount,
+                maximum: source.cardPolicy.maxCardCount,
+              },
             },
+            outputLanguage,
             blocks: source.sourceBlocks.map((block) => ({
               blockIndex: block.blockIndex,
               pageNumber: block.pageNumber,
@@ -168,6 +187,20 @@ export class ChapterDesignModule {
           } else {
             try {
               const proposals = ProposeInventoryArgumentsSchema.parse(call.arguments).concepts;
+              const languageIssues = learnerFacingLanguageIssues(
+                proposals.flatMap((concept, conceptIndex) => [
+                  {
+                    field: `concepts[${conceptIndex}].learningObjective`,
+                    text: concept.learningObjective,
+                  },
+                  ...concept.misconceptions.map((misconception, misconceptionIndex) => ({
+                    field: `concepts[${conceptIndex}].misconceptions[${misconceptionIndex}]`,
+                    text: misconception,
+                  })),
+                ]),
+                outputLanguage,
+              );
+              if (languageIssues.length > 0) throw new Error(languageIssues.join("; "));
               const candidate = materializeChapterConceptInventory({
                 projectId: source.projectId,
                 chapterId: source.chapter.chapterId,
@@ -200,6 +233,14 @@ export class ChapterDesignModule {
           } else {
             try {
               const proposals = ProposeBlueprintArgumentsSchema.parse(call.arguments).slots;
+              const languageIssues = learnerFacingLanguageIssues(
+                proposals.map((slot, slotIndex) => ({
+                  field: `slots[${slotIndex}].objective`,
+                  text: slot.objective,
+                })),
+                outputLanguage,
+              );
+              if (languageIssues.length > 0) throw new Error(languageIssues.join("; "));
               const candidate = materializeCardBlueprint({
                 projectId: source.projectId,
                 chapterId: source.chapter.chapterId,
@@ -207,7 +248,12 @@ export class ChapterDesignModule {
                 inventoryHash,
                 slots: proposals,
               });
-              const blueprint = validateCardBlueprint(candidate, inventory, source.chapter);
+              const blueprint = validateCardBlueprint(
+                candidate,
+                inventory,
+                source.chapter,
+                source.cardPolicy,
+              );
               transcript.push({ call, result: { accepted: true, slotCount: blueprint.slots.length } });
               return {
                 inventory,
@@ -261,7 +307,7 @@ export class ChapterDesignWorkflowAgent {
       await this.repository.completeChapterDesign({
         designRunId: run.designRunId,
         ...design,
-        promptVersion: this.options.promptVersion ?? "chapter-design-v3.0.0",
+        promptVersion: this.options.promptVersion ?? "chapter-design-v3.1.0",
         modelId: this.options.modelId ?? "configured-model",
         metrics: {
           conceptCount: design.inventory.concepts.length,

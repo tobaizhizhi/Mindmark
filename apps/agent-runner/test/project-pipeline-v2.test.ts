@@ -12,6 +12,8 @@ import { WorkUnitSettlementAgentV2 } from "../src/reward-v2.js";
 import type { AgentToolCall, ToolCallingModel } from "../src/runtime-types.js";
 import type {
   ChapterAssemblyV2,
+  ChapterBlueprintQualityContextV3,
+  BlueprintQualityDecisionV3,
   ChainChapterStateV2,
   ChainProjectStateV2,
   ChainWorkUnitCommitmentV2,
@@ -22,11 +24,13 @@ import type {
   RunnerProjectV2,
   RunnerWorkUnitV2,
   SavedWorkUnitResultV2,
+  WorkUnitBlueprintContextV3,
   WorkflowDispatchRepositoryV2,
   WorkflowJobV2,
   WorkUnitRewardV2,
 } from "../src/types-v2.js";
-import { WorkUnitWorkerAgent } from "../src/worker-v2.js";
+import { WorkUnitWorkerAgent, workUnitToolTimeoutMs } from "../src/worker-v2.js";
+import type { CardQualityEvaluatorV3 } from "../src/quality-evaluator-v3.js";
 import { address, hex } from "./fakes.js";
 
 const projectId = hex("9");
@@ -62,6 +66,7 @@ function fixtureState() {
     initialPlan: null,
     initialPlanHash: null,
     totalCardCount: 0,
+    generationPolicyVersion: 2,
   };
   const chapters: RunnerChapterV2[] = [0, 1].map((chapterId) => ({
     projectId,
@@ -109,6 +114,15 @@ class InMemoryProjectRepositoryV2 implements ProjectRunnerRepositoryV2 {
   claims: Array<{ workUnitId: number; worker: string }> = [];
   events: string[] = [];
   pendingRegistry = false;
+  blueprintContext: WorkUnitBlueprintContextV3 | null = null;
+  blueprintQualityContext: ChapterBlueprintQualityContextV3 | null = null;
+  lastSavedWorkUnitResult: SavedWorkUnitResultV2 | null = null;
+  lastBlueprintApproval: (BlueprintQualityDecisionV3 & {
+    workUnits: Parameters<ProjectRunnerRepositoryV2["approveChapterCandidates"]>[2];
+  }) | null = null;
+  lastBlueprintRepairs: (BlueprintQualityDecisionV3 & {
+    repairs: Array<{ slotId: Hex; reason: string }>;
+  }) | null = null;
 
   async listPendingRegistryProjects() {
     if (!this.pendingRegistry) return [];
@@ -128,8 +142,45 @@ class InMemoryProjectRepositoryV2 implements ProjectRunnerRepositoryV2 {
     this.state.project.status = "GENERATING";
   }
   async getWorkUnit(_id: Hex, workUnitId: number) { return structuredClone(this.state.units[workUnitId]!); }
+  async getWorkUnitBlueprintContext() {
+    if (!this.blueprintContext) throw new Error("Blueprint context is not configured");
+    return structuredClone(this.blueprintContext);
+  }
+  async getChapterBlueprintQualityContext() {
+    if (!this.blueprintQualityContext) throw new Error("Blueprint quality context is not configured");
+    return structuredClone(this.blueprintQualityContext);
+  }
+  async approveChapterBlueprintCandidates(
+    decision: BlueprintQualityDecisionV3 & {
+      workUnits: Parameters<ProjectRunnerRepositoryV2["approveChapterCandidates"]>[2];
+    },
+  ) {
+    this.lastBlueprintApproval = structuredClone(decision);
+    await this.approveChapterCandidates(decision.projectId, decision.chapterId, decision.workUnits);
+  }
+  async requestChapterBlueprintRepairs(
+    decision: BlueprintQualityDecisionV3 & { repairs: Array<{ slotId: Hex; reason: string }> },
+  ) {
+    this.lastBlueprintRepairs = structuredClone(decision);
+    const repairSlots = new Set(decision.repairs.map((repair) => repair.slotId));
+    const workUnitIds = new Set(
+      this.blueprintQualityContext!.candidates
+        .filter((candidate) => repairSlots.has(candidate.slotId))
+        .map((candidate) => candidate.workUnitId),
+    );
+    for (const workUnitId of workUnitIds) {
+      Object.assign(this.state.units[workUnitId]!, {
+        status: "REPAIRING",
+        workerCards: [],
+        cardsRoot: null,
+        cardCount: null,
+      });
+    }
+    this.state.chapters[decision.chapterId]!.status = "GENERATING";
+  }
   async markWorkUnitValidating(_id: Hex, workUnitId: number) { this.state.units[workUnitId]!.status = "VALIDATING"; }
   async saveWorkUnitResult(_id: Hex, workUnitId: number, result: SavedWorkUnitResultV2) {
+    this.lastSavedWorkUnitResult = structuredClone(result);
     Object.assign(this.state.units[workUnitId]!, {
       workerCards: structuredClone(result.cards), cardsRoot: result.cardsRoot,
       cardCount: result.cards.length, status: "CANDIDATE_READY",
@@ -466,7 +517,212 @@ class WaitingWorkUnitModel implements ToolCallingModel {
   }
 }
 
+class NonAbortableWorkUnitModel implements ToolCallingModel {
+  async nextTool(): Promise<AgentToolCall> {
+    return new Promise(() => undefined);
+  }
+}
+
+class TransientFailureModel implements ToolCallingModel {
+  failures = 0;
+
+  constructor(private readonly delegate: ToolCallingModel) {}
+
+  async nextTool(input: Parameters<ToolCallingModel["nextTool"]>[0]): Promise<AgentToolCall> {
+    if (this.failures === 0) {
+      this.failures += 1;
+      throw new Error("AI model request failed with status 503");
+    }
+    return this.delegate.nextTool(input);
+  }
+}
+
+class BlueprintWorkUnitModel implements ToolCallingModel {
+  repairInstructions: unknown = null;
+  batchSizes: number[] = [];
+
+  constructor(
+    private readonly omitLastSlot = false,
+    private readonly paraphraseCitation = false,
+  ) {}
+
+  async nextTool(input: Parameters<ToolCallingModel["nextTool"]>[0]): Promise<AgentToolCall> {
+    const step = input.transcript.length;
+    if (step === 0) return { id: "read", name: "read_assigned_work_unit", arguments: {} };
+    if (step % 2 === 0) return { id: `validate-${step}`, name: "validate_work_unit_cards", arguments: {} };
+    const result = input.transcript[0]!.result as {
+      blocks: Array<{ blockIndex: number; pageNumber: number; text: string }>;
+      blueprintSlots: Array<{
+        blueprintSlotId: Hex;
+        conceptName: string;
+        objective: string;
+        type: "concept" | "comparison" | "process" | "application" | "misconception";
+        difficulty: number;
+        evidenceBlockIndexes: number[];
+      }>;
+      repairInstructions?: unknown[];
+    };
+    this.repairInstructions = result.repairInstructions ?? [];
+    const slots = this.omitLastSlot ? result.blueprintSlots.slice(0, -1) : result.blueprintSlots;
+    this.batchSizes.push(result.blueprintSlots.length);
+    return {
+      id: `save-${step}`,
+      name: "save_work_unit_draft",
+      arguments: {
+        cards: slots.map((slot) => {
+          const block = result.blocks.find(
+            (candidate) => candidate.blockIndex === slot.evidenceBlockIndexes[0],
+          )!;
+          return {
+            blueprintSlotId: slot.blueprintSlotId,
+            type: slot.type === "concept" ? "concept" : "qa",
+            question: `${slot.conceptName}：${slot.objective}？`,
+            answer: block.text,
+            keyPoint: `${slot.conceptName} / ${slot.objective}`,
+            source: {
+              page: block.pageNumber,
+              quote: this.paraphraseCitation
+                ? "这是一段由模型改写而非从证据块逐字复制的引用内容。"
+                : block.text,
+            },
+            tags: [slot.conceptName],
+            importance: 4,
+            initialDifficulty: slot.difficulty,
+          };
+        }),
+      },
+    };
+  }
+}
+
+class LanguageRepairBlueprintModel implements ToolCallingModel {
+  calls = 0;
+
+  async nextTool(input: Parameters<ToolCallingModel["nextTool"]>[0]): Promise<AgentToolCall> {
+    const step = input.transcript.length;
+    this.calls += 1;
+    if (step === 0) return { id: "read", name: "read_assigned_work_unit", arguments: {} };
+    const result = input.transcript[0]!.result as {
+      blocks: Array<{ blockIndex: number; pageNumber: number; text: string }>;
+      blueprintSlots: Array<{
+        blueprintSlotId: Hex;
+        conceptName: string;
+        objective: string;
+        type: "concept" | "comparison" | "process" | "application" | "misconception";
+        difficulty: number;
+        evidenceBlockIndexes: number[];
+      }>;
+    };
+    const chinese = step >= 2;
+    return {
+      id: chinese ? "save-chinese" : "save-english",
+      name: "save_work_unit_draft",
+      arguments: {
+        cards: result.blueprintSlots.map((slot, slotIndex) => {
+          const block = result.blocks.find(
+            (candidate) => candidate.blockIndex === slot.evidenceBlockIndexes[0],
+          )!;
+          const slotSuffix = slot.blueprintSlotId.slice(-4);
+          return {
+            blueprintSlotId: slot.blueprintSlotId,
+            type: slot.type === "concept" ? "concept" : "qa",
+            question: chinese
+              ? `${slot.conceptName}的关键机制${slotIndex + 1}-${slotSuffix}是什么？`
+              : `What is key mechanism ${slotIndex + 1}-${slotSuffix}?`,
+            answer: chinese ? `资料指出：${block.text}` : `The source states: ${block.text}`,
+            keyPoint: chinese
+              ? `理解资料中的核心机制${slotIndex + 1}-${slotSuffix}`
+              : `Understand core mechanism ${slotIndex + 1}-${slotSuffix}`,
+            source: { page: block.pageNumber, quote: block.text },
+            tags: chinese ? ["核心机制"] : ["core mechanism"],
+            importance: 4,
+            initialDifficulty: slot.difficulty,
+          };
+        }),
+      },
+    };
+  }
+}
+
+function blueprintContextFor(unit: RunnerWorkUnitV2): WorkUnitBlueprintContextV3 {
+  const evidenceBlockIndex = unit.sourceBlocks!.find((block) => block.text.length >= 20)!.blockIndex;
+  const conceptId = hex("c");
+  const slots: WorkUnitBlueprintContextV3["slots"] = [
+    {
+      slotId: hex("d"),
+      conceptId,
+      type: "concept",
+      objective: "准确说明核心机制",
+      difficulty: 2,
+      sourceBlockIndexes: [evidenceBlockIndex],
+      required: true,
+    },
+    {
+      slotId: hex("e"),
+      conceptId,
+      type: "application",
+      objective: "根据机制判断应用场景",
+      difficulty: 4,
+      sourceBlockIndexes: [evidenceBlockIndex],
+      required: true,
+    },
+  ];
+  return {
+    designRunId: "00000000-0000-4000-8000-000000000003",
+    inventory: {
+      projectId,
+      chapterId: unit.chapterId,
+      outlineVersion: 1,
+      sourceHash: hex("a"),
+      policyVersion: 3,
+      concepts: [{
+        conceptId,
+        name: "调用原理",
+        importance: 5,
+        learningObjective: "解释调用原理并应用它",
+        sourceBlockIndexes: [evidenceBlockIndex],
+        prerequisites: [],
+        misconceptions: [],
+      }],
+    },
+    blueprint: {
+      projectId,
+      chapterId: unit.chapterId,
+      outlineVersion: 1,
+      inventoryHash: hex("b"),
+      policyVersion: 3,
+      slots,
+    },
+    slots,
+    repairInstructions: [],
+  };
+}
+
+function configureBlueprintQualityContext(repository: InMemoryProjectRepositoryV2): void {
+  const context = repository.blueprintContext!;
+  const cards = repository.state.units[0]!.workerCards;
+  repository.blueprintQualityContext = {
+    designRunId: context.designRunId,
+    inventory: context.inventory,
+    blueprint: context.blueprint,
+    candidates: context.slots.map((slot, index) => ({
+      designRunId: context.designRunId,
+      slotId: slot.slotId,
+      workUnitId: 0,
+      candidateRevision: 1,
+      status: "CANDIDATE_READY",
+      card: cards[index]!,
+    })),
+  };
+}
+
 describe("Chapter-first V2 Runner pipeline", () => {
+  it("scales the Worker tool-loop timeout for legacy oversized Blueprint batches", () => {
+    expect(workUnitToolTimeoutMs(120_000, 8)).toBe(156_000);
+    expect(workUnitToolTimeoutMs(120_000, 22)).toBe(324_000);
+    expect(workUnitToolTimeoutMs(300_000, 2)).toBe(300_000);
+  });
+
   it("recovers a Project when the wallet callback was lost after Registry creation", async () => {
     const repository = new InMemoryProjectRepositoryV2();
     repository.state.project.status = "AWAITING_REGISTRY";
@@ -496,6 +752,416 @@ describe("Chapter-first V2 Runner pipeline", () => {
     expect(repository.state.units[0]?.status).toBe("RETRYABLE");
   });
 
+  it("generates exactly one grounded candidate for each V3 Blueprint Slot", async () => {
+    const repository = new InMemoryWorkflowRepositoryV2();
+    repository.state.units = repository.state.units.filter((unit) => unit.chapterId !== 0 || unit.workUnitId === 0);
+    repository.state.project.generationPolicyVersion = 3;
+    repository.blueprintContext = blueprintContextFor(repository.state.units[0]!);
+    const registry = new FakeProjectRegistryV2();
+    const worker = new WorkUnitWorkerAgent(repository, registry, new BlueprintWorkUnitModel(), 0);
+
+    const unit = await repository.claimWorkflowWorkUnit(projectId, 0, registry.workerAddress(0));
+    await expect(worker.runClaimed(unit!)).resolves.toBeUndefined();
+
+    expect(repository.state.units[0]?.status).toBe("CANDIDATE_READY");
+    expect(repository.lastSavedWorkUnitResult?.slotCandidates).toEqual([
+      { slotId: hex("d"), cardId: repository.state.units[0]!.workerCards[0]!.id },
+      { slotId: hex("e"), cardId: repository.state.units[0]!.workerCards[1]!.id },
+    ]);
+  });
+
+  it("batches a legacy oversized V3 Work Unit without changing its persisted commitment", async () => {
+    const repository = new InMemoryWorkflowRepositoryV2();
+    repository.state.units = repository.state.units.filter((unit) => unit.chapterId !== 0 || unit.workUnitId === 0);
+    repository.state.project.generationPolicyVersion = 3;
+    const context = blueprintContextFor(repository.state.units[0]!);
+    const template = context.slots[0]!;
+    const slots = Array.from({ length: 21 }, (_, index) => ({
+      ...template,
+      slotId: `0x${(index + 1).toString(16).padStart(64, "0")}` as Hex,
+      objective: `准确说明核心机制 ${index + 1}`,
+    }));
+    repository.blueprintContext = {
+      ...context,
+      blueprint: { ...context.blueprint, slots },
+      slots,
+    };
+    Object.assign(repository.state.units[0]!, {
+      cardMinimum: 21,
+      cardTarget: 21,
+      cardBudget: 21,
+    });
+    const registry = new FakeProjectRegistryV2();
+    const model = new BlueprintWorkUnitModel();
+    const worker = new WorkUnitWorkerAgent(repository, registry, model, 0);
+
+    const unit = await repository.claimWorkflowWorkUnit(projectId, 0, registry.workerAddress(0));
+    await expect(worker.runClaimed(unit!)).resolves.toBeUndefined();
+
+    expect(model.batchSizes).toEqual(Array.from({ length: 21 }, () => 1));
+    expect(repository.lastSavedWorkUnitResult?.cards).toHaveLength(21);
+    expect(repository.lastSavedWorkUnitResult?.slotCandidates).toHaveLength(21);
+    expect(repository.state.units[0]?.status).toBe("CANDIDATE_READY");
+  });
+
+  it("derives a verbatim Slot citation when the model paraphrases its quote", async () => {
+    const repository = new InMemoryWorkflowRepositoryV2();
+    repository.state.units = repository.state.units.filter((unit) => unit.chapterId !== 0 || unit.workUnitId === 0);
+    repository.state.project.generationPolicyVersion = 3;
+    repository.blueprintContext = blueprintContextFor(repository.state.units[0]!);
+    const registry = new FakeProjectRegistryV2();
+    const worker = new WorkUnitWorkerAgent(repository, registry, new BlueprintWorkUnitModel(false, true), 0);
+
+    const unit = await repository.claimWorkflowWorkUnit(projectId, 0, registry.workerAddress(0));
+    await expect(worker.runClaimed(unit!)).resolves.toBeUndefined();
+
+    const sourceBlocks = repository.state.units[0]!.sourceBlocks!;
+    expect(repository.state.units[0]!.workerCards).toHaveLength(2);
+    for (const card of repository.state.units[0]!.workerCards) {
+      expect(sourceBlocks.some((block) =>
+        block.pageNumber === card.source.page && block.text.includes(card.source.quote),
+      )).toBe(true);
+    }
+  });
+
+  it("retries a transient model gateway failure inside the current Blueprint batch", async () => {
+    vi.useFakeTimers();
+    const repository = new InMemoryWorkflowRepositoryV2();
+    repository.state.units = repository.state.units.filter((unit) => unit.chapterId !== 0 || unit.workUnitId === 0);
+    repository.state.project.generationPolicyVersion = 3;
+    repository.blueprintContext = blueprintContextFor(repository.state.units[0]!);
+    const registry = new FakeProjectRegistryV2();
+    const model = new TransientFailureModel(new BlueprintWorkUnitModel());
+    const worker = new WorkUnitWorkerAgent(repository, registry, model, 0);
+
+    const unit = await repository.claimWorkflowWorkUnit(projectId, 0, registry.workerAddress(0));
+    const run = worker.runClaimed(unit!);
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    await expect(run).resolves.toBeUndefined();
+    expect(model.failures).toBe(1);
+    expect(repository.state.units[0]?.status).toBe("CANDIDATE_READY");
+  });
+
+  it("repairs English cards before saving candidates for Chinese source material", async () => {
+    const repository = new InMemoryWorkflowRepositoryV2();
+    repository.state.units = repository.state.units.filter((unit) => unit.chapterId !== 0 || unit.workUnitId === 0);
+    repository.state.project.generationPolicyVersion = 3;
+    repository.blueprintContext = blueprintContextFor(repository.state.units[0]!);
+    const registry = new FakeProjectRegistryV2();
+    const model = new LanguageRepairBlueprintModel();
+    const worker = new WorkUnitWorkerAgent(repository, registry, model, 0);
+
+    const unit = await repository.claimWorkflowWorkUnit(projectId, 0, registry.workerAddress(0));
+    await expect(worker.runClaimed(unit!)).resolves.toBeUndefined();
+
+    expect(model.calls).toBe(4);
+    expect(repository.state.units[0]?.workerCards.every((card) => /[\u3400-\u9fff]/u.test(card.question))).toBe(true);
+  });
+
+  it("rejects a V3 draft that does not cover every assigned Blueprint Slot", async () => {
+    const repository = new InMemoryWorkflowRepositoryV2();
+    repository.state.units = repository.state.units.filter((unit) => unit.chapterId !== 0 || unit.workUnitId === 0);
+    repository.state.project.generationPolicyVersion = 3;
+    repository.blueprintContext = blueprintContextFor(repository.state.units[0]!);
+    const registry = new FakeProjectRegistryV2();
+    const worker = new WorkUnitWorkerAgent(
+      repository,
+      registry,
+      new BlueprintWorkUnitModel(true),
+      0,
+      { maxToolCalls: 6 },
+    );
+
+    const unit = await repository.claimWorkflowWorkUnit(projectId, 0, registry.workerAddress(0));
+    await expect(worker.runClaimed(unit!)).rejects.toThrow(/Blueprint Slots|has no candidate|batch candidates/u);
+
+    expect(repository.state.units[0]?.status).toBe("RETRYABLE");
+    expect(repository.lastSavedWorkUnitResult).toBeNull();
+  });
+
+  it("approves V3 candidates only after Blueprint coverage and duplicate evaluation", async () => {
+    const repository = new InMemoryWorkflowRepositoryV2();
+    repository.state.units = repository.state.units.filter((unit) => unit.chapterId !== 0 || unit.workUnitId === 0);
+    repository.state.project.generationPolicyVersion = 3;
+    repository.state.chapters[0]!.minCardCount = 2;
+    repository.blueprintContext = blueprintContextFor(repository.state.units[0]!);
+    const registry = new FakeProjectRegistryV2();
+    const unit = await repository.claimWorkflowWorkUnit(projectId, 0, registry.workerAddress(0));
+    await new WorkUnitWorkerAgent(repository, registry, new BlueprintWorkUnitModel(), 0).runClaimed(unit!);
+    configureBlueprintQualityContext(repository);
+    repository.state.chapters[0]!.status = "QUALITY_CHECK";
+
+    await expect(new ChapterQualityGate(repository).runClaimed({ projectId, chapterId: 0 }))
+      .resolves.toBe("APPROVED");
+
+    expect(repository.state.units[0]?.status).toBe("APPROVED");
+    expect(repository.lastBlueprintApproval?.coverageResult).toMatchObject({
+      passes: true,
+      weightedCoverage: 1,
+    });
+    expect(repository.lastBlueprintApproval?.evaluations.every(
+      (evaluation) => evaluation.verdict === "APPROVED",
+    )).toBe(true);
+  });
+
+  it("fails clearly when a frozen V3 Blueprint exceeds its Chapter card capacity", async () => {
+    const repository = new InMemoryWorkflowRepositoryV2();
+    repository.state.units = repository.state.units.filter((unit) => unit.chapterId !== 0 || unit.workUnitId === 0);
+    repository.state.project.generationPolicyVersion = 3;
+    repository.state.chapters[0]!.minCardCount = 1;
+    repository.state.chapters[0]!.maxCardCount = 1;
+    repository.blueprintContext = blueprintContextFor(repository.state.units[0]!);
+    const registry = new FakeProjectRegistryV2();
+    const unit = await repository.claimWorkflowWorkUnit(projectId, 0, registry.workerAddress(0));
+    await new WorkUnitWorkerAgent(repository, registry, new BlueprintWorkUnitModel(), 0).runClaimed(unit!);
+    configureBlueprintQualityContext(repository);
+    repository.state.chapters[0]!.status = "QUALITY_CHECK";
+
+    await expect(new ChapterQualityGate(repository).runClaimed({ projectId, chapterId: 0 }))
+      .rejects.toThrow(/Blueprint has 2 Slots.*maximum is 1/u);
+
+    expect(repository.lastBlueprintRepairs).toBeNull();
+    expect(repository.lastBlueprintApproval).toBeNull();
+  });
+
+  it("freezes an accepted V3 Slot across later repair rounds", async () => {
+    const repository = new InMemoryWorkflowRepositoryV2();
+    repository.state.units = repository.state.units.filter((unit) => unit.chapterId !== 0 || unit.workUnitId === 0);
+    repository.state.project.generationPolicyVersion = 3;
+    repository.state.chapters[0]!.minCardCount = 2;
+    repository.blueprintContext = blueprintContextFor(repository.state.units[0]!);
+    const registry = new FakeProjectRegistryV2();
+    const unit = await repository.claimWorkflowWorkUnit(projectId, 0, registry.workerAddress(0));
+    await new WorkUnitWorkerAgent(repository, registry, new BlueprintWorkUnitModel(), 0).runClaimed(unit!);
+    configureBlueprintQualityContext(repository);
+    const accepted = repository.blueprintQualityContext!.candidates[0]!;
+    accepted.status = "ACCEPTED";
+    accepted.acceptedEvaluation = {
+      cardId: accepted.card.id,
+      citationSufficient: true,
+      factuality: 5,
+      learningValue: 4,
+      clarity: 4,
+      completeness: 4,
+      citationRelevance: 5,
+      difficultyFit: 5,
+      verdict: "ACCEPT",
+      reasons: [],
+    };
+    repository.state.chapters[0]!.status = "QUALITY_CHECK";
+    const evaluatedSlotIds: string[] = [];
+    const evaluator: CardQualityEvaluatorV3 = {
+      modelId: "unstable-evaluator",
+      promptVersion: "unstable-evaluator-1",
+      async evaluate(input) {
+        evaluatedSlotIds.push(input.slot.slotId);
+        if (input.slot.slotId === accepted.slotId) throw new Error("accepted Slot was re-evaluated");
+        return {
+          cardId: input.card.id,
+          citationSufficient: true,
+          factuality: 5,
+          learningValue: 4,
+          clarity: 4,
+          completeness: 4,
+          citationRelevance: 5,
+          difficultyFit: 5,
+          verdict: "ACCEPT",
+          reasons: [],
+        };
+      },
+    };
+    const orthogonalEmbeddings = {
+      modelId: "orthogonal-test-embedding",
+      async embed(texts: string[]) { return texts.map((_, index) => index === 0 ? [1, 0] : [0, 1]); },
+    };
+
+    await expect(new ChapterQualityGate(
+      repository,
+      orthogonalEmbeddings,
+      evaluator,
+    ).runClaimed({ projectId, chapterId: 0 })).resolves.toBe("APPROVED");
+
+    expect(evaluatedSlotIds).toEqual([hex("e")]);
+    expect(repository.lastBlueprintApproval?.evaluations).toHaveLength(2);
+    expect(repository.lastBlueprintApproval?.evaluations[0]).toMatchObject({
+      slotId: accepted.slotId,
+      verdict: "APPROVED",
+      rubric: accepted.acceptedEvaluation,
+    });
+  });
+
+  it("evaluates V3 card Rubrics sequentially for rate-limited gateways", async () => {
+    const repository = new InMemoryWorkflowRepositoryV2();
+    repository.state.units = repository.state.units.filter((unit) => unit.chapterId !== 0 || unit.workUnitId === 0);
+    repository.state.project.generationPolicyVersion = 3;
+    repository.state.chapters[0]!.minCardCount = 2;
+    repository.blueprintContext = blueprintContextFor(repository.state.units[0]!);
+    const registry = new FakeProjectRegistryV2();
+    const unit = await repository.claimWorkflowWorkUnit(projectId, 0, registry.workerAddress(0));
+    await new WorkUnitWorkerAgent(repository, registry, new BlueprintWorkUnitModel(), 0).runClaimed(unit!);
+    configureBlueprintQualityContext(repository);
+    repository.state.chapters[0]!.status = "QUALITY_CHECK";
+    let activeEvaluations = 0;
+    let maximumConcurrency = 0;
+    const evaluator: CardQualityEvaluatorV3 = {
+      modelId: "rate-limited-evaluator",
+      promptVersion: "rate-limited-evaluator-1",
+      async evaluate(input) {
+        activeEvaluations += 1;
+        maximumConcurrency = Math.max(maximumConcurrency, activeEvaluations);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        activeEvaluations -= 1;
+        return {
+          cardId: input.card.id,
+          citationSufficient: true,
+          factuality: 5,
+          learningValue: 4,
+          clarity: 4,
+          completeness: 4,
+          citationRelevance: 5,
+          difficultyFit: 5,
+          verdict: "ACCEPT",
+          reasons: [],
+        };
+      },
+    };
+    const orthogonalEmbeddings = {
+      modelId: "orthogonal-test-embedding",
+      async embed(texts: string[]) { return texts.map((_, index) => index === 0 ? [1, 0] : [0, 1]); },
+    };
+
+    await expect(new ChapterQualityGate(
+      repository,
+      orthogonalEmbeddings,
+      evaluator,
+    ).runClaimed({ projectId, chapterId: 0 })).resolves.toBe("APPROVED");
+
+    expect(maximumConcurrency).toBe(1);
+  });
+
+  it("requests repair only for the V3 Slot rejected as a semantic duplicate", async () => {
+    const repository = new InMemoryWorkflowRepositoryV2();
+    repository.state.units = repository.state.units.filter((unit) => unit.chapterId !== 0 || unit.workUnitId === 0);
+    repository.state.project.generationPolicyVersion = 3;
+    repository.state.chapters[0]!.minCardCount = 2;
+    repository.blueprintContext = blueprintContextFor(repository.state.units[0]!);
+    const registry = new FakeProjectRegistryV2();
+    const unit = await repository.claimWorkflowWorkUnit(projectId, 0, registry.workerAddress(0));
+    await new WorkUnitWorkerAgent(repository, registry, new BlueprintWorkUnitModel(), 0).runClaimed(unit!);
+    configureBlueprintQualityContext(repository);
+    repository.state.chapters[0]!.status = "QUALITY_CHECK";
+    const identicalEmbeddings = {
+      modelId: "deterministic-test-embedding",
+      async embed(texts: string[]) { return texts.map(() => [1, 0]); },
+    };
+
+    await expect(new ChapterQualityGate(repository, identicalEmbeddings).runClaimed({ projectId, chapterId: 0 }))
+      .resolves.toBe("REPAIR_REQUESTED");
+
+    expect(repository.lastBlueprintRepairs?.repairs).toEqual([expect.objectContaining({
+      slotId: hex("e"),
+      reason: expect.stringContaining("distinct assessment target"),
+    })]);
+    expect(repository.state.units[0]?.status).toBe("REPAIRING");
+    expect(repository.lastBlueprintApproval).toBeNull();
+  });
+
+  it("routes a citation-sufficiency Rubric failure to its exact V3 Slot", async () => {
+    const repository = new InMemoryWorkflowRepositoryV2();
+    repository.state.units = repository.state.units.filter((unit) => unit.chapterId !== 0 || unit.workUnitId === 0);
+    repository.state.project.generationPolicyVersion = 3;
+    repository.state.chapters[0]!.minCardCount = 2;
+    repository.blueprintContext = blueprintContextFor(repository.state.units[0]!);
+    const registry = new FakeProjectRegistryV2();
+    const unit = await repository.claimWorkflowWorkUnit(projectId, 0, registry.workerAddress(0));
+    await new WorkUnitWorkerAgent(repository, registry, new BlueprintWorkUnitModel(), 0).runClaimed(unit!);
+    configureBlueprintQualityContext(repository);
+    repository.state.chapters[0]!.status = "QUALITY_CHECK";
+    const orthogonalEmbeddings = {
+      modelId: "orthogonal-test-embedding",
+      async embed(texts: string[]) { return texts.map((_, index) => index === 0 ? [1, 0] : [0, 1]); },
+    };
+    const rubricEvaluator: CardQualityEvaluatorV3 = {
+      modelId: "rubric-test-model",
+      promptVersion: "rubric-test-1",
+      async evaluate(input) {
+        const fails = input.slot.slotId === hex("e");
+        return {
+          cardId: input.card.id,
+          citationSufficient: !fails,
+          factuality: fails ? 2 : 4,
+          learningValue: 4,
+          clarity: 4,
+          completeness: fails ? 2 : 4,
+          citationRelevance: fails ? 1 : 4,
+          difficultyFit: 5,
+          verdict: fails ? "REPAIR" : "ACCEPT",
+          reasons: fails ? ["引用没有支持应用场景中的结论。"] : [],
+        };
+      },
+    };
+
+    await expect(new ChapterQualityGate(
+      repository,
+      orthogonalEmbeddings,
+      rubricEvaluator,
+    ).runClaimed({ projectId, chapterId: 0 })).resolves.toBe("REPAIR_REQUESTED");
+
+    expect(repository.lastBlueprintRepairs?.repairs.map((repair) => repair.slotId)).toEqual([hex("e")]);
+    expect(repository.lastBlueprintRepairs?.evaluations[1]).toMatchObject({
+      verdict: "REPAIR_REQUESTED",
+      hardFailures: expect.arrayContaining([
+        "CITATION_INSUFFICIENT",
+        "FACTUALITY_BELOW_MINIMUM",
+        "CITATION_RELEVANCE_BELOW_MINIMUM",
+      ]),
+      rubric: { reasons: ["引用没有支持应用场景中的结论。"] },
+    });
+    expect(repository.lastBlueprintRepairs?.repairs).toContainEqual({
+      slotId: hex("e"),
+      reason: "Replace the rejected card and fix: 引用没有支持应用场景中的结论。",
+    });
+  });
+
+  it("gives a V3 repair Worker only its rejected card and Slot-specific instruction", async () => {
+    const repository = new InMemoryWorkflowRepositoryV2();
+    repository.state.units = repository.state.units.filter((unit) => unit.chapterId !== 0 || unit.workUnitId === 0);
+    repository.state.project.generationPolicyVersion = 3;
+    const context = blueprintContextFor(repository.state.units[0]!);
+    const evidence = repository.state.units[0]!.sourceBlocks!.find((block) => block.text.length >= 20)!;
+    context.repairInstructions = [{
+      slotId: hex("e"),
+      candidateRevision: 1,
+      previousCard: {
+        type: "qa",
+        question: "旧问题是什么？",
+        answer: "旧答案遗漏了必要条件。",
+        keyPoint: "旧关键点",
+        source: { page: evidence.pageNumber, quote: evidence.text },
+        tags: ["旧标签"],
+        importance: 4,
+        initialDifficulty: 4,
+      },
+      failureCodes: ["COMPLETENESS_BELOW_MINIMUM"],
+      instruction: "Replace the rejected card and include the missing precondition.",
+    }];
+    repository.blueprintContext = context;
+    const registry = new FakeProjectRegistryV2();
+    const unit = await repository.claimWorkflowWorkUnit(projectId, 0, registry.workerAddress(0));
+    const model = new BlueprintWorkUnitModel();
+
+    await new WorkUnitWorkerAgent(repository, registry, model, 0).runClaimed(unit!);
+
+    expect(model.repairInstructions).toEqual([{
+      blueprintSlotId: hex("e"),
+      rejectedCandidateRevision: 1,
+      failureCodes: ["COMPLETENESS_BELOW_MINIMUM"],
+      instruction: "Replace the rejected card and include the missing precondition.",
+      rejectedCard: context.repairInstructions[0]!.previousCard,
+    }]);
+  });
+
   it("allows a normal AI generation call to run longer than 45 seconds", async () => {
     vi.useFakeTimers();
     const repository = new InMemoryWorkflowRepositoryV2();
@@ -516,6 +1182,23 @@ describe("Chapter-first V2 Runner pipeline", () => {
 
     await vi.advanceTimersByTimeAsync(75_000);
     await expect(run).resolves.toBeInstanceOf(Error);
+    expect(repository.state.units[0]?.status).toBe("RETRYABLE");
+  });
+
+  it("hard-stops a model endpoint that ignores AbortSignal", async () => {
+    vi.useFakeTimers();
+    const repository = new InMemoryWorkflowRepositoryV2();
+    const registry = new FakeProjectRegistryV2();
+    const worker = new WorkUnitWorkerAgent(repository, registry, new NonAbortableWorkUnitModel(), 0);
+    const unit = await repository.claimWorkflowWorkUnit(projectId, 0, registry.workerAddress(0));
+    const run = worker.runClaimed(unit!).then(
+      () => null,
+      (error: unknown) => error,
+    );
+
+    await vi.advanceTimersByTimeAsync(120_001);
+
+    await expect(run).resolves.toEqual(expect.objectContaining({ message: expect.stringMatching(/timed out|aborted/u) }));
     expect(repository.state.units[0]?.status).toBe("RETRYABLE");
   });
 

@@ -11,6 +11,8 @@ import {
   ProjectCreationViewSchema,
   ProjectListResponseSchema,
   ProjectSummarySchema,
+  SourceExclusionRangeListSchema,
+  filterExcludedSourceBlocks,
   hashGoal,
   intakeSource,
   materializeChapterOutline,
@@ -23,6 +25,7 @@ import {
   type ProjectSourceRegistrationResponse,
   type ProjectListResponse,
   type ProjectSummary,
+  type SourceExclusionRange,
 } from "@mindmark/shared";
 import type { Hex } from "viem";
 import { ApiError } from "./http";
@@ -95,6 +98,7 @@ type OutlineDraftInput = {
   outlineHash: Hex;
   plannerVersion: string;
   chapters: Record<string, unknown>[];
+  exclusions: Record<string, unknown>[];
 };
 
 export interface ProjectSummaryStore {
@@ -144,6 +148,7 @@ export interface ProjectConfirmationStore {
     project: ProjectDraftRow;
     chapters: DraftChapterRow[];
     sourceBlocks: ProjectSourceBlockRow[];
+    exclusions: SourceExclusionRange[];
   } | null>;
   saveDraft(input: OutlineDraftInput): Promise<number>;
   confirmOutlineDesign(input: {
@@ -206,6 +211,7 @@ async function saveOutlineDraft(input: OutlineDraftInput): Promise<number> {
     p_outline_hash: input.outlineHash,
     p_planner_version: input.plannerVersion,
     p_items: input.chapters,
+    p_exclusions: input.exclusions,
   });
   if (error) throw new Error(`Could not save Project Outline Draft: ${error.message}`);
   return Number(data);
@@ -291,10 +297,21 @@ export class SupabaseProjectConfirmationStore implements ProjectConfirmationStor
       )
       .eq("project_id", projectId).eq("outline_version", source.headVersion).order("position");
     if (error) throw new Error(`Could not load Project Outline Draft: ${error.message}`);
+    const exclusionsResult = await getSupabaseAdmin().from("project_outline_exclusions")
+      .select("start_block,end_block,category,reason")
+      .eq("project_id", projectId).eq("outline_version", source.headVersion)
+      .order("exclusion_index");
+    if (exclusionsResult.error) throw new Error(`Could not load Project Outline exclusions: ${exclusionsResult.error.message}`);
     return {
       project: source.project as ProjectDraftRow,
       chapters: (data ?? []) as DraftChapterRow[],
       sourceBlocks: source.sourceBlocks,
+      exclusions: SourceExclusionRangeListSchema.parse((exclusionsResult.data ?? []).map((range) => ({
+        startBlock: range.start_block,
+        endBlock: range.end_block,
+        category: range.category,
+        reason: range.reason,
+      }))),
     };
   }
 
@@ -394,11 +411,15 @@ function sourceBlocksFromRows(rows: ProjectSourceBlockRow[]) {
 function outlineChapterRows(
   chapters: import("@mindmark/shared").ChapterOutlineItem[],
   sourceBlocks: import("@mindmark/shared").SourceBlock[],
+  exclusions: SourceExclusionRange[] = [],
 ) {
   return chapters.map((chapter) => {
     const policy = planChapterCardPolicy(
       chapter,
-      sourceBlocks.slice(chapter.startBlock, chapter.endBlock + 1),
+      filterExcludedSourceBlocks(
+        sourceBlocks.slice(chapter.startBlock, chapter.endBlock + 1),
+        exclusions,
+      ),
     );
     return {
       item_id: `chapter-${chapter.chapterId}`,
@@ -465,6 +486,7 @@ export async function confirmProjectOutlineForOwner(
       sourceBlocks,
       proposals,
       draft.project.outline_version,
+      draft.exclusions,
     );
     if (outline.outlineHash !== draft.project.outline_hash) {
       outline = materializeChapterOutline(
@@ -472,6 +494,7 @@ export async function confirmProjectOutlineForOwner(
         sourceBlocks,
         proposals,
         draft.project.outline_version + 1,
+        draft.exclusions,
       );
       const savedVersion = await store.saveDraft({
         projectId,
@@ -479,7 +502,13 @@ export async function confirmProjectOutlineForOwner(
         expectedHeadVersion: draft.project.outline_version,
         outlineHash: outline.outlineHash,
         plannerVersion: "learner-edited-v1",
-        chapters: outlineChapterRows(outline.chapters, sourceBlocks),
+        chapters: outlineChapterRows(outline.chapters, sourceBlocks, draft.exclusions),
+        exclusions: draft.exclusions.map((range) => ({
+          start_block: range.startBlock,
+          end_block: range.endBlock,
+          category: range.category,
+          reason: range.reason,
+        })),
       });
       if (savedVersion !== outline.outlineVersion) {
         throw new Error("Saved Outline Draft version does not match the edited outline");
@@ -492,7 +521,7 @@ export async function confirmProjectOutlineForOwner(
       error instanceof Error ? error.message : "Chapter outline is invalid",
     );
   }
-  const chapterRows = outlineChapterRows(outline.chapters, sourceBlocks);
+  const chapterRows = outlineChapterRows(outline.chapters, sourceBlocks, draft.exclusions);
   await store.confirmOutlineDesign({
     projectId,
     owner,
@@ -535,7 +564,7 @@ export async function getProjectCreationViewForOwner(
     source_character_count: number | null;
     creation_intent: Record<string, unknown> | null;
   };
-  const [itemsResult, chaptersResult, unitsResult, designsResult] = await Promise.all([
+  const [itemsResult, chaptersResult, unitsResult, designsResult, exclusionsResult] = await Promise.all([
     client.from("project_outline_items").select(
       "position,title,summary,start_block,end_block,page_start,page_end,source_hash,importance",
     ).eq("project_id", projectId).eq("outline_version", project.outline_version).order("position"),
@@ -543,8 +572,10 @@ export async function getProjectCreationViewForOwner(
     client.from("work_units").select("work_unit_id", { count: "exact", head: true }).eq("project_id", projectId),
     client.from("chapter_design_runs").select("chapter_id,status")
       .eq("project_id", projectId).eq("outline_version", project.outline_version),
+    client.from("project_outline_exclusions").select("start_block,end_block,category,reason")
+      .eq("project_id", projectId).eq("outline_version", project.outline_version).order("exclusion_index"),
   ]);
-  const error = itemsResult.error ?? chaptersResult.error ?? unitsResult.error ?? designsResult.error;
+  const error = itemsResult.error ?? chaptersResult.error ?? unitsResult.error ?? designsResult.error ?? exclusionsResult.error;
   if (error) throw new Error(`Could not load Project creation details: ${error.message}`);
   const outline = project.outline_hash && (itemsResult.data?.length ?? 0) > 0
     ? ProjectIntakeResponseSchema.parse({
@@ -565,6 +596,12 @@ export async function getProjectCreationViewForOwner(
           sourceHash: item.source_hash,
           importance: Number(item.importance),
         })),
+        excludedRanges: SourceExclusionRangeListSchema.parse((exclusionsResult.data ?? []).map((range) => ({
+          startBlock: range.start_block,
+          endBlock: range.end_block,
+          category: range.category,
+          reason: range.reason,
+        }))),
       })
     : null;
   const confirmation = project.status === "AWAITING_REGISTRY" && project.creation_intent

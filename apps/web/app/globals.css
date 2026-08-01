@@ -272,6 +272,87 @@ button:disabled {
 .operations-table code { color: var(--accent); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
 .operations-error-cell { max-width: 310px; color: var(--danger); line-height: 18px; }
 
+.quality-metrics {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  border-bottom: 1px solid var(--line);
+}
+
+.quality-metrics .operations-metric { min-height: 96px; }
+
+.quality-rate {
+  display: grid;
+  min-height: 96px;
+  align-content: center;
+  gap: 12px;
+  padding: 17px;
+  background: var(--success-soft);
+}
+
+.quality-rate span,
+.quality-breakdown > div > span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.quality-rate strong {
+  color: var(--success);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 25px;
+  line-height: 1;
+}
+
+.quality-breakdown {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border-bottom: 1px solid var(--line);
+}
+
+.quality-breakdown > div {
+  min-height: 74px;
+  padding: 14px 17px;
+}
+
+.quality-breakdown > div + div { border-left: 1px solid var(--line); }
+.quality-breakdown p { margin: 7px 0 0; color: var(--ink); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; line-height: 18px; }
+.quality-table { min-width: 820px; }
+.quality-slot-table { min-width: 1050px; }
+
+.quality-subheading {
+  display: grid;
+  min-height: 68px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-content: center;
+  gap: 3px 14px;
+  border-top: 1px solid var(--line-strong);
+  border-bottom: 1px solid var(--line-strong);
+  padding: 12px 17px;
+}
+
+.quality-subheading span {
+  color: var(--accent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.quality-subheading strong { font-family: Georgia, "Noto Serif SC", "Songti SC", serif; font-size: 16px; }
+.quality-subheading small { grid-row: span 2; align-self: center; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
+
+.quality-unavailable {
+  display: flex;
+  min-height: 92px;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 20px;
+  color: #805c15;
+}
+
+.quality-unavailable svg { width: 20px; height: 20px; flex: none; }
+.quality-unavailable p { margin: 0; font-size: 13px; line-height: 20px; }
+
 .operations-status {
   display: inline-flex;
   border: 1px solid var(--line-strong);
@@ -337,6 +418,10 @@ button:disabled {
   .operations-metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .operations-metric:nth-child(4n) { border-right: 0; }
   .operations-metric:nth-child(-n + 4) { border-bottom: 1px solid var(--line); }
+  .quality-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .quality-metrics .operations-metric:nth-child(4n) { border-right: 1px solid var(--line); }
+  .quality-metrics .operations-metric:nth-child(3n) { border-right: 0; }
+  .quality-metrics .operations-metric:nth-child(-n + 3) { border-bottom: 1px solid var(--line); }
 }
 
 @media (max-width: 640px) {
@@ -355,6 +440,15 @@ button:disabled {
   .operations-alerts > div { border-right: 0; border-bottom: 1px solid #e6d3b5; }
   .operations-alerts > div:last-child { border-bottom: 0; }
   .operations-section-heading { min-height: 70px; padding: 12px 14px; }
+  .quality-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .quality-metrics .operations-metric:nth-child(4n),
+  .quality-metrics .operations-metric:nth-child(3n) { border-right: 1px solid var(--line); }
+  .quality-metrics .operations-metric:nth-child(2n) { border-right: 0; }
+  .quality-metrics .operations-metric:nth-child(-n + 3) { border-bottom: 1px solid var(--line); }
+  .quality-metrics .operations-metric:nth-child(4) { border-bottom: 0; }
+  .quality-rate { min-height: 92px; grid-column: 1 / -1; border-top: 1px solid var(--line); }
+  .quality-breakdown { grid-template-columns: 1fr; }
+  .quality-breakdown > div + div { border-top: 1px solid var(--line); border-left: 0; }
   .operations-events li { grid-template-columns: 28px minmax(0, 1fr); padding: 13px 14px; }
   .operations-events time { grid-column: 2; }
   .operations-access { align-items: flex-start; flex-wrap: wrap; padding: 28px 0; }

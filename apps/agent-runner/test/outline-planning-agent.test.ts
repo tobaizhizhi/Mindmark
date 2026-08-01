@@ -14,12 +14,7 @@ const ownerAddress = `0x${"ab".repeat(20)}` as const;
 const jobId = "123e4567-e89b-42d3-a456-426614174000";
 
 class InMemoryWorkflowRepository implements WorkflowJobRepositoryV2 {
-  readonly source = intakeSource([
-    {
-      pageNumber: 1,
-      text: "# 调用原理\n\n外部调用会把执行控制权交给未知代码，必须在交互之前完成状态更新。",
-    },
-  ]);
+  readonly source;
   job: WorkflowJobV2 = {
     jobId,
     projectId,
@@ -35,6 +30,13 @@ class InMemoryWorkflowRepository implements WorkflowJobRepositoryV2 {
   completed: Record<string, unknown> | null = null;
   retried: string | null = null;
   failSave = false;
+
+  constructor(pages = [{
+    pageNumber: 1,
+    text: "# 调用原理\n\n外部调用会把执行控制权交给未知代码，必须在交互之前完成状态更新。",
+  }]) {
+    this.source = intakeSource(pages);
+  }
 
   async recoverStaleWorkflowJobs() { return 0; }
 
@@ -82,6 +84,7 @@ describe("OutlinePlanningAgent", () => {
         name: "propose_chapters",
         arguments: {
           chapters: [{ title: "调用原理", summary: "理解控制权变化", startBlock: 0, endBlock: 1, importance: 5 }],
+          excludedRanges: [],
         },
       },
     ]));
@@ -93,12 +96,13 @@ describe("OutlinePlanningAgent", () => {
       projectId,
       ownerAddress,
       expectedHeadVersion: null,
-      plannerVersion: "semantic-with-deterministic-fallback-v2",
+      plannerVersion: "semantic-relevance-v6",
     });
     expect(repository.saved?.chapters[0]).toMatchObject({
       item_id: "chapter-0",
       min_card_count: 3,
     });
+    expect(repository.saved?.exclusions).toEqual([]);
     expect(repository.completed).toMatchObject({ outlineVersion: 1, chapterCount: 1 });
     expect(JSON.stringify(repository.job.input)).not.toContain("外部调用");
   });
@@ -114,7 +118,32 @@ describe("OutlinePlanningAgent", () => {
     warn.mockRestore();
 
     expect(repository.job.status).toBe("SUCCEEDED");
-    expect(repository.saved?.plannerVersion).toBe("hierarchical-deterministic-v2");
+    expect(repository.saved?.plannerVersion).toBe("relevance-deterministic-v6");
+  });
+
+  it("keeps deterministic exam exclusions when the model omits them", async () => {
+    const repository = new InMemoryWorkflowRepository([
+      { pageNumber: 1, text: "# 2026 年考纲变化\n\n新增考点：外部调用。" },
+      { pageNumber: 2, text: "# 调用原理\n\n外部调用会转移执行控制权。" },
+    ]);
+    const agent = new OutlinePlanningAgent(repository, new ScriptedModel([
+      { id: "read", name: "read_source_outline", arguments: {} },
+      {
+        id: "propose",
+        name: "propose_chapters",
+        arguments: {
+          chapters: [{ title: "调用原理", summary: "理解控制权变化", startBlock: 2, endBlock: 3, importance: 5 }],
+          excludedRanges: [],
+        },
+      },
+    ]));
+
+    await agent.runNext();
+
+    expect(repository.saved?.plannerVersion).toBe("semantic-relevance-v6");
+    expect(repository.saved?.exclusions).toEqual([
+      expect.objectContaining({ start_block: 0, end_block: 1, category: "EXAM_UPDATE" }),
+    ]);
   });
 
   it("releases a job for retry when persisting its Draft fails", async () => {
@@ -127,6 +156,7 @@ describe("OutlinePlanningAgent", () => {
         name: "propose_chapters",
         arguments: {
           chapters: [{ title: "调用原理", summary: "理解控制权变化", startBlock: 0, endBlock: 1, importance: 5 }],
+          excludedRanges: [],
         },
       },
     ]));

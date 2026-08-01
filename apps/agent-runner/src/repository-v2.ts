@@ -2,6 +2,8 @@ import {
   AddressSchema,
   Bytes32Schema,
   CardBlueprintSchema,
+  CardRubricEvaluationSchema,
+  ChapterCardPolicySchema,
   ChapterConceptInventorySchema,
   ChapterOutlineItemSchema,
   ChapterStatusSchema,
@@ -10,9 +12,12 @@ import {
   ProjectStatusSchema,
   ReviewPlanSchema,
   SourceBlockSchema,
+  SourceExclusionRangeListSchema,
+  filterExcludedSourceBlocks,
   WorkerKnowledgeCardV2Schema,
   WorkUnitStatusSchema,
   type KnowledgeCardV2,
+  type CardRubricEvaluation,
 } from "@mindmark/shared";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
@@ -22,6 +27,7 @@ import type {
   ChapterAssemblyV2,
   ChapterDesignRepositoryV3,
   ChapterDesignRunV3,
+  BlueprintQualityDecisionV3,
   ChapterBundleV2,
   OutlinePlanningSourceV2,
   ProjectBundleV2,
@@ -373,6 +379,7 @@ export class SupabaseProjectRunnerRepositoryV2 implements ProjectRunnerRepositor
       p_outline_hash: input.outlineHash,
       p_planner_version: input.plannerVersion,
       p_items: input.chapters,
+      p_exclusions: input.exclusions,
     });
     if (error) throw new Error(errorMessage(error, "save Project Outline Draft"));
     return Number(data);
@@ -384,7 +391,7 @@ export class SupabaseProjectRunnerRepositoryV2 implements ProjectRunnerRepositor
         .select("project_id,goal,outline_version")
         .eq("project_id", projectId).maybeSingle(),
       this.client.from("chapters")
-        .select("chapter_id,position,title,summary,start_block,end_block,page_start,page_end,source_hash,importance")
+        .select("chapter_id,position,title,summary,start_block,end_block,page_start,page_end,source_hash,importance,min_card_count,target_card_count,max_card_count,card_policy_version")
         .eq("project_id", projectId).eq("chapter_id", chapterId).maybeSingle(),
     ]);
     const error = projectResult.error ?? chapterResult.error;
@@ -408,26 +415,50 @@ export class SupabaseProjectRunnerRepositoryV2 implements ProjectRunnerRepositor
       sourceHash: chapterResult.data.source_hash,
       importance: chapterResult.data.importance,
     });
-    const { data: blockRows, error: blocksError } = await this.client.from("source_blocks")
-      .select("block_index,page_number,kind,text,block_hash,heading_level")
-      .eq("project_id", projectId)
-      .gte("block_index", chapter.startBlock)
-      .lte("block_index", chapter.endBlock)
-      .order("block_index");
-    if (blocksError) throw new Error(errorMessage(blocksError, "load Chapter Design Source Blocks"));
+    const cardPolicy = ChapterCardPolicySchema.parse({
+      chapterId: chapter.chapterId,
+      minCardCount: chapterResult.data.min_card_count,
+      targetCardCount: chapterResult.data.target_card_count,
+      maxCardCount: chapterResult.data.max_card_count,
+      policyVersion: chapterResult.data.card_policy_version,
+    });
+    const [blocksResult, exclusionsResult] = await Promise.all([
+      this.client.from("source_blocks")
+        .select("block_index,page_number,kind,text,block_hash,heading_level")
+        .eq("project_id", projectId)
+        .gte("block_index", chapter.startBlock)
+        .lte("block_index", chapter.endBlock)
+        .order("block_index"),
+      this.client.from("project_outline_exclusions")
+        .select("start_block,end_block,category,reason")
+        .eq("project_id", projectId).eq("outline_version", project.outline_version)
+        .order("exclusion_index"),
+    ]);
+    const sourceError = blocksResult.error ?? exclusionsResult.error;
+    if (sourceError) throw new Error(errorMessage(sourceError, "load Chapter Design Source Blocks"));
+    const exclusions = SourceExclusionRangeListSchema.parse((exclusionsResult.data ?? []).map((range) => ({
+      startBlock: range.start_block,
+      endBlock: range.end_block,
+      category: range.category,
+      reason: range.reason,
+    })));
+    const chapterBlocks = SourceBlockSchema.array().min(1).parse((blocksResult.data ?? []).map((block) => ({
+      blockIndex: block.block_index,
+      pageNumber: block.page_number,
+      kind: block.kind,
+      text: block.text,
+      blockHash: block.block_hash,
+      headingLevel: block.heading_level,
+    })));
+    const learningBlocks = filterExcludedSourceBlocks(chapterBlocks, exclusions);
+    if (learningBlocks.length === 0) throw new Error("Chapter Design source contains only excluded blocks");
     return {
       projectId: project.project_id,
       goal: project.goal,
       outlineVersion: project.outline_version,
       chapter,
-      sourceBlocks: SourceBlockSchema.array().min(1).parse((blockRows ?? []).map((block) => ({
-        blockIndex: block.block_index,
-        pageNumber: block.page_number,
-        kind: block.kind,
-        text: block.text,
-        blockHash: block.block_hash,
-        headingLevel: block.heading_level,
-      }))),
+      cardPolicy,
+      sourceBlocks: learningBlocks,
     };
   }
 
@@ -470,12 +501,12 @@ export class SupabaseProjectRunnerRepositoryV2 implements ProjectRunnerRepositor
   }
 
   async loadProjectDesignFreezeSource(projectId: Hex) {
-    const [projectResult, chaptersResult, blocksResult, runsResult] = await Promise.all([
+    const [projectResult, chaptersResult, blocksResult, runsResult, exclusionsResult] = await Promise.all([
       this.client.from("learning_projects")
         .select("project_id,source_hash,goal_hash,outline_hash,outline_version")
         .eq("project_id", projectId).single(),
       this.client.from("chapters")
-        .select("chapter_id,position,title,summary,start_block,end_block,page_start,page_end,source_hash,importance")
+        .select("chapter_id,position,title,summary,start_block,end_block,page_start,page_end,source_hash,importance,min_card_count,target_card_count,max_card_count,card_policy_version")
         .eq("project_id", projectId).order("position"),
       this.client.from("source_blocks")
         .select("block_index,page_number,kind,text,block_hash,heading_level")
@@ -483,8 +514,11 @@ export class SupabaseProjectRunnerRepositoryV2 implements ProjectRunnerRepositor
       this.client.from("chapter_design_runs")
         .select("chapter_id,inventory,blueprint,inventory_hash,blueprint_hash")
         .eq("project_id", projectId).eq("status", "COMPLETED").order("chapter_id"),
+      this.client.from("project_outline_exclusions")
+        .select("outline_version,start_block,end_block,category,reason")
+        .eq("project_id", projectId).order("outline_version", { ascending: false }).order("exclusion_index"),
     ]);
-    const error = projectResult.error ?? chaptersResult.error ?? blocksResult.error ?? runsResult.error;
+    const error = projectResult.error ?? chaptersResult.error ?? blocksResult.error ?? runsResult.error ?? exclusionsResult.error;
     if (error || !projectResult.data) throw new Error(errorMessage(error, "load Project Design freeze source"));
     const project = z.object({
       project_id: Bytes32Schema,
@@ -505,6 +539,13 @@ export class SupabaseProjectRunnerRepositoryV2 implements ProjectRunnerRepositor
       sourceHash: chapter.source_hash,
       importance: chapter.importance,
     }));
+    const chapterPolicies = (chaptersResult.data ?? []).map((chapter) => ChapterCardPolicySchema.parse({
+      chapterId: chapter.chapter_id,
+      minCardCount: chapter.min_card_count,
+      targetCardCount: chapter.target_card_count,
+      maxCardCount: chapter.max_card_count,
+      policyVersion: chapter.card_policy_version,
+    }));
     return {
       projectId: project.project_id,
       sourceHash: project.source_hash,
@@ -512,6 +553,7 @@ export class SupabaseProjectRunnerRepositoryV2 implements ProjectRunnerRepositor
       outlineHash: project.outline_hash,
       outlineVersion: project.outline_version,
       chapters,
+      chapterPolicies,
       sourceBlocks: SourceBlockSchema.array().min(1).parse((blocksResult.data ?? []).map((block) => ({
         blockIndex: block.block_index,
         pageNumber: block.page_number,
@@ -520,6 +562,14 @@ export class SupabaseProjectRunnerRepositoryV2 implements ProjectRunnerRepositor
         blockHash: block.block_hash,
         headingLevel: block.heading_level,
       }))),
+      excludedRanges: SourceExclusionRangeListSchema.parse((exclusionsResult.data ?? [])
+        .filter((range) => range.outline_version === project.outline_version)
+        .map((range) => ({
+          startBlock: range.start_block,
+          endBlock: range.end_block,
+          category: range.category,
+          reason: range.reason,
+        }))),
       designs: (runsResult.data ?? []).map((run) => ({
         chapterId: z.number().int().min(0).max(15).parse(run.chapter_id),
         inventory: ChapterConceptInventorySchema.parse(run.inventory),
@@ -646,23 +696,201 @@ export class SupabaseProjectRunnerRepositoryV2 implements ProjectRunnerRepositor
         .eq("project_id", projectId).eq("chapter_id", unit.chapterId)
         .eq("status", "COMPLETED").single(),
       this.client.from("card_blueprint_slots")
-        .select("slot_id")
+        .select("slot_id,status")
         .eq("project_id", projectId).eq("chapter_id", unit.chapterId)
-        .eq("assigned_work_unit_id", workUnitId).order("created_at"),
+        .eq("assigned_work_unit_id", workUnitId)
+        .in("status", ["ASSIGNED", "REPAIR_REQUESTED"]).order("created_at"),
     ]);
     const error = runResult.error ?? slotsResult.error;
     if (error || !runResult.data) throw new Error(errorMessage(error, "load V3 Work Unit Blueprint"));
     const blueprint = CardBlueprintSchema.parse(runResult.data.blueprint);
-    const assignedSlotIds = new Set((slotsResult.data ?? []).map((slot) => Bytes32Schema.parse(slot.slot_id)));
+    const assignedSlots = z.array(z.object({
+      slot_id: Bytes32Schema,
+      status: z.enum(["ASSIGNED", "REPAIR_REQUESTED"]),
+    })).parse(slotsResult.data ?? []);
+    const assignedSlotIds = new Set(assignedSlots.map((slot) => slot.slot_id));
     const slots = blueprint.slots.filter((slot) => assignedSlotIds.has(slot.slotId));
     if (slots.length !== assignedSlotIds.size || slots.length === 0) {
       throw new Error("V3 Work Unit Blueprint Slot assignment is incomplete");
     }
+    const designRunId = z.string().uuid().parse(runResult.data.design_run_id);
+    const repairSlotIds = assignedSlots
+      .filter((slot) => slot.status === "REPAIR_REQUESTED")
+      .map((slot) => slot.slot_id);
+    const repairInstructions = repairSlotIds.length === 0 ? [] : await this.loadBlueprintRepairInstructions({
+      projectId,
+      chapterId: unit.chapterId,
+      workUnitId,
+      designRunId,
+      slotIds: repairSlotIds,
+    });
     return {
-      designRunId: z.string().uuid().parse(runResult.data.design_run_id),
+      designRunId,
       inventory: ChapterConceptInventorySchema.parse(runResult.data.inventory),
       blueprint,
       slots,
+      repairInstructions,
+    };
+  }
+
+  private async loadBlueprintRepairInstructions(input: {
+    projectId: Hex;
+    chapterId: number;
+    workUnitId: number;
+    designRunId: string;
+    slotIds: Hex[];
+  }) {
+    const [candidatesResult, evaluationsResult] = await Promise.all([
+      this.client.from("card_slot_candidates")
+        .select("slot_id,candidate_revision,card")
+        .eq("project_id", input.projectId)
+        .eq("chapter_id", input.chapterId)
+        .eq("work_unit_id", input.workUnitId)
+        .eq("design_run_id", input.designRunId)
+        .eq("status", "REJECTED")
+        .in("slot_id", input.slotIds)
+        .order("candidate_revision", { ascending: false }),
+      this.client.from("card_quality_evaluations")
+        .select("slot_id,candidate_revision,hard_failures,repair_reason,created_at")
+        .eq("project_id", input.projectId)
+        .eq("chapter_id", input.chapterId)
+        .eq("design_run_id", input.designRunId)
+        .in("slot_id", input.slotIds)
+        .order("candidate_revision", { ascending: false })
+        .order("created_at", { ascending: false }),
+    ]);
+    const error = candidatesResult.error ?? evaluationsResult.error;
+    if (error) throw new Error(errorMessage(error, "load V3 Blueprint repair instructions"));
+    const candidates = z.array(z.object({
+      slot_id: Bytes32Schema,
+      candidate_revision: z.number().int().min(1).max(10),
+      card: z.unknown(),
+    })).parse(candidatesResult.data ?? []);
+    const evaluations = z.array(z.object({
+      slot_id: Bytes32Schema.nullable(),
+      candidate_revision: z.number().int().min(0).max(10),
+      hard_failures: z.array(z.string()),
+      repair_reason: z.string().nullable(),
+      created_at: z.string(),
+    })).parse(evaluationsResult.data ?? []);
+    const latestCandidateBySlot = new Map<string, typeof candidates[number]>();
+    for (const candidate of candidates) {
+      if (!latestCandidateBySlot.has(candidate.slot_id)) {
+        latestCandidateBySlot.set(candidate.slot_id, candidate);
+      }
+    }
+    const exactEvaluationByCandidate = new Map<string, typeof evaluations[number]>();
+    for (const evaluation of evaluations) {
+      if (!evaluation.slot_id) continue;
+      const key = `${evaluation.slot_id}:${evaluation.candidate_revision}`;
+      if (!exactEvaluationByCandidate.has(key)) exactEvaluationByCandidate.set(key, evaluation);
+    }
+    return [...latestCandidateBySlot.values()].map((candidate) => {
+      const evaluation = exactEvaluationByCandidate.get(`${candidate.slot_id}:${candidate.candidate_revision}`);
+      const failureCodes = evaluation?.hard_failures ?? [];
+      const previousCard = WorkerKnowledgeCardV2Schema.parse(candidate.card);
+      return {
+        slotId: candidate.slot_id,
+        candidateRevision: candidate.candidate_revision,
+        previousCard: KnowledgeCardContentSchema.parse({
+          type: previousCard.type,
+          question: previousCard.question,
+          answer: previousCard.answer,
+          keyPoint: previousCard.keyPoint,
+          source: previousCard.source,
+          tags: previousCard.tags,
+          importance: previousCard.importance,
+          initialDifficulty: previousCard.initialDifficulty,
+        }),
+        failureCodes,
+        instruction: evaluation?.repair_reason
+          ?? (failureCodes.length ? failureCodes.join(", ") : "Replace the rejected card with a fully grounded answer for this Slot."),
+      };
+    });
+  }
+
+  async getChapterBlueprintQualityContext(projectId: Hex, chapterId: number) {
+    const [runResult, candidatesResult, evaluationsResult] = await Promise.all([
+      this.client.from("chapter_design_runs")
+        .select("design_run_id,inventory,blueprint")
+        .eq("project_id", projectId).eq("chapter_id", chapterId)
+        .eq("status", "COMPLETED").single(),
+      this.client.from("card_slot_candidates")
+        .select("design_run_id,slot_id,work_unit_id,candidate_revision,status,card")
+        .eq("project_id", projectId).eq("chapter_id", chapterId)
+        .in("status", ["CANDIDATE_READY", "ACCEPTED"])
+        .order("candidate_revision"),
+      this.client.from("card_quality_evaluations")
+        .select("design_run_id,slot_id,card_id,candidate_revision,verdict,rubric_scores,created_at")
+        .eq("project_id", projectId).eq("chapter_id", chapterId)
+        .eq("verdict", "APPROVED")
+        .order("created_at", { ascending: false }),
+    ]);
+    const error = runResult.error ?? candidatesResult.error ?? evaluationsResult.error;
+    if (error || !runResult.data) throw new Error(errorMessage(error, "load V3 Chapter quality context"));
+    const designRunId = z.string().uuid().parse(runResult.data.design_run_id);
+    const acceptedEvaluations = z.array(z.object({
+      design_run_id: z.string().uuid(),
+      slot_id: Bytes32Schema.nullable(),
+      card_id: Bytes32Schema.nullable(),
+      candidate_revision: z.number().int().min(1).max(10),
+      verdict: z.literal("APPROVED"),
+      rubric_scores: z.record(z.string(), z.unknown()),
+      created_at: z.string(),
+    })).parse(evaluationsResult.data ?? []);
+    const acceptedEvaluationByCandidate = new Map<string, CardRubricEvaluation>();
+    for (const evaluation of acceptedEvaluations) {
+      if (evaluation.design_run_id !== designRunId) continue;
+      if (!evaluation.slot_id || !evaluation.card_id) continue;
+      const key = `${evaluation.slot_id}:${evaluation.card_id}:${evaluation.candidate_revision}`;
+      if (acceptedEvaluationByCandidate.has(key)) continue;
+      const scores = evaluation.rubric_scores;
+      acceptedEvaluationByCandidate.set(key, CardRubricEvaluationSchema.parse({
+        cardId: scores.cardId,
+        citationSufficient: scores.citationSufficient,
+        factuality: scores.factuality,
+        learningValue: scores.learningValue,
+        clarity: scores.clarity,
+        completeness: scores.completeness,
+        citationRelevance: scores.citationRelevance,
+        difficultyFit: scores.difficultyFit,
+        verdict: scores.verdict,
+        reasons: scores.reasons,
+      }));
+    }
+    return {
+      designRunId,
+      inventory: ChapterConceptInventorySchema.parse(runResult.data.inventory),
+      blueprint: CardBlueprintSchema.parse(runResult.data.blueprint),
+      candidates: (candidatesResult.data ?? []).map((raw) => {
+        const row = z.object({
+          design_run_id: z.string().uuid(),
+          slot_id: Bytes32Schema,
+          work_unit_id: z.number().int(),
+          candidate_revision: z.number().int().min(1).max(10),
+          status: z.enum(["CANDIDATE_READY", "ACCEPTED"]),
+          card: z.unknown(),
+        }).parse(raw);
+        if (row.design_run_id !== designRunId) {
+          throw new Error("V3 Slot candidate belongs to a stale Chapter Design Run");
+        }
+        const card = WorkerKnowledgeCardV2Schema.parse(row.card);
+        const acceptedEvaluation = row.status === "ACCEPTED"
+          ? acceptedEvaluationByCandidate.get(`${row.slot_id}:${card.id}:${row.candidate_revision}`)
+          : undefined;
+        if (row.status === "ACCEPTED" && !acceptedEvaluation) {
+          throw new Error(`Accepted V3 Slot ${row.slot_id} has no persisted quality evaluation`);
+        }
+        return {
+          designRunId: row.design_run_id,
+          slotId: row.slot_id,
+          workUnitId: row.work_unit_id,
+          candidateRevision: row.candidate_revision,
+          status: row.status,
+          card,
+          ...(acceptedEvaluation ? { acceptedEvaluation } : {}),
+        };
+      }),
     };
   }
 
@@ -672,6 +900,61 @@ export class SupabaseProjectRunnerRepositoryV2 implements ProjectRunnerRepositor
       .eq("project_id", projectId).eq("work_unit_id", workUnitId).eq("status", "GENERATING")
       .select("work_unit_id").maybeSingle();
     if (error || !data) throw new Error(errorMessage(error, "mark V2 Work Unit validating"));
+  }
+
+  async approveChapterBlueprintCandidates(
+    decision: BlueprintQualityDecisionV3 & {
+      workUnits: Parameters<ProjectRunnerRepositoryV2["approveChapterCandidates"]>[2];
+    },
+  ): Promise<void> {
+    const { error } = await this.client.rpc("approve_chapter_candidates_v3", {
+      p_project_id: decision.projectId,
+      p_chapter_id: decision.chapterId,
+      p_design_run_id: decision.designRunId,
+      p_evaluations: decision.evaluations.map((evaluation) => ({
+        slot_id: evaluation.slotId,
+        card_id: evaluation.cardId,
+        candidate_revision: evaluation.candidateRevision,
+        verdict: evaluation.verdict,
+        hard_failures: evaluation.hardFailures,
+        rubric_scores: evaluation.rubric,
+      })),
+      p_work_units: decision.workUnits.map((unit) => ({
+        work_unit_id: unit.workUnitId,
+        worker_cards: unit.cards,
+        cards_root: unit.cardsRoot,
+        card_count: unit.cards.length,
+      })),
+      p_coverage_result: decision.coverageResult,
+      p_duplicate_pairs: decision.duplicatePairs,
+      p_evaluator_model: decision.evaluatorModel,
+      p_prompt_version: decision.promptVersion,
+    });
+    if (error) throw new Error(errorMessage(error, "approve V3 Chapter Blueprint candidates"));
+  }
+
+  async requestChapterBlueprintRepairs(
+    decision: BlueprintQualityDecisionV3 & { repairs: Array<{ slotId: Hex; reason: string }> },
+  ): Promise<void> {
+    const { error } = await this.client.rpc("request_chapter_slot_repairs_v3", {
+      p_project_id: decision.projectId,
+      p_chapter_id: decision.chapterId,
+      p_design_run_id: decision.designRunId,
+      p_evaluations: decision.evaluations.map((evaluation) => ({
+        slot_id: evaluation.slotId,
+        card_id: evaluation.cardId,
+        candidate_revision: evaluation.candidateRevision,
+        verdict: evaluation.verdict,
+        hard_failures: evaluation.hardFailures,
+        rubric_scores: evaluation.rubric,
+      })),
+      p_repairs: decision.repairs.map((repair) => ({ slot_id: repair.slotId, reason: repair.reason })),
+      p_coverage_result: decision.coverageResult,
+      p_duplicate_pairs: decision.duplicatePairs,
+      p_evaluator_model: decision.evaluatorModel,
+      p_prompt_version: decision.promptVersion,
+    });
+    if (error) throw new Error(errorMessage(error, "request V3 Blueprint Slot repairs"));
   }
 
   async saveWorkUnitResult(projectId: Hex, workUnitId: number, result: SavedWorkUnitResultV2): Promise<void> {

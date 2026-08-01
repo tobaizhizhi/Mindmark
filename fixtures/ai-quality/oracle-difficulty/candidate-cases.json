@@ -1,0 +1,73 @@
+{
+  "fixtureId": "oracle-difficulty",
+  "cases": [
+    {
+      "caseId": "appropriate-application",
+      "content": {
+        "type": "qa",
+        "question": "TWAP 为什么能降低瞬时价格操纵的影响？",
+        "answer": "因为它使用一段时间内的多个观测值，而不是只依赖一个瞬时价格。",
+        "keyPoint": "用时间窗口内的多个价格观测平滑瞬时变化",
+        "source": { "page": 1, "quote": "时间加权平均价格通过一段时间内的多个观测值降低单个瞬时价格被操纵时造成的影响。" },
+        "tags": ["预言机"],
+        "importance": 4,
+        "initialDifficulty": 4
+      },
+      "slot": {
+        "conceptName": "时间加权平均价格",
+        "type": "application",
+        "objective": "解释 TWAP 如何降低瞬时价格操纵的影响。",
+        "difficulty": 4,
+        "evidenceBlockIndexes": [0]
+      },
+      "rubric": {
+        "cardId": "0x4141414141414141414141414141414141414141414141414141414141414141",
+        "citationSufficient": true,
+        "factuality": 5,
+        "learningValue": 5,
+        "clarity": 4,
+        "completeness": 4,
+        "citationRelevance": 5,
+        "difficultyFit": 5,
+        "verdict": "ACCEPT",
+        "reasons": []
+      },
+      "expectedDecision": "ACCEPT",
+      "expectedFailureCodes": []
+    },
+    {
+      "caseId": "trivial-for-hard-slot",
+      "content": {
+        "type": "qa",
+        "question": "TWAP 的中文名称是什么？",
+        "answer": "时间加权平均价格。",
+        "keyPoint": "TWAP 名称",
+        "source": { "page": 1, "quote": "时间加权平均价格通过一段时间内的多个观测值降低单个瞬时价格被操纵时造成的影响。" },
+        "tags": ["预言机"],
+        "importance": 4,
+        "initialDifficulty": 4
+      },
+      "slot": {
+        "conceptName": "时间加权平均价格",
+        "type": "application",
+        "objective": "解释 TWAP 如何降低瞬时价格操纵的影响。",
+        "difficulty": 4,
+        "evidenceBlockIndexes": [0]
+      },
+      "rubric": {
+        "cardId": "0x4242424242424242424242424242424242424242424242424242424242424242",
+        "citationSufficient": true,
+        "factuality": 5,
+        "learningValue": 2,
+        "clarity": 5,
+        "completeness": 2,
+        "citationRelevance": 4,
+        "difficultyFit": 1,
+        "verdict": "REPAIR",
+        "reasons": ["难度 4 的应用 Slot 不应只询问术语名称。"]
+      },
+      "expectedDecision": "REPAIR",
+      "expectedFailureCodes": ["DIFFICULTY_FIT_BELOW_MINIMUM", "LEARNING_VALUE_BELOW_MINIMUM", "EVALUATOR_REPAIR"]
+    }
+  ]
+}

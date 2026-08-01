@@ -1,0 +1,73 @@
+{
+  "fixtureId": "access-control-clarity",
+  "cases": [
+    {
+      "caseId": "clear-permission-check",
+      "content": {
+        "type": "qa",
+        "question": "敏感操作应在何时检查调用者权限？",
+        "answer": "应在敏感操作执行之前检查。",
+        "keyPoint": "先验证权限，再执行敏感操作",
+        "source": { "page": 1, "quote": "访问控制应在敏感操作执行前验证调用者权限，并为不同角色授予最小必要权限。" },
+        "tags": ["访问控制"],
+        "importance": 4,
+        "initialDifficulty": 2
+      },
+      "slot": {
+        "conceptName": "最小权限",
+        "type": "process",
+        "objective": "说明敏感操作前的权限检查时机。",
+        "difficulty": 2,
+        "evidenceBlockIndexes": [0]
+      },
+      "rubric": {
+        "cardId": "0x3131313131313131313131313131313131313131313131313131313131313131",
+        "citationSufficient": true,
+        "factuality": 5,
+        "learningValue": 4,
+        "clarity": 5,
+        "completeness": 4,
+        "citationRelevance": 5,
+        "difficultyFit": 4,
+        "verdict": "ACCEPT",
+        "reasons": []
+      },
+      "expectedDecision": "ACCEPT",
+      "expectedFailureCodes": []
+    },
+    {
+      "caseId": "ambiguous-pronouns",
+      "content": {
+        "type": "qa",
+        "question": "它应该在什么时候做这个？",
+        "answer": "应该在那之前完成，否则可能有问题。",
+        "keyPoint": "提前做检查",
+        "source": { "page": 1, "quote": "访问控制应在敏感操作执行前验证调用者权限，并为不同角色授予最小必要权限。" },
+        "tags": ["访问控制"],
+        "importance": 4,
+        "initialDifficulty": 2
+      },
+      "slot": {
+        "conceptName": "最小权限",
+        "type": "process",
+        "objective": "说明敏感操作前的权限检查时机。",
+        "difficulty": 2,
+        "evidenceBlockIndexes": [0]
+      },
+      "rubric": {
+        "cardId": "0x3232323232323232323232323232323232323232323232323232323232323232",
+        "citationSufficient": true,
+        "factuality": 3,
+        "learningValue": 2,
+        "clarity": 1,
+        "completeness": 2,
+        "citationRelevance": 4,
+        "difficultyFit": 3,
+        "verdict": "REPAIR",
+        "reasons": ["问题和答案使用了没有指代对象的代词。"]
+      },
+      "expectedDecision": "REPAIR",
+      "expectedFailureCodes": ["CLARITY_BELOW_MINIMUM", "LEARNING_VALUE_BELOW_MINIMUM", "EVALUATOR_REPAIR"]
+    }
+  ]
+}

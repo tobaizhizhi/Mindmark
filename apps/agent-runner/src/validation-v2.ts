@@ -201,7 +201,10 @@ export function validateAndCommitBlueprintCardsV3(input: {
   }
   if (errors.length > 0) return { valid: false, errors };
 
-  const contents = parsed.data.map(({ blueprintSlotId: _slotId, ...content }) => content);
+  const contents = parsed.data.map(({ blueprintSlotId, ...content }) => {
+    void blueprintSlotId;
+    return content;
+  });
   const committed = validateAndCommitCardsV2({
     rawCards: contents,
     projectId: input.projectId,

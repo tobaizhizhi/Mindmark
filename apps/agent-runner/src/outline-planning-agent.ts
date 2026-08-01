@@ -2,6 +2,10 @@ import {
   materializeChapterOutline,
   planChapterCardPolicy,
   planChaptersDeterministically,
+  classifySourceExclusions,
+  filterExcludedSourceBlocks,
+  mergeSourceExclusionRanges,
+  type SourceExclusionRange,
 } from "@mindmark/shared";
 import { AiChapterPlanner } from "./chapter-planner.js";
 import type { ToolCallingModel } from "./runtime-types.js";
@@ -10,11 +14,15 @@ import type { WorkflowJobRepositoryV2 } from "./types-v2.js";
 function outlineChapterRows(
   chapters: ReturnType<typeof planChaptersDeterministically>["chapters"],
   sourceBlocks: import("@mindmark/shared").SourceBlock[],
+  excludedRanges: SourceExclusionRange[],
 ) {
   return chapters.map((chapter) => {
     const policy = planChapterCardPolicy(
       chapter,
-      sourceBlocks.slice(chapter.startBlock, chapter.endBlock + 1),
+      filterExcludedSourceBlocks(
+        sourceBlocks.slice(chapter.startBlock, chapter.endBlock + 1),
+        excludedRanges,
+      ),
     );
     return {
       item_id: `chapter-${chapter.chapterId}`,
@@ -54,26 +62,33 @@ export class OutlinePlanningAgent {
     try {
       const source = await this.repository.loadOutlinePlanningSource(job.projectId);
       const nextVersion = (source.headVersion ?? 0) + 1;
-      let plannerVersion = "semantic-with-deterministic-fallback-v2";
+      let plannerVersion = "semantic-relevance-v6";
       let outline;
       try {
-        const proposals = await this.planner.plan({
+        const proposal = await this.planner.plan({
           projectId: source.projectId,
           blocks: source.sourceBlocks,
           goal: source.goal,
         });
+        const protectedExclusions = classifySourceExclusions(source.sourceBlocks);
+        const excludedRanges = mergeSourceExclusionRanges(
+          protectedExclusions,
+          proposal.excludedRanges,
+          source.sourceBlocks.length,
+        );
         outline = materializeChapterOutline(
           source.projectId,
           source.sourceBlocks,
-          proposals,
+          proposal.chapters,
           nextVersion,
+          excludedRanges,
         );
       } catch (error) {
         console.warn(
           "Chapter Planner failed; using deterministic outline:",
           error instanceof Error ? error.message : "unknown error",
         );
-        plannerVersion = "hierarchical-deterministic-v2";
+        plannerVersion = "relevance-deterministic-v6";
         outline = planChaptersDeterministically(source.projectId, source.sourceBlocks, nextVersion);
       }
       const outlineVersion = await this.repository.saveProjectOutlineDraft({
@@ -82,12 +97,19 @@ export class OutlinePlanningAgent {
         expectedHeadVersion: source.headVersion,
         outlineHash: outline.outlineHash,
         plannerVersion,
-        chapters: outlineChapterRows(outline.chapters, source.sourceBlocks),
+        chapters: outlineChapterRows(outline.chapters, source.sourceBlocks, outline.excludedRanges),
+        exclusions: outline.excludedRanges.map((range) => ({
+          start_block: range.startBlock,
+          end_block: range.endBlock,
+          category: range.category,
+          reason: range.reason,
+        })),
       });
       await this.repository.completeWorkflowJob(job.jobId, {
         outlineVersion,
         outlineHash: outline.outlineHash,
         chapterCount: outline.chapters.length,
+        exclusionCount: outline.excludedRanges.length,
         plannerVersion,
       });
     } catch (error) {

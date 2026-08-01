@@ -1,0 +1,5 @@
+{
+  "fixtureId": "access-control-clarity",
+  "requiredCardTypes": ["concept", "application"],
+  "maximumCardCount": 4
+}

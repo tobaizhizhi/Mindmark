@@ -1,0 +1,9 @@
+{
+  "fixtureId": "access-control-clarity",
+  "concepts": [{
+    "name": "最小权限",
+    "aliases": ["角色权限"],
+    "importance": 4,
+    "supportingBlockIndexes": [0]
+  }]
+}

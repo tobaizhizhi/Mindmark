@@ -14,6 +14,7 @@ import {
   SourcePageSchema,
   type SourcePage,
 } from "./schemas.js";
+import { classifyStandaloneSourceText } from "./source-relevance.js";
 import type { Hex } from "viem";
 
 export type SourceIntake = {
@@ -32,8 +33,22 @@ function headingLevel(value: string): number | null {
   if (chinese) return chinese[1] === "节" ? 2 : 1;
   const english = /^(chapter|unit|part|section)\s+[0-9ivxlcdm]+(?:\s*[:：.-]\s*|\s+)\S*/iu.exec(line);
   if (english) return english[1]!.toLowerCase() === "section" ? 2 : 1;
+  if (
+    /^(?:目\s*录|contents|table\s+of\s+contents|(?:\d{2,4}\s*年?)?(?:考\s*纲|考试大纲)(?:变化|调整|更新|修订)?|考试安排|报名通知|版本说明|更新说明|勘误说明|作者简介|出版说明)$/iu.test(line)
+  ) return 1;
+  if (classifyStandaloneSourceText(line)) return null;
   const numbered = /^(\d+(?:\.\d+){0,3})[.)、:：\s]+\S+/u.exec(line);
   return numbered ? numbered[1]!.split(".").length : null;
+}
+
+function splitMetadataPrefix(line: string): { notice: string; remainder: string } | null {
+  const match = /^(.{1,240}?[。！？.!?])\s*(.+)$/u.exec(line);
+  if (!match) return null;
+  const classification = classifyStandaloneSourceText(match[1]!);
+  if (!classification || !["EXAM_UPDATE", "VERSION_NOTICE", "SCHEDULE_NOTICE"].includes(classification.category)) {
+    return null;
+  }
+  return { notice: match[1]!, remainder: match[2]! };
 }
 
 function splitLongText(text: string): string[] {
@@ -68,7 +83,25 @@ function splitLongText(text: string): string[] {
   return parts;
 }
 
-function pageBlocks(page: SourcePage): Array<{
+function repeatedPageLines(pages: SourcePage[]): Set<string> {
+  if (pages.length < 3) return new Set();
+  const linePages = new Map<string, Set<number>>();
+  for (const page of pages) {
+    for (const rawLine of page.text.replace(/\r\n?/gu, "\n").split("\n")) {
+      const line = normalizeSourceText(rawLine);
+      if (!line || line.length > 200) continue;
+      const pagesForLine = linePages.get(line) ?? new Set<number>();
+      pagesForLine.add(page.pageNumber);
+      linePages.set(line, pagesForLine);
+    }
+  }
+  const threshold = Math.max(2, Math.ceil(pages.length * 0.3));
+  return new Set(
+    [...linePages.entries()].filter(([, pageNumbers]) => pageNumbers.size >= threshold).map(([line]) => line),
+  );
+}
+
+function pageBlocks(page: SourcePage, repeatedLines: ReadonlySet<string>): Array<{
   kind: SourceBlockKind;
   text: string;
   headingLevel: number | null;
@@ -109,10 +142,28 @@ function pageBlocks(page: SourcePage): Array<{
       flushParagraph();
       continue;
     }
+    const normalizedLine = normalizeSourceText(line);
+    if (repeatedLines.has(normalizedLine)) {
+      flushParagraph();
+      pushText("paragraph", line);
+      continue;
+    }
     const level = headingLevel(line);
     if (level !== null) {
       flushParagraph();
       pushText("heading", line, level);
+      continue;
+    }
+    const metadataPrefix = splitMetadataPrefix(normalizedLine);
+    if (metadataPrefix) {
+      flushParagraph();
+      pushText("paragraph", metadataPrefix.notice);
+      paragraph.push(metadataPrefix.remainder);
+      continue;
+    }
+    if (classifyStandaloneSourceText(normalizedLine)) {
+      flushParagraph();
+      pushText("paragraph", line);
       continue;
     }
     paragraph.push(line);
@@ -136,8 +187,9 @@ export function intakeSource(rawPages: SourcePage[]): SourceIntake {
     throw new RangeError(`Source text cannot exceed ${MAX_SOURCE_CHARACTERS} characters`);
   }
 
+  const repeatedLines = repeatedPageLines(pages);
   const extracted = pages.flatMap((page) =>
-    pageBlocks(page).map((block) => ({ ...block, pageNumber: page.pageNumber })),
+    pageBlocks(page, repeatedLines).map((block) => ({ ...block, pageNumber: page.pageNumber })),
   );
   const contents: SourceBlockContent[] = extracted.map((block, blockIndex) =>
     SourceBlockContentSchema.parse({

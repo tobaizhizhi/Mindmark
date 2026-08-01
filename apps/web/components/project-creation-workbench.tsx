@@ -23,7 +23,6 @@ import type {
   ProjectDesignProgress,
   ProjectIntakeResponse,
   ProjectSourceRegistrationResponse,
-  SaveCreateProjectResponse,
   SourcePage,
 } from "@mindmark/shared";
 import { learningProjectRegistryV2Abi, MAX_SOURCE_CHARACTERS } from "@mindmark/shared";
@@ -36,6 +35,7 @@ import {
 } from "wagmi";
 import { monadChain, registryV2Address } from "@/lib/client/chain";
 import { extractPdfFile } from "@/lib/client/pdf-source";
+import { createLatestRequestGate } from "@/lib/client/latest-request";
 import {
   ProjectSourceInput,
   type ProjectSourceMode,
@@ -67,6 +67,14 @@ function splitPastedText(value: string): SourcePage[] {
   return pages.map((text, index) => ({ pageNumber: index + 1, text }));
 }
 
+function isCreatedProjectStatus(status: ProjectCreationView["status"]): boolean {
+  return ["GENERATING", "FINALIZING", "READY"].includes(status);
+}
+
+function storedTransactionHash(value: string | null): `0x${string}` | null {
+  return value && /^0x[0-9a-f]{64}$/u.test(value) ? value as `0x${string}` : null;
+}
+
 export function ProjectCreationWorkbench() {
   const [title, setTitle] = useState("");
   const [goal, setGoal] = useState("");
@@ -80,12 +88,14 @@ export function ProjectCreationWorkbench() {
   const [confirmation, setConfirmation] = useState<ProjectConfirmationResponse | null>(null);
   const [designingCards, setDesigningCards] = useState(false);
   const [designProgress, setDesignProgress] = useState<ProjectDesignProgress | null>(null);
-  const [created, setCreated] = useState<SaveCreateProjectResponse | null>(null);
+  const [createdProjectId, setCreatedProjectId] = useState<string | null>(null);
   const [sessionAddress, setSessionAddress] = useState<string | null>(null);
   const [busy, setBusy] = useState<"extract" | "login" | "outline" | "confirm" | "create" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const clientRequestIdRef = useRef<string | null>(null);
+  const outlineRequestsRef = useRef(createLatestRequestGate());
+  const hasLocalSourceInteractionRef = useRef(false);
   const { address, chainId, isConnected } = useAccount();
   const { connectors, connectAsync } = useConnect();
   const { signMessageAsync } = useSignMessage();
@@ -102,6 +112,7 @@ export function ProjectCreationWorkbench() {
   const outlineOperationProjectId = outlineOperation?.projectId ?? null;
 
   function applyCreationView(view: ProjectCreationView) {
+    setError(null);
     setTitle(view.title);
     setGoal(view.goal ?? "");
     setFileName(view.sourceFilename ?? "");
@@ -118,6 +129,7 @@ export function ProjectCreationWorkbench() {
     setConfirmation(view.confirmation);
     setDesigningCards(view.status === "DESIGNING_CARDS");
     setDesignProgress(view.designProgress);
+    setCreatedProjectId(isCreatedProjectStatus(view.status) ? view.projectId : null);
   }
 
   useEffect(() => {
@@ -129,19 +141,41 @@ export function ProjectCreationWorkbench() {
 
   useEffect(() => {
     if (!sessionAddress) return;
+    if (hasLocalSourceInteractionRef.current) return;
     const draftProjectId = new URLSearchParams(window.location.search).get("project");
     if (!draftProjectId) return;
-    fetch(`/api/projects/${draftProjectId}/creation`)
-      .then((response) => parseApiResponse<ProjectCreationView>(response))
-      .then((view) => {
+    let cancelled = false;
+    const request = outlineRequestsRef.current.begin();
+    const isActive = () => !cancelled && request.isCurrent();
+    void (async () => {
+      try {
+        const view = await parseApiResponse<ProjectCreationView>(await fetch(
+          `/api/projects/${draftProjectId}/creation`,
+          { cache: "no-store" },
+        ));
+        if (!isActive()) return;
+        if (view.projectId !== draftProjectId) throw new Error("项目恢复结果与当前项目不匹配");
         applyCreationView(view);
         if (!view.outline && view.status === "OUTLINING") {
-          return fetch(`/api/projects/${view.projectId}/outline/operation`)
-            .then((response) => parseApiResponse<OutlinePlanningOperation>(response))
-            .then(setOutlineOperation);
+          const operation = await parseApiResponse<OutlinePlanningOperation>(await fetch(
+            `/api/projects/${view.projectId}/outline/operation`,
+            { cache: "no-store" },
+          ));
+          if (!isActive()) return;
+          if (operation.projectId !== view.projectId) throw new Error("章节草稿任务与当前项目不匹配");
+          request.commit(() => setOutlineOperation(operation));
+        } else {
+          request.commit(() => setOutlineOperation(null));
         }
-      })
-      .catch((caught) => setError(caught instanceof Error ? caught.message : "项目恢复失败"));
+      } catch (caught) {
+        if (isActive()) {
+          request.commit(() => setError(caught instanceof Error ? caught.message : "项目恢复失败"));
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [sessionAddress]);
 
   useEffect(() => {
@@ -152,15 +186,22 @@ export function ProjectCreationWorkbench() {
       try {
         const operation = await parseApiResponse<OutlinePlanningOperation>(await fetch(
           `/api/projects/${outlineOperationProjectId}/outline/operation?operationId=${outlineOperationId}`,
+          { cache: "no-store" },
         ));
         if (cancelled) return;
+        if (
+          operation.operationId !== outlineOperationId
+          || operation.projectId !== outlineOperationProjectId
+        ) throw new Error("章节草稿任务与当前项目不匹配");
         setOutlineOperation(operation);
         if (operation.status === "SUCCEEDED") {
           const view = await parseApiResponse<ProjectCreationView>(await fetch(
             `/api/projects/${operation.projectId}/creation`,
+            { cache: "no-store" },
           ));
-          if (!view.outline) throw new Error("章节草稿尚未准备完成");
           if (cancelled) return;
+          if (view.projectId !== outlineOperationProjectId) throw new Error("章节草稿结果与当前项目不匹配");
+          if (!view.outline) throw new Error("章节草稿尚未准备完成");
           applyCreationView(view);
           setOutlineOperation(null);
           return;
@@ -192,8 +233,10 @@ export function ProjectCreationWorkbench() {
           { cache: "no-store" },
         ));
         if (cancelled) return;
+        if (view.projectId !== project.projectId) throw new Error("知识卡设计结果与当前项目不匹配");
         setDesignProgress(view.designProgress);
         if (view.confirmation) {
+          setError(null);
           setConfirmation(view.confirmation);
           setDesigningCards(false);
           return;
@@ -266,6 +309,9 @@ export function ProjectCreationWorkbench() {
   }
 
   function resetOutline() {
+    hasLocalSourceInteractionRef.current = true;
+    outlineRequestsRef.current.invalidate();
+    setBusy((current) => current === "outline" ? null : current);
     setProject(null);
     setOutlineOperation(null);
     setConfirmation(null);
@@ -303,6 +349,7 @@ export function ProjectCreationWorkbench() {
     if (!loggedIn) return setError("请先连接并登录钱包");
     if (!title.trim()) return setError("请填写项目名称");
     if (pages.length === 0 || characterCount > MAX_SOURCE_CHARACTERS) return setError("请先上传或粘贴有效资料");
+    const request = outlineRequestsRef.current.begin();
     setBusy("outline");
     setError(null);
     try {
@@ -321,19 +368,24 @@ export function ProjectCreationWorkbench() {
           pages,
         }),
       }));
+      if (!request.isCurrent()) return;
       const operation = await parseApiResponse<OutlinePlanningOperation>(await fetch(
         `/api/projects/${registration.projectId}/outline/plan`,
         { method: "POST" },
       ));
-      setProject(null);
-      setProposals([]);
-      setOutlineOperation(operation);
-      window.history.replaceState(null, "", `?project=${operation.projectId}${folderId ? `&folder=${folderId}` : ""}`);
-      setConfirmation(null);
+      if (!request.isCurrent()) return;
+      if (operation.projectId !== registration.projectId) throw new Error("章节草稿任务与当前项目不匹配");
+      request.commit(() => {
+        setProject(null);
+        setProposals([]);
+        setOutlineOperation(operation);
+        window.history.replaceState(null, "", `?project=${operation.projectId}${folderId ? `&folder=${folderId}` : ""}`);
+        setConfirmation(null);
+      });
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "资料结构分析失败");
+      request.commit(() => setError(caught instanceof Error ? caught.message : "资料结构分析失败"));
     } finally {
-      setBusy(null);
+      request.commit(() => setBusy(null));
     }
   }
 
@@ -414,29 +466,46 @@ export function ProjectCreationWorkbench() {
     setBusy("create");
     setError(null);
     try {
+      const view = await parseApiResponse<ProjectCreationView>(await fetch(
+        `/api/projects/${confirmation.projectId}/creation`,
+        { cache: "no-store" },
+      ));
+      if (view.projectId !== confirmation.projectId) throw new Error("项目恢复结果与当前项目不匹配");
+      if (isCreatedProjectStatus(view.status)) {
+        applyCreationView(view);
+        return;
+      }
+      if (!view.confirmation) throw new Error("Project 尚未准备好进行 Monad 登记");
+
       if (chainId !== monadChain.id) await switchChainAsync({ chainId: monadChain.id });
-      const args = confirmation.createProjectArgs;
-      const txHash = await writeContractAsync({
-        address: registryV2Address,
-        abi: learningProjectRegistryV2Abi,
-        functionName: "createProject",
-        args: [
-          args.projectId,
-          args.sourceHash,
-          args.goalHash,
-          args.outlineHash,
-          args.workUnitManifestRoot,
-          args.chapters,
-        ],
-        chain: monadChain,
-        account: address,
-      });
-      const result = await parseApiResponse<SaveCreateProjectResponse>(await fetch(`/api/projects/${confirmation.projectId}/create-tx`, {
+      const storageKey = `mindmark:create-tx:${view.confirmation.projectId}`;
+      let txHash = storedTransactionHash(window.sessionStorage.getItem(storageKey));
+      if (!txHash) {
+        const args = view.confirmation.createProjectArgs;
+        txHash = await writeContractAsync({
+          address: registryV2Address,
+          abi: learningProjectRegistryV2Abi,
+          functionName: "createProject",
+          args: [
+            args.projectId,
+            args.sourceHash,
+            args.goalHash,
+            args.outlineHash,
+            args.workUnitManifestRoot,
+            args.chapters,
+          ],
+          chain: monadChain,
+          account: address,
+        });
+        window.sessionStorage.setItem(storageKey, txHash);
+      }
+      const result = await parseApiResponse<{ projectId: string }>(await fetch(`/api/projects/${view.confirmation.projectId}/create-tx`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ txHash }),
       }));
-      setCreated(result);
+      window.sessionStorage.removeItem(storageKey);
+      setCreatedProjectId(result.projectId);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Monad 交易失败");
     } finally {
@@ -444,7 +513,7 @@ export function ProjectCreationWorkbench() {
     }
   }
 
-  if (created) {
+  if (createdProjectId) {
     return (
       <main className="min-h-screen bg-[var(--background)] px-5 py-12 text-[var(--ink)] md:px-8">
         <div className="mx-auto max-w-2xl border border-[var(--success-line)] bg-[var(--success-soft)] p-8">
@@ -452,7 +521,7 @@ export function ProjectCreationWorkbench() {
           <p className="section-kicker mt-6">Project Created</p>
           <h1 className="font-display mt-2 text-3xl font-semibold">章节已经登记，Worker 即将开始生成</h1>
           <p className="mt-4 text-sm leading-7 text-[var(--muted)]">你可以先回到项目列表。Chapter 会独立进入可学习状态。</p>
-          <a href={`/learn/projects/${created.projectId}`} className="command-button command-button-dark mt-7">打开 Project <ChevronRight className="size-4" /></a>
+          <a href={`/learn/projects/${createdProjectId}`} className="command-button command-button-dark mt-7">打开 Project <ChevronRight className="size-4" /></a>
         </div>
       </main>
     );

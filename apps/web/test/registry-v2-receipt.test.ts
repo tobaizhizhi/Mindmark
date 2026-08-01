@@ -20,6 +20,7 @@ const sourceHash = `0x${"61".repeat(32)}` as Hex;
 const goalHash = `0x${"62".repeat(32)}` as Hex;
 const outlineHash = `0x${"63".repeat(32)}` as Hex;
 const manifestRoot = `0x${"64".repeat(32)}` as Hex;
+type StoredProject = NonNullable<Awaited<ReturnType<ProjectRegistryV2Store["findOwned"]>>>;
 
 beforeAll(() => {
   process.env.MONAD_RPC_URL = "http://127.0.0.1:8545";
@@ -31,7 +32,7 @@ beforeAll(() => {
   resetServerEnvironmentForTests();
 });
 
-function storedProject() {
+function storedProject(): StoredProject {
   return {
     project_id: projectId,
     owner_address: owner,
@@ -51,7 +52,7 @@ class MemoryProjectStore implements ProjectRegistryV2Store {
   marked = false;
   recorded = false;
 
-  constructor(private readonly project: ReturnType<typeof storedProject> | null = storedProject()) {}
+  constructor(private readonly project: StoredProject | null = storedProject()) {}
 
   async findOwned(id: Hex, address: `0x${string}`) {
     return this.project?.project_id === id && this.project.owner_address === address
@@ -125,6 +126,55 @@ describe("ProjectCreated V2 receipt verification", () => {
     ).resolves.toEqual({ projectId, status: "CREATED", blockNumber: "88" });
     expect(store.recorded).toBe(true);
     expect(store.marked).toBe(true);
+  });
+
+  it("accepts confirmation after the Runner already reconciled the Project", async () => {
+    const store = new MemoryProjectStore({
+      ...storedProject(),
+      status: "GENERATING",
+      create_tx_hash: null,
+    });
+
+    await expect(
+      confirmCreateProjectTransaction(projectId, owner, txHash, store, client(receipt())),
+    ).resolves.toEqual({ projectId, status: "CREATED", blockNumber: "88" });
+
+    expect(store.recorded).toBe(false);
+    expect(store.marked).toBe(true);
+  });
+
+  it("rejects a different transaction after the Runner reconciles the Project", async () => {
+    const store = new MemoryProjectStore({
+      ...storedProject(),
+      status: "GENERATING",
+      create_tx_hash: `0x${"dd".repeat(32)}` as Hex,
+    });
+
+    await expect(
+      confirmCreateProjectTransaction(projectId, owner, txHash, store, client(receipt())),
+    ).rejects.toMatchObject({ code: "transaction_mismatch" });
+
+    expect(store.marked).toBe(false);
+  });
+
+  it("revalidates an already recorded transaction before returning success", async () => {
+    const store = new MemoryProjectStore({
+      ...storedProject(),
+      status: "GENERATING",
+      create_tx_hash: txHash,
+    });
+
+    await expect(
+      confirmCreateProjectTransaction(
+        projectId,
+        owner,
+        txHash,
+        store,
+        client(receipt({ chapterCount: 3 })),
+      ),
+    ).rejects.toMatchObject({ code: "event_mismatch" });
+
+    expect(store.marked).toBe(false);
   });
 
   it("rejects another Project or a different confirmed outline shape", async () => {

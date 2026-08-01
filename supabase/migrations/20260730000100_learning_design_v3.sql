@@ -101,6 +101,59 @@ create table public.card_blueprint_slots (
 create index card_blueprint_slots_design_assignment_idx
   on public.card_blueprint_slots (design_run_id, assigned_work_unit_id, status);
 
+create table public.card_slot_candidates (
+  project_id text not null,
+  chapter_id smallint not null check (chapter_id between 0 and 15),
+  work_unit_id smallint not null check (work_unit_id between 0 and 47),
+  design_run_id uuid not null,
+  slot_id text not null check (slot_id ~ '^0x[0-9a-f]{64}$'),
+  candidate_revision smallint not null check (candidate_revision between 1 and 10),
+  card_id text not null check (card_id ~ '^0x[0-9a-f]{64}$'),
+  card_hash text not null check (card_hash ~ '^0x[0-9a-f]{64}$'),
+  card jsonb not null check (jsonb_typeof(card) = 'object'),
+  status text not null default 'CANDIDATE_READY' check (
+    status in ('CANDIDATE_READY', 'ACCEPTED', 'REJECTED')
+  ),
+  created_at timestamptz not null default now(),
+  primary key (project_id, chapter_id, design_run_id, slot_id, candidate_revision),
+  unique (project_id, design_run_id, candidate_revision, card_id),
+  foreign key (project_id, work_unit_id)
+    references public.work_units(project_id, work_unit_id) on delete cascade,
+  foreign key (project_id, chapter_id, design_run_id, slot_id)
+    references public.card_blueprint_slots(project_id, chapter_id, design_run_id, slot_id) on delete cascade
+);
+create index card_slot_candidates_work_unit_revision_idx
+  on public.card_slot_candidates (project_id, work_unit_id, candidate_revision desc, status);
+create unique index card_slot_candidates_one_accepted_per_slot_idx
+  on public.card_slot_candidates (project_id, chapter_id, design_run_id, slot_id)
+  where status = 'ACCEPTED';
+
+create function public.reject_card_slot_candidate_content_mutation_v3()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  if new.project_id is distinct from old.project_id
+    or new.chapter_id is distinct from old.chapter_id
+    or new.work_unit_id is distinct from old.work_unit_id
+    or new.design_run_id is distinct from old.design_run_id
+    or new.slot_id is distinct from old.slot_id
+    or new.candidate_revision is distinct from old.candidate_revision
+    or new.card_id is distinct from old.card_id
+    or new.card_hash is distinct from old.card_hash
+    or new.card is distinct from old.card
+    or new.created_at is distinct from old.created_at then
+    raise exception 'Card Slot candidate revisions are immutable';
+  end if;
+  return new;
+end;
+$$;
+
+create trigger card_slot_candidates_reject_content_mutation
+before update on public.card_slot_candidates
+for each row execute function public.reject_card_slot_candidate_content_mutation_v3();
+
 create table public.card_quality_evaluations (
   evaluation_id uuid primary key default gen_random_uuid(),
   project_id text not null references public.learning_projects(project_id) on delete cascade,
@@ -620,16 +673,469 @@ begin
 end;
 $$;
 
+create function public.save_work_unit_candidates_v3(
+  p_project_id text,
+  p_work_unit_id integer,
+  p_cards_root text,
+  p_generation_ms integer,
+  p_candidates jsonb
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_project_id text := lower(p_project_id);
+  v_unit public.work_units%rowtype;
+  v_design_run_id uuid;
+  v_expected_count integer;
+  v_revision integer;
+begin
+  if (lower(p_cards_root) ~ '^0x[0-9a-f]{64}$') is not true
+    or p_generation_ms is null or p_generation_ms < 0
+    or jsonb_typeof(p_candidates) <> 'array'
+    or jsonb_array_length(p_candidates) not between 1 and 30 then
+    raise exception 'invalid V3 Work Unit candidate input';
+  end if;
+
+  select units.* into v_unit
+  from public.work_units as units
+  join public.learning_projects as projects on projects.project_id = units.project_id
+  where units.project_id = v_project_id
+    and units.work_unit_id = p_work_unit_id::smallint
+    and units.status = 'VALIDATING'
+    and projects.status = 'GENERATING'
+    and projects.generation_policy_version = 3
+  for update of units;
+  if not found then raise exception 'validating V3 Work Unit was not found'; end if;
+
+  select count(*)::integer, (array_agg(distinct slots.design_run_id))[1]
+  into v_expected_count, v_design_run_id
+  from public.card_blueprint_slots as slots
+  join public.chapter_design_runs as runs on runs.design_run_id = slots.design_run_id
+  where slots.project_id = v_project_id
+    and slots.chapter_id = v_unit.chapter_id
+    and slots.assigned_work_unit_id = v_unit.work_unit_id
+    and slots.status in ('ASSIGNED', 'REPAIR_REQUESTED')
+    and runs.status = 'COMPLETED';
+  if v_expected_count < 1 or (
+    select count(distinct slots.design_run_id)
+    from public.card_blueprint_slots as slots
+    where slots.project_id = v_project_id
+      and slots.chapter_id = v_unit.chapter_id
+      and slots.assigned_work_unit_id = v_unit.work_unit_id
+      and slots.status in ('ASSIGNED', 'REPAIR_REQUESTED')
+  ) <> 1 then
+    raise exception 'V3 Work Unit does not have one completed assigned Blueprint';
+  end if;
+
+  if jsonb_array_length(p_candidates) <> v_expected_count or (
+    select count(distinct lower(item.slot_id))
+    from jsonb_to_recordset(p_candidates) as item(slot_id text)
+  ) <> v_expected_count or exists (
+    select 1
+    from jsonb_to_recordset(p_candidates) as item(slot_id text, card jsonb)
+    left join public.card_blueprint_slots as slots
+      on slots.project_id = v_project_id
+      and slots.chapter_id = v_unit.chapter_id
+      and slots.design_run_id = v_design_run_id
+      and slots.slot_id = lower(item.slot_id)
+      and slots.assigned_work_unit_id = v_unit.work_unit_id
+    where slots.slot_id is null
+      or slots.status not in ('ASSIGNED', 'REPAIR_REQUESTED')
+      or jsonb_typeof(item.card) <> 'object'
+      or lower(item.card->>'projectId') is distinct from v_project_id
+      or item.card->'chapterId' is distinct from to_jsonb(v_unit.chapter_id::integer)
+      or item.card->'workUnitId' is distinct from to_jsonb(v_unit.work_unit_id::integer)
+      or (lower(item.card->>'id') ~ '^0x[0-9a-f]{64}$') is not true
+      or (lower(item.card->>'cardHash') ~ '^0x[0-9a-f]{64}$') is not true
+      or jsonb_typeof(item.card->'workerProof') <> 'array'
+  ) or (
+    select count(distinct lower(item.card->>'id'))
+    from jsonb_to_recordset(p_candidates) as item(card jsonb)
+  ) <> v_expected_count then
+    raise exception 'V3 candidates must cover every assigned Blueprint Slot exactly once';
+  end if;
+
+  select coalesce(max(candidates.candidate_revision), 0) + 1 into v_revision
+  from public.card_slot_candidates as candidates
+  where candidates.project_id = v_project_id and candidates.work_unit_id = v_unit.work_unit_id;
+  if v_revision > 10 then raise exception 'V3 candidate repair limit is exhausted'; end if;
+
+  insert into public.card_slot_candidates (
+    project_id, chapter_id, work_unit_id, design_run_id, slot_id,
+    candidate_revision, card_id, card_hash, card, status
+  )
+  select v_project_id, v_unit.chapter_id, v_unit.work_unit_id, v_design_run_id,
+    lower(item.slot_id), v_revision::smallint, lower(item.card->>'id'),
+    lower(item.card->>'cardHash'), item.card, 'CANDIDATE_READY'
+  from jsonb_to_recordset(p_candidates) as item(slot_id text, card jsonb);
+
+  update public.card_blueprint_slots as slots
+  set status = 'CANDIDATE_READY', updated_at = now()
+  from jsonb_to_recordset(p_candidates) as item(slot_id text)
+  where slots.project_id = v_project_id
+    and slots.chapter_id = v_unit.chapter_id
+    and slots.design_run_id = v_design_run_id
+    and slots.slot_id = lower(item.slot_id);
+
+  update public.work_units
+  set worker_cards = (
+        select jsonb_agg(candidate.value->'card' order by candidate.ordinality)
+        from jsonb_array_elements(p_candidates) with ordinality as candidate(value, ordinality)
+      ),
+      cards_root = lower(p_cards_root), card_count = v_expected_count::smallint,
+      generation_ms = p_generation_ms, status = 'CANDIDATE_READY',
+      lease_until = null, last_error = null
+  where project_id = v_project_id and work_unit_id = v_unit.work_unit_id;
+  return true;
+end;
+$$;
+
+create function public.record_chapter_quality_evaluations_v3(
+  p_project_id text,
+  p_chapter_id integer,
+  p_design_run_id uuid,
+  p_evaluations jsonb,
+  p_coverage_result jsonb,
+  p_duplicate_pairs jsonb,
+  p_evaluator_model text,
+  p_prompt_version text
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if jsonb_typeof(p_evaluations) <> 'array'
+    or jsonb_typeof(p_coverage_result) <> 'object'
+    or jsonb_typeof(p_duplicate_pairs) <> 'array'
+    or char_length(p_evaluator_model) not between 1 and 200
+    or char_length(p_prompt_version) not between 1 and 100 then
+    raise exception 'invalid V3 Chapter quality evaluation';
+  end if;
+  if jsonb_array_length(p_evaluations) = 0 then
+    insert into public.card_quality_evaluations (
+      project_id, chapter_id, design_run_id, candidate_revision, verdict,
+      hard_failures, rubric_scores, coverage_result, repair_reason,
+      evaluator_model, prompt_version
+    ) values (
+      lower(p_project_id), p_chapter_id::smallint, p_design_run_id, 0, 'REPAIR_REQUESTED',
+      '["MISSING_REQUIRED_CANDIDATES"]'::jsonb,
+      jsonb_build_object('duplicatePairs', p_duplicate_pairs), p_coverage_result,
+      'Required Blueprint Slots have no candidates', p_evaluator_model, p_prompt_version
+    );
+    return;
+  end if;
+  insert into public.card_quality_evaluations (
+    project_id, chapter_id, design_run_id, candidate_revision, slot_id, card_id,
+    verdict, hard_failures, rubric_scores, coverage_result, repair_reason,
+    evaluator_model, prompt_version
+  )
+  select lower(p_project_id), p_chapter_id::smallint, p_design_run_id,
+    item.candidate_revision::smallint, lower(item.slot_id), lower(item.card_id),
+    item.verdict, item.hard_failures,
+    coalesce(item.rubric_scores, '{}'::jsonb) || jsonb_build_object('duplicatePairs', p_duplicate_pairs),
+    p_coverage_result,
+    case when item.verdict = 'REPAIR_REQUESTED'
+      then left(coalesce(
+        item.rubric_scores->'reasons'->>0,
+        item.hard_failures->>0,
+        'Blueprint quality repair requested'
+      ), 500)
+      else null end,
+    p_evaluator_model, p_prompt_version
+  from jsonb_to_recordset(p_evaluations) as item(
+    slot_id text, card_id text, candidate_revision integer, verdict text,
+    hard_failures jsonb, rubric_scores jsonb
+  );
+end;
+$$;
+
+create function public.approve_chapter_candidates_v3(
+  p_project_id text,
+  p_chapter_id integer,
+  p_design_run_id uuid,
+  p_evaluations jsonb,
+  p_work_units jsonb,
+  p_coverage_result jsonb,
+  p_duplicate_pairs jsonb,
+  p_evaluator_model text,
+  p_prompt_version text
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_project_id text := lower(p_project_id);
+  v_expected_work_units integer;
+  v_required_slots integer;
+begin
+  if jsonb_typeof(p_evaluations) <> 'array' or jsonb_array_length(p_evaluations) < 1
+    or jsonb_typeof(p_work_units) <> 'array' or jsonb_array_length(p_work_units) < 1 then
+    raise exception 'approved V3 candidates and Work Units must be non-empty arrays';
+  end if;
+  perform 1 from public.chapters as chapters
+  join public.learning_projects as projects on projects.project_id = chapters.project_id
+  join public.chapter_design_runs as runs
+    on runs.project_id = chapters.project_id and runs.chapter_id = chapters.chapter_id
+  where chapters.project_id = v_project_id and chapters.chapter_id = p_chapter_id::smallint
+    and chapters.status = 'QUALITY_CHECK' and projects.status = 'GENERATING'
+    and projects.generation_policy_version = 3
+    and runs.design_run_id = p_design_run_id and runs.status = 'COMPLETED'
+  for update of chapters;
+  if not found then raise exception 'claimed V3 Chapter quality check was not found'; end if;
+
+  select count(*)::integer into v_expected_work_units from public.work_units
+  where project_id = v_project_id and chapter_id = p_chapter_id::smallint;
+  select count(*)::integer into v_required_slots from public.card_blueprint_slots
+  where project_id = v_project_id and chapter_id = p_chapter_id::smallint
+    and design_run_id = p_design_run_id and required;
+  if jsonb_array_length(p_work_units) <> v_expected_work_units
+    or (select count(distinct item.work_unit_id)
+        from jsonb_to_recordset(p_work_units) as item(work_unit_id integer)) <> v_expected_work_units
+    or exists (
+      select 1 from jsonb_to_recordset(p_work_units) as item(
+        work_unit_id integer, worker_cards jsonb, cards_root text, card_count integer
+      )
+      left join public.work_units as units
+        on units.project_id = v_project_id and units.work_unit_id = item.work_unit_id::smallint
+      where units.work_unit_id is null or units.chapter_id <> p_chapter_id::smallint
+        or units.status <> 'CANDIDATE_READY' or item.card_count < 1
+        or jsonb_typeof(item.worker_cards) <> 'array'
+        or jsonb_array_length(item.worker_cards) <> item.card_count
+        or (lower(item.cards_root) ~ '^0x[0-9a-f]{64}$') is not true
+    ) then raise exception 'V3 Chapter candidate approval has invalid Work Units'; end if;
+
+  if exists (
+    select 1 from jsonb_to_recordset(p_evaluations) as evaluation(
+      slot_id text, card_id text, candidate_revision integer, verdict text,
+      hard_failures jsonb, rubric_scores jsonb
+    )
+    left join public.card_slot_candidates as candidates
+      on candidates.project_id = v_project_id
+      and candidates.chapter_id = p_chapter_id::smallint
+      and candidates.design_run_id = p_design_run_id
+      and candidates.slot_id = lower(evaluation.slot_id)
+      and candidates.card_id = lower(evaluation.card_id)
+      and candidates.candidate_revision = evaluation.candidate_revision::smallint
+    where evaluation.verdict <> 'APPROVED' or candidates.card_id is null
+      or candidates.status not in ('CANDIDATE_READY', 'ACCEPTED')
+      or jsonb_typeof(evaluation.hard_failures) <> 'array'
+      or jsonb_typeof(evaluation.rubric_scores) <> 'object'
+      or jsonb_array_length(evaluation.hard_failures) <> 0
+  ) or exists (
+    select 1 from public.card_blueprint_slots as slots
+    where slots.project_id = v_project_id and slots.chapter_id = p_chapter_id::smallint
+      and slots.design_run_id = p_design_run_id and slots.required
+      and not exists (
+        select 1 from jsonb_to_recordset(p_evaluations) as evaluation(slot_id text, verdict text)
+        where lower(evaluation.slot_id) = slots.slot_id and evaluation.verdict = 'APPROVED'
+      )
+  ) or (
+    select coalesce(sum(item.card_count), 0)
+    from jsonb_to_recordset(p_work_units) as item(card_count integer)
+  ) <> jsonb_array_length(p_evaluations) or exists (
+    select 1
+    from jsonb_to_recordset(p_work_units) as item(work_unit_id integer, worker_cards jsonb)
+    cross join lateral jsonb_array_elements(item.worker_cards) as card(value)
+    where not exists (
+      select 1
+      from jsonb_to_recordset(p_evaluations) as evaluation(
+        slot_id text, card_id text, candidate_revision integer, verdict text
+      )
+      join public.card_slot_candidates as candidates
+        on candidates.project_id = v_project_id
+        and candidates.chapter_id = p_chapter_id::smallint
+        and candidates.design_run_id = p_design_run_id
+        and candidates.slot_id = lower(evaluation.slot_id)
+        and candidates.card_id = lower(evaluation.card_id)
+        and candidates.candidate_revision = evaluation.candidate_revision::smallint
+      where evaluation.verdict = 'APPROVED'
+        and candidates.work_unit_id = item.work_unit_id::smallint
+        and candidates.card_id = lower(card.value->>'id')
+    )
+  ) then raise exception 'V3 approved cards do not match accepted Slot candidates'; end if;
+
+  perform public.record_chapter_quality_evaluations_v3(
+    v_project_id, p_chapter_id, p_design_run_id, p_evaluations,
+    p_coverage_result, p_duplicate_pairs, p_evaluator_model, p_prompt_version
+  );
+  update public.card_slot_candidates as candidates set status = 'ACCEPTED'
+  from jsonb_to_recordset(p_evaluations) as evaluation(
+    slot_id text, card_id text, candidate_revision integer, verdict text
+  )
+  where candidates.project_id = v_project_id
+    and candidates.chapter_id = p_chapter_id::smallint
+    and candidates.design_run_id = p_design_run_id
+    and candidates.slot_id = lower(evaluation.slot_id)
+    and candidates.card_id = lower(evaluation.card_id)
+    and candidates.candidate_revision = evaluation.candidate_revision::smallint
+    and evaluation.verdict = 'APPROVED';
+  update public.card_blueprint_slots set status = 'ACCEPTED', updated_at = now()
+  where project_id = v_project_id and chapter_id = p_chapter_id::smallint
+    and design_run_id = p_design_run_id
+    and slot_id in (
+      select lower(evaluation.slot_id)
+      from jsonb_to_recordset(p_evaluations) as evaluation(slot_id text, verdict text)
+      where evaluation.verdict = 'APPROVED'
+    );
+  update public.work_units as units
+  set worker_cards = item.worker_cards, cards_root = lower(item.cards_root),
+      card_count = item.card_count::smallint, status = 'APPROVED',
+      lease_until = null, last_error = null
+  from jsonb_to_recordset(p_work_units) as item(
+    work_unit_id integer, worker_cards jsonb, cards_root text, card_count integer
+  )
+  where units.project_id = v_project_id and units.work_unit_id = item.work_unit_id::smallint;
+  update public.chapters set status = 'GENERATING', last_error = null
+  where project_id = v_project_id and chapter_id = p_chapter_id::smallint;
+  return true;
+end;
+$$;
+
+create function public.request_chapter_slot_repairs_v3(
+  p_project_id text,
+  p_chapter_id integer,
+  p_design_run_id uuid,
+  p_evaluations jsonb,
+  p_repairs jsonb,
+  p_coverage_result jsonb,
+  p_duplicate_pairs jsonb,
+  p_evaluator_model text,
+  p_prompt_version text
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare v_project_id text := lower(p_project_id);
+begin
+  if jsonb_typeof(p_evaluations) <> 'array'
+    or jsonb_typeof(p_repairs) <> 'array' or jsonb_array_length(p_repairs) < 1
+    or (select count(distinct lower(item.slot_id))
+        from jsonb_to_recordset(p_repairs) as item(slot_id text)) <> jsonb_array_length(p_repairs) then
+    raise exception 'V3 Slot repairs must be a non-empty unique array';
+  end if;
+  perform 1 from public.chapters as chapters
+  join public.learning_projects as projects on projects.project_id = chapters.project_id
+  join public.chapter_design_runs as runs
+    on runs.project_id = chapters.project_id and runs.chapter_id = chapters.chapter_id
+  where chapters.project_id = v_project_id and chapters.chapter_id = p_chapter_id::smallint
+    and chapters.status = 'QUALITY_CHECK' and projects.status = 'GENERATING'
+    and projects.generation_policy_version = 3
+    and runs.design_run_id = p_design_run_id and runs.status = 'COMPLETED'
+  for update of chapters;
+  if not found then raise exception 'claimed V3 Chapter quality check was not found'; end if;
+
+  if exists (
+    select 1 from jsonb_to_recordset(p_repairs) as repair(slot_id text, reason text)
+    left join public.card_blueprint_slots as slots
+      on slots.project_id = v_project_id and slots.chapter_id = p_chapter_id::smallint
+      and slots.design_run_id = p_design_run_id and slots.slot_id = lower(repair.slot_id)
+    where slots.slot_id is null or slots.status = 'ACCEPTED'
+      or char_length(repair.reason) not between 1 and 500
+  ) or exists (
+    select 1 from jsonb_to_recordset(p_evaluations) as evaluation(
+      slot_id text, card_id text, candidate_revision integer, verdict text,
+      hard_failures jsonb, rubric_scores jsonb
+    )
+    left join public.card_slot_candidates as candidates
+      on candidates.project_id = v_project_id
+      and candidates.chapter_id = p_chapter_id::smallint
+      and candidates.design_run_id = p_design_run_id
+      and candidates.slot_id = lower(evaluation.slot_id)
+      and candidates.card_id = lower(evaluation.card_id)
+      and candidates.candidate_revision = evaluation.candidate_revision::smallint
+    where candidates.card_id is null
+      or candidates.status not in ('CANDIDATE_READY', 'ACCEPTED')
+      or evaluation.verdict not in ('APPROVED', 'REPAIR_REQUESTED')
+      or jsonb_typeof(evaluation.hard_failures) <> 'array'
+      or jsonb_typeof(evaluation.rubric_scores) <> 'object'
+  ) then raise exception 'V3 Slot repair evaluations do not match candidates'; end if;
+  if exists (
+    select 1 from jsonb_to_recordset(p_repairs) as repair(slot_id text)
+    join public.card_slot_candidates as candidates
+      on candidates.project_id = v_project_id and candidates.chapter_id = p_chapter_id::smallint
+      and candidates.design_run_id = p_design_run_id and candidates.slot_id = lower(repair.slot_id)
+    group by candidates.slot_id having max(candidates.candidate_revision) >= 3
+  ) then raise exception 'V3 candidate repair limit is exhausted'; end if;
+
+  perform public.record_chapter_quality_evaluations_v3(
+    v_project_id, p_chapter_id, p_design_run_id, p_evaluations,
+    p_coverage_result, p_duplicate_pairs, p_evaluator_model, p_prompt_version
+  );
+  update public.card_quality_evaluations as evaluations
+  set repair_reason = repair.reason
+  from jsonb_to_recordset(p_evaluations) as evaluation(
+    slot_id text, candidate_revision integer, verdict text
+  )
+  join jsonb_to_recordset(p_repairs) as repair(slot_id text, reason text)
+    on lower(repair.slot_id) = lower(evaluation.slot_id)
+  where evaluations.project_id = v_project_id
+    and evaluations.chapter_id = p_chapter_id::smallint
+    and evaluations.design_run_id = p_design_run_id
+    and evaluations.slot_id = lower(evaluation.slot_id)
+    and evaluations.candidate_revision = evaluation.candidate_revision::smallint
+    and evaluation.verdict = 'REPAIR_REQUESTED';
+  update public.card_slot_candidates as candidates
+  set status = case evaluation.verdict
+    when 'APPROVED' then 'ACCEPTED' else 'REJECTED' end
+  from jsonb_to_recordset(p_evaluations) as evaluation(
+    slot_id text, card_id text, candidate_revision integer, verdict text
+  )
+  where candidates.project_id = v_project_id
+    and candidates.chapter_id = p_chapter_id::smallint
+    and candidates.design_run_id = p_design_run_id
+    and candidates.slot_id = lower(evaluation.slot_id)
+    and candidates.card_id = lower(evaluation.card_id)
+    and candidates.candidate_revision = evaluation.candidate_revision::smallint;
+  update public.card_blueprint_slots as slots set status = 'ACCEPTED', updated_at = now()
+  from jsonb_to_recordset(p_evaluations) as evaluation(slot_id text, verdict text)
+  where slots.project_id = v_project_id and slots.chapter_id = p_chapter_id::smallint
+    and slots.design_run_id = p_design_run_id and slots.slot_id = lower(evaluation.slot_id)
+    and evaluation.verdict = 'APPROVED';
+  update public.card_blueprint_slots as slots
+  set status = 'REPAIR_REQUESTED', updated_at = now()
+  from jsonb_to_recordset(p_repairs) as repair(slot_id text)
+  where slots.project_id = v_project_id and slots.chapter_id = p_chapter_id::smallint
+    and slots.design_run_id = p_design_run_id and slots.slot_id = lower(repair.slot_id);
+  update public.work_units as units
+  set status = 'REPAIRING', worker_cards = '[]'::jsonb, cards_root = null,
+      card_count = null, commit_tx_hash = null, lease_until = null,
+      last_error = 'Blueprint Slot repair requested'
+  where units.project_id = v_project_id and units.chapter_id = p_chapter_id::smallint
+    and exists (
+      select 1 from public.card_blueprint_slots as slots
+      join jsonb_to_recordset(p_repairs) as repair(slot_id text)
+        on slots.slot_id = lower(repair.slot_id)
+      where slots.project_id = units.project_id and slots.chapter_id = units.chapter_id
+        and slots.assigned_work_unit_id = units.work_unit_id and slots.design_run_id = p_design_run_id
+    );
+  update public.chapters set status = 'GENERATING', last_error = 'Blueprint Slot repair requested'
+  where project_id = v_project_id and chapter_id = p_chapter_id::smallint;
+  return true;
+end;
+$$;
+
 alter table public.chapter_design_runs enable row level security;
 alter table public.chapter_design_runs force row level security;
 alter table public.card_blueprint_slots enable row level security;
 alter table public.card_blueprint_slots force row level security;
+alter table public.card_slot_candidates enable row level security;
+alter table public.card_slot_candidates force row level security;
 alter table public.card_quality_evaluations enable row level security;
 alter table public.card_quality_evaluations force row level security;
 alter table public.knowledge_card_feedback enable row level security;
 alter table public.knowledge_card_feedback force row level security;
 revoke all on table public.chapter_design_runs from public;
 revoke all on table public.card_blueprint_slots from public;
+revoke all on table public.card_slot_candidates from public;
 revoke all on table public.card_quality_evaluations from public;
 revoke all on table public.knowledge_card_feedback from public;
 revoke execute on function public.validate_chapter_design_snapshot_v3(uuid, jsonb, jsonb) from public;
@@ -638,24 +1144,31 @@ revoke execute on function public.complete_chapter_design_v3(uuid, jsonb, jsonb,
 revoke execute on function public.fail_chapter_design_v3(uuid, text, boolean) from public;
 revoke execute on function public.confirm_project_outline_design_v3(text, text, integer, text, jsonb) from public;
 revoke execute on function public.freeze_project_design_v3(text, integer, text, jsonb, jsonb, text, jsonb) from public;
+revoke execute on function public.save_work_unit_candidates_v3(text, integer, text, integer, jsonb) from public;
+revoke execute on function public.record_chapter_quality_evaluations_v3(text, integer, uuid, jsonb, jsonb, jsonb, text, text) from public;
+revoke execute on function public.approve_chapter_candidates_v3(text, integer, uuid, jsonb, jsonb, jsonb, jsonb, text, text) from public;
+revoke execute on function public.request_chapter_slot_repairs_v3(text, integer, uuid, jsonb, jsonb, jsonb, jsonb, text, text) from public;
 
 do $$
 begin
   if exists (select 1 from pg_roles where rolname = 'anon') then
     revoke all on table public.chapter_design_runs from anon;
     revoke all on table public.card_blueprint_slots from anon;
+    revoke all on table public.card_slot_candidates from anon;
     revoke all on table public.card_quality_evaluations from anon;
     revoke all on table public.knowledge_card_feedback from anon;
   end if;
   if exists (select 1 from pg_roles where rolname = 'authenticated') then
     revoke all on table public.chapter_design_runs from authenticated;
     revoke all on table public.card_blueprint_slots from authenticated;
+    revoke all on table public.card_slot_candidates from authenticated;
     revoke all on table public.card_quality_evaluations from authenticated;
     revoke all on table public.knowledge_card_feedback from authenticated;
   end if;
   if exists (select 1 from pg_roles where rolname = 'service_role') then
     grant all on table public.chapter_design_runs to service_role;
     grant all on table public.card_blueprint_slots to service_role;
+    grant all on table public.card_slot_candidates to service_role;
     grant all on table public.card_quality_evaluations to service_role;
     grant all on table public.knowledge_card_feedback to service_role;
     grant execute on function public.validate_chapter_design_snapshot_v3(uuid, jsonb, jsonb) to service_role;
@@ -664,6 +1177,9 @@ begin
     grant execute on function public.fail_chapter_design_v3(uuid, text, boolean) to service_role;
     grant execute on function public.confirm_project_outline_design_v3(text, text, integer, text, jsonb) to service_role;
     grant execute on function public.freeze_project_design_v3(text, integer, text, jsonb, jsonb, text, jsonb) to service_role;
+    grant execute on function public.save_work_unit_candidates_v3(text, integer, text, integer, jsonb) to service_role;
+    grant execute on function public.approve_chapter_candidates_v3(text, integer, uuid, jsonb, jsonb, jsonb, jsonb, text, text) to service_role;
+    grant execute on function public.request_chapter_slot_repairs_v3(text, integer, uuid, jsonb, jsonb, jsonb, jsonb, text, text) to service_role;
   end if;
 end;
 $$;

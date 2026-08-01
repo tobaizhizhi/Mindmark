@@ -1,13 +1,17 @@
 import type {
   CardBlueprint,
   CardBlueprintSlot,
+  CardRubricEvaluation,
+  ChapterCardPolicy,
   ChapterConceptInventory,
   ChapterOutlineItem,
   ChapterStatus,
+  KnowledgeCardContent,
   KnowledgeCardV2,
   ProjectStatus,
   ReviewPlan,
   SourceBlock,
+  SourceExclusionRange,
   WorkerKnowledgeCardV2,
   WorkUnitStatus,
 } from "@mindmark/shared";
@@ -113,10 +117,72 @@ export type WorkUnitBlueprintContextV3 = {
   inventory: ChapterConceptInventory;
   blueprint: CardBlueprint;
   slots: CardBlueprintSlot[];
+  repairInstructions: Array<{
+    slotId: Hex;
+    candidateRevision: number;
+    previousCard: KnowledgeCardContent;
+    failureCodes: string[];
+    instruction: string;
+  }>;
 };
 
 export interface BlueprintWorkerRepositoryV3 {
   getWorkUnitBlueprintContext(projectId: Hex, workUnitId: number): Promise<WorkUnitBlueprintContextV3>;
+}
+
+export type BlueprintSlotCandidateV3 = {
+  designRunId: string;
+  slotId: Hex;
+  workUnitId: number;
+  candidateRevision: number;
+  status: "CANDIDATE_READY" | "ACCEPTED";
+  card: WorkerKnowledgeCardV2;
+  acceptedEvaluation?: CardRubricEvaluation;
+};
+
+export type ChapterBlueprintQualityContextV3 = {
+  designRunId: string;
+  inventory: ChapterConceptInventory;
+  blueprint: CardBlueprint;
+  candidates: BlueprintSlotCandidateV3[];
+};
+
+export type BlueprintCandidateEvaluationV3 = {
+  slotId: Hex;
+  cardId: Hex;
+  candidateRevision: number;
+  verdict: "APPROVED" | "REPAIR_REQUESTED";
+  hardFailures: string[];
+  rubric: CardRubricEvaluation;
+};
+
+export type BlueprintQualityDecisionV3 = {
+  projectId: Hex;
+  chapterId: number;
+  designRunId: string;
+  evaluations: BlueprintCandidateEvaluationV3[];
+  coverageResult: Record<string, unknown>;
+  duplicatePairs: Array<{
+    leftCandidateId: string;
+    rightCandidateId: string;
+    reason: "EXACT_NORMALIZED" | "SEMANTIC";
+    similarity: number;
+  }>;
+  evaluatorModel: string;
+  promptVersion: string;
+};
+
+export interface BlueprintQualityRepositoryV3 {
+  getChapterBlueprintQualityContext(
+    projectId: Hex,
+    chapterId: number,
+  ): Promise<ChapterBlueprintQualityContextV3>;
+  approveChapterBlueprintCandidates(
+    decision: BlueprintQualityDecisionV3 & { workUnits: ApprovedWorkUnitResultV2[] },
+  ): Promise<void>;
+  requestChapterBlueprintRepairs(
+    decision: BlueprintQualityDecisionV3 & { repairs: Array<{ slotId: Hex; reason: string }> },
+  ): Promise<void>;
 }
 
 export type ApprovedWorkUnitResultV2 = {
@@ -175,6 +241,7 @@ export type ChapterDesignSourceV3 = {
   goal: string | null;
   outlineVersion: number;
   chapter: ChapterOutlineItem;
+  cardPolicy: ChapterCardPolicy;
   sourceBlocks: SourceBlock[];
 };
 
@@ -195,7 +262,9 @@ export type ProjectDesignFreezeSourceV3 = {
   outlineHash: Hex;
   outlineVersion: number;
   chapters: ChapterOutlineItem[];
+  chapterPolicies: ChapterCardPolicy[];
   sourceBlocks: SourceBlock[];
+  excludedRanges: SourceExclusionRange[];
   designs: Array<{
     chapterId: number;
     inventory: ChapterConceptInventory;
@@ -212,6 +281,7 @@ export type SavedProjectOutlineDraftV2 = {
   outlineHash: Hex;
   plannerVersion: string;
   chapters: Record<string, unknown>[];
+  exclusions: Record<string, unknown>[];
 };
 
 export interface WorkflowJobRepositoryV2 {

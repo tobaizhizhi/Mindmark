@@ -78,6 +78,7 @@ export class SupabaseProjectRegistryV2Store implements ProjectRegistryV2Store {
       .eq("project_id", projectId)
       .eq("owner_address", owner)
       .in("status", ["AWAITING_REGISTRY", "GENERATING"])
+      .or(`create_tx_hash.is.null,create_tx_hash.eq.${txHash}`)
       .select("project_id");
     if (error) throw new Error(`Could not mark Project created: ${error.message}`);
     if (!data || data.length !== 1) throw new Error("Project state changed before confirmation");
@@ -149,17 +150,15 @@ export async function confirmCreateProjectTransaction(
   const environment = getServerEnvironment();
   const project = await store.findOwned(projectId, owner);
   if (!project) throw new ApiError(404, "project_not_found", "Learning Project was not found");
-  if (project.status === "GENERATING" && project.create_tx_hash === txHash) {
-    const receipt = await client.waitForTransactionReceipt({ hash: txHash, confirmations: 1, timeout: 60_000 });
-    return SaveCreateProjectResponseSchema.parse({ projectId, status: "CREATED", blockNumber: receipt.blockNumber.toString() });
-  }
-  if (project.status !== "AWAITING_REGISTRY") {
+  if (!["AWAITING_REGISTRY", "GENERATING"].includes(project.status)) {
     throw new ApiError(409, "invalid_project_state", "Project cannot accept this transaction");
   }
   if (project.create_tx_hash && project.create_tx_hash !== txHash) {
     throw new ApiError(409, "transaction_mismatch", "A different Project transaction is already recorded");
   }
-  if (!project.create_tx_hash) await store.recordCreateTransaction(projectId, owner, txHash);
+  if (project.status === "AWAITING_REGISTRY" && !project.create_tx_hash) {
+    await store.recordCreateTransaction(projectId, owner, txHash);
+  }
   if ((await client.getChainId()) !== environment.MONAD_CHAIN_ID) {
     throw new ApiError(502, "wrong_rpc_chain", "Monad RPC returned an unexpected chain ID");
   }

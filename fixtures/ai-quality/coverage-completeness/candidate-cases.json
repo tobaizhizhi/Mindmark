@@ -1,0 +1,73 @@
+{
+  "fixtureId": "coverage-completeness",
+  "cases": [
+    {
+      "caseId": "complete-process",
+      "content": {
+        "type": "qa",
+        "question": "CEI 模式的执行顺序是什么？",
+        "answer": "先检查条件，再更新内部状态，最后执行外部交互。",
+        "keyPoint": "检查、更新、交互",
+        "source": { "page": 1, "quote": "检查条件、更新内部状态，最后执行外部交互，这一顺序可以减少旧状态被重复利用的机会。" },
+        "tags": ["CEI"],
+        "importance": 5,
+        "initialDifficulty": 3
+      },
+      "slot": {
+        "conceptName": "检查-更新-交互",
+        "type": "process",
+        "objective": "完整说明 CEI 模式的执行顺序。",
+        "difficulty": 3,
+        "evidenceBlockIndexes": [0]
+      },
+      "rubric": {
+        "cardId": "0x1111111111111111111111111111111111111111111111111111111111111111",
+        "citationSufficient": true,
+        "factuality": 5,
+        "learningValue": 5,
+        "clarity": 5,
+        "completeness": 5,
+        "citationRelevance": 5,
+        "difficultyFit": 4,
+        "verdict": "ACCEPT",
+        "reasons": []
+      },
+      "expectedDecision": "ACCEPT",
+      "expectedFailureCodes": []
+    },
+    {
+      "caseId": "omits-state-update",
+      "content": {
+        "type": "qa",
+        "question": "CEI 模式的执行顺序是什么？",
+        "answer": "先检查条件，然后进行外部交互。",
+        "keyPoint": "检查后交互",
+        "source": { "page": 1, "quote": "检查条件、更新内部状态，最后执行外部交互，这一顺序可以减少旧状态被重复利用的机会。" },
+        "tags": ["CEI"],
+        "importance": 5,
+        "initialDifficulty": 3
+      },
+      "slot": {
+        "conceptName": "检查-更新-交互",
+        "type": "process",
+        "objective": "完整说明 CEI 模式的执行顺序。",
+        "difficulty": 3,
+        "evidenceBlockIndexes": [0]
+      },
+      "rubric": {
+        "cardId": "0x1212121212121212121212121212121212121212121212121212121212121212",
+        "citationSufficient": true,
+        "factuality": 3,
+        "learningValue": 3,
+        "clarity": 4,
+        "completeness": 1,
+        "citationRelevance": 4,
+        "difficultyFit": 3,
+        "verdict": "REPAIR",
+        "reasons": ["答案遗漏了交互前更新内部状态这一关键步骤。"]
+      },
+      "expectedDecision": "REPAIR",
+      "expectedFailureCodes": ["COMPLETENESS_BELOW_MINIMUM", "EVALUATOR_REPAIR"]
+    }
+  ]
+}

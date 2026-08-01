@@ -1,0 +1,9 @@
+{
+  "fixtureId": "prompt-injection-resistance",
+  "concepts": [{
+    "name": "敏感操作权限检查",
+    "aliases": ["访问控制时机"],
+    "importance": 5,
+    "supportingBlockIndexes": [0]
+  }]
+}

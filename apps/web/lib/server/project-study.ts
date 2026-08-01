@@ -75,6 +75,12 @@ export interface ProjectStudyStore {
     chapterId: number,
     owner: `0x${string}`,
   ): Promise<{ chapter: ChapterRow; cards: CardRow[]; states: StateRow[] } | null>;
+  loadCardState(
+    projectId: Hex,
+    chapterId: number,
+    cardId: Hex,
+    owner: `0x${string}`,
+  ): Promise<StateRow | null>;
   submitReview(input: {
     projectId: Hex;
     chapterId: number;
@@ -109,6 +115,20 @@ export class SupabaseProjectStudyStore implements ProjectStudyStore, ProjectQueu
       cards: CardRowSchema.array().parse(cardsResult.data ?? []),
       states: StateRowSchema.array().parse(statesResult.data ?? []),
     };
+  }
+
+  async loadCardState(
+    projectId: Hex,
+    chapterId: number,
+    cardId: Hex,
+    owner: `0x${string}`,
+  ): Promise<StateRow | null> {
+    const { data, error } = await getSupabaseAdmin().from("card_learning_states")
+      .select("card_id,fsrs_state,due_at,reps,lapses")
+      .eq("owner_address", owner).eq("project_id", projectId)
+      .eq("chapter_id", chapterId).eq("card_id", cardId).maybeSingle();
+    if (error) throw new Error(`Could not read Card learning state: ${error.message}`);
+    return data ? StateRowSchema.parse(data) : null;
   }
 
   async submitReview(input: {
@@ -207,8 +227,7 @@ export async function getChapterStudyForOwner(
     .sort((left, right) => Date.parse(left.dueAt!) - Date.parse(right.dueAt!) || right.importance - left.importance);
   const fresh = cards.filter((card) => card.state === "NEW")
     .sort((left, right) => right.importance - left.importance || left.position - right.position);
-  const remainingCapacity = Math.max(0, 15 - due.length);
-  const queue = [...due, ...fresh.slice(0, Math.min(8, remainingCapacity))].slice(0, 15);
+  const queue = [...due, ...fresh];
   return ChapterStudyResponseSchema.parse({
     projectId,
     chapterId,
@@ -250,19 +269,17 @@ export async function getProjectStudyForOwner(
     .filter((card) => card.chapterId === chapter.chapter_id && card.state === "NEW")
     .sort((left, right) => right.importance - left.importance || left.position - right.position));
   const fresh: typeof cards = [];
-  for (let offset = 0; fresh.length < 8; offset += 1) {
+  for (let offset = 0; ; offset += 1) {
     let added = false;
     for (const chapterCards of freshByChapter) {
       const card = chapterCards[offset];
       if (!card) continue;
       fresh.push(card);
       added = true;
-      if (fresh.length === 8) break;
     }
     if (!added) break;
   }
-  const remainingCapacity = Math.max(0, 15 - due.length);
-  const queue = [...due, ...fresh.slice(0, remainingCapacity)].slice(0, 15);
+  const queue = [...due, ...fresh];
   return ProjectStudyResponseSchema.parse({
     projectId,
     status: loaded.project.status,
@@ -281,15 +298,7 @@ export async function submitChapterReviewForOwner(
   store: ProjectStudyStore = new SupabaseProjectStudyStore(),
 ): Promise<SubmitReviewResponse> {
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const loaded = await store.loadOwnedChapter(projectId, chapterId, owner);
-    if (!loaded) throw new ApiError(404, "chapter_not_found", "Chapter was not found");
-    if (loaded.chapter.status !== "READY") {
-      throw new ApiError(409, "chapter_not_ready", "Chapter is not ready for review");
-    }
-    if (!loaded.cards.some((card) => card.card_id === review.cardId)) {
-      throw new ApiError(404, "card_not_found", "Card is not part of this Chapter");
-    }
-    const row = loaded.states.find((state) => state.card_id === review.cardId);
+    const row = await store.loadCardState(projectId, chapterId, review.cardId, owner);
     const current = row ? parseFsrsStateMap({ [review.cardId]: row.fsrs_state })[review.cardId]! : null;
     const next = scheduleReview({ currentState: current, rating: review.rating, reviewedAt: review.reviewedAt });
     try {

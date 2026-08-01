@@ -1,0 +1,9 @@
+{
+  "fixtureId": "oracle-difficulty",
+  "concepts": [{
+    "name": "时间加权平均价格",
+    "aliases": ["TWAP"],
+    "importance": 4,
+    "supportingBlockIndexes": [0]
+  }]
+}

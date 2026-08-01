@@ -13,9 +13,14 @@ import {
   Layers3,
   LoaderCircle,
   LogOut,
+  MessageSquare,
+  Pencil,
   RefreshCw,
   RotateCcw,
+  Send,
   Sparkles,
+  ThumbsDown,
+  ThumbsUp,
   Wallet,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -27,10 +32,12 @@ import type {
   ChapterListResponse,
   ChapterStudyCard,
   ChapterStudyResponse,
+  KnowledgeCardFeedback,
   ProjectListResponse,
   ProjectStudyCard,
   ProjectStudyResponse,
   ProjectSummary,
+  SubmitKnowledgeCardFeedbackRequest,
   SubmitReviewResponse,
 } from "@mindmark/shared";
 import {
@@ -41,9 +48,28 @@ import {
   useSwitchChain,
 } from "wagmi";
 import { monadChain } from "@/lib/client/chain";
+import {
+  createPersistedReviewSessionIds,
+  createSerialTaskQueue,
+  MAX_CARDS_PER_PERSISTED_REVIEW_SESSION,
+  persistedReviewSessionIdForCard,
+} from "@/lib/client/serial-task-queue";
 
 type ApiErrorBody = { error?: { code?: string; message?: string } };
 type StudyCard = ChapterStudyCard | ProjectStudyCard;
+type CardFeedbackInput = Omit<SubmitKnowledgeCardFeedbackRequest, "chapterId" | "cardId">;
+
+const cardTypeLabels: Record<StudyCard["type"], string> = {
+  concept: "概念卡",
+  qa: "问答卡",
+};
+
+const cardStateLabels: Record<StudyCard["state"], string> = {
+  NEW: "新卡",
+  LEARNING: "学习中",
+  DUE: "到期复习",
+  SCHEDULED: "已安排",
+};
 
 async function parseApi<T>(response: Response): Promise<T> {
   const body = (await response.json()) as T & ApiErrorBody;
@@ -112,6 +138,139 @@ function EmptyState(props: { title: string; detail: string; action?: React.React
   );
 }
 
+function StudyCardFeedback(props: {
+  cardId: string;
+  onSubmit: (input: CardFeedbackInput) => Promise<void>;
+}) {
+  const [rating, setRating] = useState<CardFeedbackInput["rating"] | null>(null);
+  const [reason, setReason] = useState("");
+  const [showCorrection, setShowCorrection] = useState(false);
+  const [question, setQuestion] = useState("");
+  const [answer, setAnswer] = useState("");
+  const [keyPoint, setKeyPoint] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const needsReason = rating === "INCORRECT" || rating === "UNCLEAR";
+  const choices: Array<{
+    rating: CardFeedbackInput["rating"];
+    label: string;
+    icon: typeof ThumbsUp;
+  }> = [
+    { rating: "UP", label: "有帮助", icon: ThumbsUp },
+    { rating: "DOWN", label: "没有帮助", icon: ThumbsDown },
+    { rating: "INCORRECT", label: "事实有误", icon: CircleAlert },
+    { rating: "UNCLEAR", label: "表述不清", icon: MessageSquare },
+  ];
+
+  async function submit() {
+    if (!rating || submitted || busy) return;
+    const normalizedReason = reason.trim();
+    if (needsReason && !normalizedReason) {
+      setError("请说明卡片的问题。");
+      return;
+    }
+    const correctedContent = {
+      ...(question.trim() ? { question: question.trim() } : {}),
+      ...(answer.trim() ? { answer: answer.trim() } : {}),
+      ...(keyPoint.trim() ? { keyPoint: keyPoint.trim() } : {}),
+    };
+    setBusy(true);
+    setError(null);
+    try {
+      await props.onSubmit({
+        rating,
+        ...(normalizedReason ? { reason: normalizedReason } : {}),
+        ...(Object.keys(correctedContent).length ? { correctedContent } : {}),
+      });
+      setSubmitted(true);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "反馈保存失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (submitted) {
+    return <p className="mt-5 flex items-center gap-2 text-xs text-[var(--success)]"><Check className="size-4" />反馈已记录</p>;
+  }
+
+  return (
+    <section className="mt-7 border-t border-[var(--line)] pt-5" aria-label="知识卡反馈">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs font-semibold text-[var(--muted)]">卡片反馈</p>
+        <div className="flex items-center gap-1.5">
+          {choices.map((choice) => {
+            const Icon = choice.icon;
+            const selected = rating === choice.rating;
+            return (
+              <button
+                key={choice.rating}
+                type="button"
+                onClick={() => { setRating(choice.rating); setError(null); }}
+                disabled={busy}
+                aria-label={choice.label}
+                aria-pressed={selected}
+                title={choice.label}
+                className={`flex size-9 items-center justify-center border transition-colors ${selected ? "border-[var(--accent)] bg-[var(--success-soft)] text-[var(--accent)]" : "border-[var(--line-strong)] bg-white text-[var(--muted)] hover:border-[var(--ink)] hover:text-[var(--ink)]"}`}
+              >
+                <Icon className="size-4" />
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      {rating ? (
+        <div className="mt-4 space-y-3">
+          <label className="grid gap-1.5 text-xs font-semibold text-[var(--muted)]">
+            {needsReason ? "问题说明" : "补充说明（可选）"}
+            <textarea
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+              disabled={busy}
+              required={needsReason}
+              maxLength={500}
+              rows={2}
+              className="w-full resize-y border border-[var(--line-strong)] bg-white px-3 py-2 text-sm font-normal leading-6 text-[var(--ink)] outline-none transition-colors focus:border-[var(--accent)] disabled:bg-[var(--paper)]"
+            />
+          </label>
+          <div className="flex items-center justify-between gap-3">
+            <button
+              type="button"
+              onClick={() => setShowCorrection((value) => !value)}
+              disabled={busy}
+              className="icon-button size-8"
+              title="添加修订建议"
+              aria-label="添加修订建议"
+              aria-expanded={showCorrection}
+            >
+              <Pencil className="size-3.5" />
+            </button>
+            <button type="button" onClick={() => void submit()} disabled={busy} className="command-button command-button-quiet min-h-8 px-3 text-xs">
+              {busy ? <LoaderCircle className="size-3.5 animate-spin" /> : <Send className="size-3.5" />}提交反馈
+            </button>
+          </div>
+          {showCorrection ? (
+            <div className="grid gap-3 border-l-2 border-[var(--accent)] bg-white/60 p-3">
+              <label className="grid gap-1.5 text-xs font-semibold text-[var(--muted)]">建议问题
+                <textarea value={question} onChange={(event) => setQuestion(event.target.value)} disabled={busy} maxLength={500} rows={2} className="w-full resize-y border border-[var(--line-strong)] bg-white px-3 py-2 text-sm font-normal leading-6 text-[var(--ink)] outline-none transition-colors focus:border-[var(--accent)] disabled:bg-[var(--paper)]" />
+              </label>
+              <label className="grid gap-1.5 text-xs font-semibold text-[var(--muted)]">建议答案
+                <textarea value={answer} onChange={(event) => setAnswer(event.target.value)} disabled={busy} maxLength={1500} rows={3} className="w-full resize-y border border-[var(--line-strong)] bg-white px-3 py-2 text-sm font-normal leading-6 text-[var(--ink)] outline-none transition-colors focus:border-[var(--accent)] disabled:bg-[var(--paper)]" />
+              </label>
+              <label className="grid gap-1.5 text-xs font-semibold text-[var(--muted)]">建议关键点
+                <textarea value={keyPoint} onChange={(event) => setKeyPoint(event.target.value)} disabled={busy} maxLength={500} rows={2} className="w-full resize-y border border-[var(--line-strong)] bg-white px-3 py-2 text-sm font-normal leading-6 text-[var(--ink)] outline-none transition-colors focus:border-[var(--accent)] disabled:bg-[var(--paper)]" />
+              </label>
+            </div>
+          ) : null}
+          {error ? <p className="text-xs text-[var(--danger)]" role="alert">{error}</p> : null}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 function StudySessionView(props: {
   scope: "project" | "chapter";
   cards: StudyCard[];
@@ -120,18 +279,24 @@ function StudySessionView(props: {
   answerVisible: boolean;
   ratingBusy: boolean;
   studyDone: boolean;
+  studyFinishing: boolean;
   onExit: () => void;
   onReveal: () => void;
   onRate: (rating: "again" | "hard" | "good" | "easy") => void;
+  onFeedback: (input: CardFeedbackInput) => Promise<void>;
 }) {
   if (props.studyDone) {
     return (
       <div className="flex min-h-[70vh] flex-col items-center justify-center text-center">
-        <span className="flex size-12 items-center justify-center bg-[var(--success)] text-white"><Check className="size-6" /></span>
+        <span className="flex size-12 items-center justify-center bg-[var(--success)] text-white">
+          {props.studyFinishing ? <LoaderCircle className="size-6 animate-spin" /> : <Check className="size-6" />}
+        </span>
         <p className="section-kicker mt-6">Session complete</p>
         <h1 className="font-display mt-2 text-3xl font-semibold">{props.scope === "project" ? "项目今日复习完成" : "本章今日复习完成"}</h1>
-        <p className="mt-3 text-sm text-[var(--muted)]">已更新 {props.cards.length} 张卡片的下次复习时间。</p>
-        <button type="button" onClick={props.onExit} className="command-button command-button-dark mt-7"><ArrowLeft className="size-4" />{props.scope === "project" ? "返回项目" : "返回章节"}</button>
+        <p className="mt-3 text-sm text-[var(--muted)]">
+          {props.studyFinishing ? "正在保存复习进度…" : `已更新 ${props.cards.length} 张卡片的下次复习时间。`}
+        </p>
+        <button type="button" onClick={props.onExit} disabled={props.studyFinishing} className="command-button command-button-dark mt-7"><ArrowLeft className="size-4" />{props.scope === "project" ? "返回项目" : "返回章节"}</button>
       </div>
     );
   }
@@ -147,7 +312,10 @@ function StudySessionView(props: {
       <div className="h-1 bg-[var(--line)]"><div className="h-full bg-[var(--accent)] transition-[width]" style={{ width: `${(props.studyIndex + 1) * 100 / props.cards.length}%` }} /></div>
       <div className="flex flex-1 flex-col justify-center py-12">
         {projectCard ? <p className="mb-3 text-xs font-semibold text-[var(--muted)]">Chapter {String(projectCard.chapterPosition + 1).padStart(2, "0")} · {projectCard.chapterTitle}</p> : null}
-        <div className="flex items-center gap-2 text-[10px] font-bold uppercase text-[var(--accent)]"><Clock3 className="size-3.5" />{props.currentCard.state === "DUE" ? "到期复习" : "新知识卡"}</div>
+        <div className="flex items-center gap-3 text-[10px] font-bold text-[var(--accent)]">
+          <span className="flex items-center gap-1.5"><Clock3 className="size-3.5" />{cardStateLabels[props.currentCard.state]}</span>
+          <span className="flex items-center gap-1.5 border-l border-[var(--line-strong)] pl-3 text-[var(--muted)]"><Layers3 className="size-3.5" />{cardTypeLabels[props.currentCard.type]}</span>
+        </div>
         <h1 className="font-display mt-5 text-3xl font-semibold leading-10">{props.currentCard.question}</h1>
         {!props.answerVisible ? (
           <button type="button" onClick={props.onReveal} className="command-button command-button-dark mt-10 w-full">显示答案</button>
@@ -155,6 +323,7 @@ function StudySessionView(props: {
           <div className="mt-9 border-t border-[var(--line-strong)] pt-7">
             <p className="text-sm leading-8">{props.currentCard.answer}</p>
             <blockquote className="mt-6 border-l-2 border-[var(--accent)] bg-white px-4 py-3 text-xs leading-6 text-[var(--muted)]">“{props.currentCard.source.quote}”<span className="ml-2 font-mono">p.{props.currentCard.source.page}</span></blockquote>
+            <StudyCardFeedback key={props.currentCard.id} cardId={props.currentCard.id} onSubmit={props.onFeedback} />
             <div className="mt-8 grid grid-cols-4 gap-2">
               <button type="button" disabled={props.ratingBusy} onClick={() => props.onRate("again")} className="command-button border border-[#d7aaa5] bg-white text-[var(--danger)]"><RotateCcw className="size-4" />忘记</button>
               <button type="button" disabled={props.ratingBusy} onClick={() => props.onRate("hard")} className="command-button command-button-quiet">困难</button>
@@ -205,8 +374,10 @@ function ProjectLearningWorkspaceInner(props: {
   const [answerVisible, setAnswerVisible] = useState(false);
   const [ratingBusy, setRatingBusy] = useState(false);
   const [studyDone, setStudyDone] = useState(false);
-  const sessionId = useRef<string | null>(null);
+  const [studyFinishing, setStudyFinishing] = useState(false);
+  const sessionIds = useRef<string[]>([]);
   const shownAt = useRef(0);
+  const reviewWrites = useRef(createSerialTaskQueue());
   const { address, chainId, isConnected } = useAccount();
   const { connectors, connectAsync } = useConnect();
   const { disconnectAsync } = useDisconnect();
@@ -353,11 +524,13 @@ function ProjectLearningWorkspaceInner(props: {
   function startStudy(scope: "project" | "chapter") {
     const cards = scope === "project" ? projectStudy?.queue ?? [] : chapterStudyCards;
     if (cards.length === 0) return;
-    sessionId.current = crypto.randomUUID();
+    sessionIds.current = createPersistedReviewSessionIds(cards.length, () => crypto.randomUUID());
+    reviewWrites.current = createSerialTaskQueue();
     shownAt.current = Date.now();
     setStudyIndex(0);
     setAnswerVisible(false);
     setStudyDone(false);
+    setStudyFinishing(false);
     setSessionCards(cards);
     setStudyScope(scope);
     setStudyActive(true);
@@ -379,47 +552,84 @@ function ProjectLearningWorkspaceInner(props: {
   }
 
   async function rateCard(rating: "again" | "hard" | "good" | "easy") {
-    if (!selectedProjectId || !currentStudyCard || !sessionId.current) return;
-    const chapterId = studyScope === "project" && "chapterId" in currentStudyCard
-      ? currentStudyCard.chapterId
+    if (!selectedProjectId || !currentStudyCard || sessionIds.current.length === 0) return;
+    const ratedCard = currentStudyCard;
+    const activeSessionId = persistedReviewSessionIdForCard(sessionIds.current, studyIndex);
+    const completesPersistedSession = (studyIndex + 1) % MAX_CARDS_PER_PERSISTED_REVIEW_SESSION === 0
+      || studyIndex + 1 === studyCards.length;
+    const chapterId = studyScope === "project" && "chapterId" in ratedCard
+      ? ratedCard.chapterId
       : selectedChapterId;
     if (chapterId === null) return;
+    const responseMs = Math.min(3_600_000, Date.now() - shownAt.current);
+    const reviewedAt = new Date().toISOString();
+    const reviewScope = studyScope === "project" ? "PROJECT" : "CHAPTER";
     setRatingBusy(true);
     setDataError(null);
-    try {
+    const persistence = reviewWrites.current.enqueue(async () => {
       await parseApi<SubmitReviewResponse>(await fetch(
         `/api/projects/${selectedProjectId}/chapters/${chapterId}/reviews`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            sessionId: sessionId.current,
-            cardId: currentStudyCard.id,
+            sessionId: activeSessionId,
+            cardId: ratedCard.id,
             rating,
-            responseMs: Math.min(3_600_000, Date.now() - shownAt.current),
-            reviewedAt: new Date().toISOString(),
-            scope: studyScope === "project" ? "PROJECT" : "CHAPTER",
+            responseMs,
+            reviewedAt,
+            scope: reviewScope,
           }),
         },
       ));
-      if (studyIndex + 1 < studyCards.length) {
-        setStudyIndex((value) => value + 1);
-        setAnswerVisible(false);
-        shownAt.current = Date.now();
-      } else {
-        await fetch(`/api/projects/${selectedProjectId}/sessions/complete`, {
+      if (completesPersistedSession) {
+        await parseApi(await fetch(`/api/projects/${selectedProjectId}/sessions/complete`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sessionId: sessionId.current }),
-        });
-        setStudyDone(true);
-        setRefreshToken((value) => value + 1);
+          body: JSON.stringify({ sessionId: activeSessionId }),
+        }));
       }
+    });
+
+    if (studyIndex + 1 < studyCards.length) {
+      setStudyIndex((value) => value + 1);
+      setAnswerVisible(false);
+      shownAt.current = Date.now();
+      setRatingBusy(false);
+      void persistence.catch((error: unknown) => {
+        setDataError(error instanceof Error ? `上一张卡评分保存失败：${error.message}` : "上一张卡评分保存失败");
+      });
+      return;
+    }
+
+    setStudyDone(true);
+    setStudyFinishing(true);
+    try {
+      await persistence;
+      await reviewWrites.current.onIdle();
+      setStudyFinishing(false);
+      setRefreshToken((value) => value + 1);
     } catch (error) {
+      setStudyDone(false);
+      setStudyFinishing(false);
       setDataError(error instanceof Error ? error.message : "评分保存失败");
     } finally {
       setRatingBusy(false);
     }
+  }
+
+  async function submitCardFeedback(input: CardFeedbackInput) {
+    const card = currentStudyCard;
+    if (!selectedProjectId || !card) throw new Error("当前知识卡不可用");
+    const chapterId = studyScope === "project" && "chapterId" in card
+      ? card.chapterId
+      : selectedChapterId;
+    if (chapterId === null) throw new Error("无法确定知识卡所属章节");
+    await parseApi<KnowledgeCardFeedback>(await fetch(`/api/projects/${selectedProjectId}/feedback`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chapterId, cardId: card.id, ...input }),
+    }));
   }
 
   function renderProjectList() {
@@ -473,7 +683,9 @@ function ProjectLearningWorkspaceInner(props: {
               {projectSummary.goal ? <p>{projectSummary.goal}</p> : null}
             </div>
             <button type="button" onClick={() => startStudy("project")} disabled={projectStudy.queue.length === 0} className="command-button command-button-accent">
-              <CalendarCheck2 className="size-4" />{projectStudy.queue.length > 0 ? `今日复习 · ${projectStudy.queue.length}` : "今日已完成"}
+              <CalendarCheck2 className="size-4" />{projectStudy.queue.length > 0
+                ? `复习 ${projectStudy.queue.length} 张 · ${projectStudy.dueCount} 到期 / ${projectStudy.newCount} 新卡`
+                : "今日已完成"}
             </button>
           </div>
           <div className="document-study-metrics">
@@ -539,7 +751,9 @@ function ProjectLearningWorkspaceInner(props: {
           </div>
           {detail.status === "READY" ? (
             <button type="button" onClick={() => startStudy("chapter")} disabled={chapterStudyCards.length === 0} className="command-button command-button-accent shrink-0">
-              <BookOpen className="size-4" />{chapterStudyCards.length > 0 ? `开始复习 · ${chapterStudyCards.length}` : "今日已完成"}
+              <BookOpen className="size-4" />{chapterStudyCards.length > 0
+                ? `复习 ${chapterStudyCards.length} 张 · ${detail.dueCount} 到期 / ${detail.newCount} 新卡`
+                : "今日已完成"}
             </button>
           ) : null}
         </div>
@@ -563,7 +777,7 @@ function ProjectLearningWorkspaceInner(props: {
                 <article key={card.id} className="grid grid-cols-[48px_minmax(0,1fr)_120px] items-start gap-4 px-6 py-6">
                   <span className="font-mono text-[10px] text-[var(--muted)]">{String(card.position + 1).padStart(2, "0")}</span>
                   <div className="min-w-0"><h3 className="text-sm font-semibold leading-6">{card.question}</h3><p className="mt-1 line-clamp-2 text-xs leading-5 text-[var(--muted)]">{card.keyPoint}</p></div>
-                  <span className={`w-fit text-[10px] font-bold ${card.state === "DUE" ? "text-[var(--danger)]" : card.state === "NEW" ? "text-[var(--accent)]" : "text-[var(--muted)]"}`}>{card.state === "NEW" ? "新卡" : card.state === "DUE" ? "到期" : card.state === "LEARNING" ? "学习中" : "已安排"}</span>
+                  <span className={`w-fit text-[10px] font-bold ${card.state === "DUE" ? "text-[var(--danger)]" : card.state === "NEW" ? "text-[var(--accent)]" : "text-[var(--muted)]"}`}>{cardTypeLabels[card.type]} · {cardStateLabels[card.state]}</span>
                 </article>
               ))}
             </div>
@@ -585,9 +799,11 @@ function ProjectLearningWorkspaceInner(props: {
         answerVisible={answerVisible}
         ratingBusy={ratingBusy}
         studyDone={studyDone}
+        studyFinishing={studyFinishing}
         onExit={exitStudy}
         onReveal={() => setAnswerVisible(true)}
         onRate={(rating) => void rateCard(rating)}
+        onFeedback={submitCardFeedback}
       />
     );
   } else if (!selectedProjectId) {

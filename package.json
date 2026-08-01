@@ -12,7 +12,11 @@
     "test": "pnpm -r --if-present test",
     "build": "pnpm -r --if-present build",
     "fixtures:demo": "node scripts/generate-demo-fixtures.mjs",
-    "fixtures:generate": "pnpm fixtures:demo"
+    "fixtures:generate": "pnpm fixtures:demo",
+    "quality:replay": "tsx scripts/replay-ai-quality.ts",
+    "quality:evaluator-live": "tsx --tsconfig apps/agent-runner/tsconfig.json --env-file-if-exists=.env scripts/replay-live-ai-quality.ts",
+    "quality:live": "pnpm quality:evaluator-live",
+    "quality:canary": "pnpm quality:replay && pnpm exec vitest run packages/shared/test/learning-design-v3.test.ts packages/shared/test/quality-corpus.test.ts apps/agent-runner/test/project-pipeline-v2.test.ts apps/agent-runner/test/quality-evaluator-v3.test.ts apps/agent-runner/test/embedding-v3.test.ts && pnpm quality:evaluator-live"
   },
   "devDependencies": {
     "@eslint/js": "9.39.5",

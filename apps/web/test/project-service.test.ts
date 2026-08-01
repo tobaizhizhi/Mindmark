@@ -163,6 +163,7 @@ class RecordingConfirmationStore implements ProjectConfirmationStore {
         max_card_count: 6,
       })),
       sourceBlocks: sourceRows(),
+      exclusions: initialOutline.excludedRanges,
     };
   }
 

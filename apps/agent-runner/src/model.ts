@@ -51,12 +51,62 @@ function transcriptMessages(transcript: AgentTranscriptEntry[]) {
   ]);
 }
 
+function modelErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Unknown AI model failure";
+}
+
+async function nextToolWithAbort(
+  model: ToolCallingModel,
+  input: Parameters<ToolCallingModel["nextTool"]>[0],
+): Promise<Awaited<ReturnType<ToolCallingModel["nextTool"]>>> {
+  const abortPromise = new Promise<never>((_, reject) => {
+    const rejectWithReason = () => reject(input.signal.reason ?? new Error("AI model request aborted"));
+    if (input.signal.aborted) rejectWithReason();
+    else input.signal.addEventListener("abort", rejectWithReason, { once: true });
+  });
+  return Promise.race([model.nextTool(input), abortPromise]);
+}
+
+function waitForModelRetry(delayMs: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(signal.reason ?? new Error("AI model request aborted"));
+      return;
+    }
+    const timeout = setTimeout(resolve, delayMs);
+    signal.addEventListener("abort", () => {
+      clearTimeout(timeout);
+      reject(signal.reason ?? new Error("AI model request aborted"));
+    }, { once: true });
+  });
+}
+
+export async function nextToolWithTransientRetry(
+  model: ToolCallingModel,
+  input: Parameters<ToolCallingModel["nextTool"]>[0],
+  retryDelaysMs: readonly number[] = [5_000, 15_000],
+): Promise<Awaited<ReturnType<ToolCallingModel["nextTool"]>>> {
+  for (let attempt = 0; attempt <= retryDelaysMs.length; attempt += 1) {
+    try {
+      return await nextToolWithAbort(model, input);
+    } catch (error) {
+      const transient = /status (?:429|5\d\d)\b|fetch failed|econnreset|etimedout/iu.test(
+        modelErrorMessage(error),
+      );
+      if (!transient || input.signal.aborted || attempt === retryDelaysMs.length) throw error;
+      await waitForModelRetry(retryDelaysMs[attempt]!, input.signal);
+    }
+  }
+  throw new Error("AI model request retry loop exhausted");
+}
+
 export class OpenAICompatibleToolModel implements ToolCallingModel {
   constructor(
     private readonly configuration: {
       apiKey: string;
       model: string;
       baseUrl?: string;
+      temperature?: number;
     },
   ) {}
 
@@ -73,7 +123,7 @@ export class OpenAICompatibleToolModel implements ToolCallingModel {
       },
       body: JSON.stringify({
         model: this.configuration.model,
-        temperature: 0.2,
+        temperature: this.configuration.temperature ?? 0.2,
         parallel_tool_calls: false,
         tool_choice: "required",
         messages: [

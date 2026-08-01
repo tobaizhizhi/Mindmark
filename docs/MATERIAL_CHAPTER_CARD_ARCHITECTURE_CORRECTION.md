@@ -122,6 +122,7 @@ AI Planner 可在模型正常时缓解这个问题，但模型不可用或输出
 - 一次资料 intake 只创建一个 Learning Project。
 - 一个 Learning Project 对应一份规范化后的上传资料和一个 `sourceHash`。
 - 同一个 intake 请求重试必须幂等，不能创建多个 Learning Project。
+- 相同 `sourceHash` 使用新的 `clientRequestId` 上传时允许创建新的 Learning Project；内容哈希不是项目唯一键。
 - 重新分析资料结构只产生新的 Outline Draft version，不产生新的 Learning Project。
 - 未确认的 Outline Draft 不属于正式 Chapter 列表。
 - 普通资料建议规划 2 到 12 个 Chapter；硬上限保持 16。

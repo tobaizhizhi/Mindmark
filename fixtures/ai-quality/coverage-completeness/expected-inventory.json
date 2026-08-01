@@ -1,0 +1,9 @@
+{
+  "fixtureId": "coverage-completeness",
+  "concepts": [{
+    "name": "检查-更新-交互",
+    "aliases": ["CEI"],
+    "importance": 5,
+    "supportingBlockIndexes": [0]
+  }]
+}

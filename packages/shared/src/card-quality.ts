@@ -13,7 +13,14 @@ export const GenerationPolicyV3Schema = z
     weightedCoverageMinimum: z.number().min(0).max(1),
     semanticDuplicateMaximum: z.number().min(0).max(1),
     semanticDuplicateThreshold: z.number().min(0).max(1),
-    rubricMinimum: z.number().int().min(0).max(5),
+    rubricMinimums: z.object({
+      factuality: z.number().int().min(0).max(5),
+      learningValue: z.number().int().min(0).max(5),
+      clarity: z.number().int().min(0).max(5),
+      completeness: z.number().int().min(0).max(5),
+      citationRelevance: z.number().int().min(0).max(5),
+      difficultyFit: z.number().int().min(0).max(5),
+    }).strict(),
     inventoryRepairLimit: z.number().int().min(0).max(3),
     blueprintRepairLimit: z.number().int().min(0).max(3),
     candidateRepairLimit: z.number().int().min(0).max(5),
@@ -34,13 +41,82 @@ export const DEFAULT_GENERATION_POLICY_V3 = GenerationPolicyV3Schema.parse({
   weightedCoverageMinimum: 0.95,
   semanticDuplicateMaximum: 0.05,
   semanticDuplicateThreshold: 0.92,
-  rubricMinimum: 3,
+  rubricMinimums: {
+    factuality: 4,
+    learningValue: 3,
+    clarity: 3,
+    completeness: 3,
+    citationRelevance: 4,
+    difficultyFit: 3,
+  },
   inventoryRepairLimit: 1,
   blueprintRepairLimit: 1,
   candidateRepairLimit: 2,
 });
 
 export type GenerationPolicyV3 = z.infer<typeof GenerationPolicyV3Schema>;
+
+export const CardRubricScoreSchema = z.number().int().min(0).max(5);
+
+export const CardRubricEvaluationSchema = z
+  .object({
+    cardId: Bytes32Schema,
+    citationSufficient: z.boolean(),
+    factuality: CardRubricScoreSchema,
+    learningValue: CardRubricScoreSchema,
+    clarity: CardRubricScoreSchema,
+    completeness: CardRubricScoreSchema,
+    citationRelevance: CardRubricScoreSchema,
+    difficultyFit: CardRubricScoreSchema,
+    verdict: z.enum(["ACCEPT", "REPAIR", "REJECT"]),
+    reasons: z.array(z.string().trim().min(1).max(500)).max(8),
+  })
+  .strict();
+
+export type CardRubricEvaluation = z.infer<typeof CardRubricEvaluationSchema>;
+
+export const CardRubricFailureCodeSchema = z.enum([
+  "CITATION_INSUFFICIENT",
+  "FACTUALITY_BELOW_MINIMUM",
+  "LEARNING_VALUE_BELOW_MINIMUM",
+  "CLARITY_BELOW_MINIMUM",
+  "COMPLETENESS_BELOW_MINIMUM",
+  "CITATION_RELEVANCE_BELOW_MINIMUM",
+  "DIFFICULTY_FIT_BELOW_MINIMUM",
+  "EVALUATOR_REPAIR",
+  "EVALUATOR_REJECT",
+]);
+
+export type CardRubricFailureCode = z.infer<typeof CardRubricFailureCodeSchema>;
+
+const rubricDimensions = [
+  ["factuality", "FACTUALITY_BELOW_MINIMUM"],
+  ["learningValue", "LEARNING_VALUE_BELOW_MINIMUM"],
+  ["clarity", "CLARITY_BELOW_MINIMUM"],
+  ["completeness", "COMPLETENESS_BELOW_MINIMUM"],
+  ["citationRelevance", "CITATION_RELEVANCE_BELOW_MINIMUM"],
+  ["difficultyFit", "DIFFICULTY_FIT_BELOW_MINIMUM"],
+] as const satisfies ReadonlyArray<readonly [keyof CardRubricEvaluation, CardRubricFailureCode]>;
+
+export function evaluateCardRubric(input: {
+  evaluation: CardRubricEvaluation;
+  policy?: GenerationPolicyV3;
+}): { passes: boolean; failures: CardRubricFailureCode[]; minimumScore: number } {
+  const evaluation = CardRubricEvaluationSchema.parse(input.evaluation);
+  const policy = GenerationPolicyV3Schema.parse(input.policy ?? DEFAULT_GENERATION_POLICY_V3);
+  const failures: CardRubricFailureCode[] = [];
+  if (!evaluation.citationSufficient) failures.push("CITATION_INSUFFICIENT");
+  for (const [dimension, failure] of rubricDimensions) {
+    if ((evaluation[dimension] as number) < policy.rubricMinimums[dimension]) failures.push(failure);
+  }
+  if (evaluation.verdict === "REPAIR") failures.push("EVALUATOR_REPAIR");
+  if (evaluation.verdict === "REJECT") failures.push("EVALUATOR_REJECT");
+  return {
+    passes: failures.length === 0,
+    failures,
+    minimumScore: Math.min(...rubricDimensions.map(([dimension]) => evaluation[dimension] as number)),
+  };
+}
 
 export type BlueprintCoverage = {
   acceptedSlotIds: `0x${string}`[];

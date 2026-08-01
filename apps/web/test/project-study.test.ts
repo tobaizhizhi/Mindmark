@@ -36,8 +36,11 @@ class MemoryProjectStudyStore implements ProjectStudyStore {
     reviewedAt: "2026-07-20T00:00:00.000Z",
   });
   submitted: Parameters<ProjectStudyStore["submitReview"]>[0] | null = null;
+  loadOwnedChapterCalls = 0;
+  loadCardStateCalls = 0;
 
   async loadOwnedChapter(id: Hex, chapterId: number, address: `0x${string}`) {
+    this.loadOwnedChapterCalls += 1;
     if (id !== projectId || chapterId !== 0 || address !== owner) return null;
     return {
       chapter: { project_id: projectId, chapter_id: 0, status: "READY" as const },
@@ -46,6 +49,15 @@ class MemoryProjectStudyStore implements ProjectStudyStore {
         card_id: cardIds[0], fsrs_state: this.state,
         due_at: this.state.due, reps: this.state.reps, lapses: this.state.lapses,
       }],
+    };
+  }
+
+  async loadCardState(id: Hex, chapterId: number, cardId: Hex, address: `0x${string}`) {
+    this.loadCardStateCalls += 1;
+    if (id !== projectId || chapterId !== 0 || address !== owner || cardId !== cardIds[0]) return null;
+    return {
+      card_id: cardIds[0], fsrs_state: this.state,
+      due_at: this.state.due, reps: this.state.reps, lapses: this.state.lapses,
     };
   }
 
@@ -82,7 +94,7 @@ describe("Chapter-scoped V2 study", () => {
     expect(detail.cards.every((card) => card.tags.includes("chapter-one"))).toBe(true);
   });
 
-  it("caps an overdue-heavy queue before adding new cards", async () => {
+  it("keeps every due and new card in the Chapter queue", async () => {
     const dueCardIds = Array.from({ length: 18 }, (_, index) =>
       `0x${(index + 1).toString(16).padStart(64, "0")}` as Hex);
     const newCardId = `0x${"ff".repeat(32)}` as Hex;
@@ -114,6 +126,9 @@ describe("Chapter-scoped V2 study", () => {
           })),
         };
       },
+      async loadCardState() {
+        throw new Error("not used");
+      },
       async submitReview() {
         throw new Error("not used");
       },
@@ -130,8 +145,7 @@ describe("Chapter-scoped V2 study", () => {
       new Date("2026-07-26T00:00:00.000Z"),
     );
 
-    expect(detail.queue).toEqual(dueCardIds.slice(0, 15));
-    expect(detail.queue).not.toContain(newCardId);
+    expect(detail.queue).toEqual([...dueCardIds, newCardId]);
     expect(detail.dueCount).toBe(18);
     expect(detail.newCount).toBe(1);
   });
@@ -153,6 +167,8 @@ describe("Chapter-scoped V2 study", () => {
       store,
     );
     expect(response.accepted).toBe(true);
+    expect(store.loadOwnedChapterCalls).toBe(0);
+    expect(store.loadCardStateCalls).toBe(1);
     expect(store.submitted?.chapterId).toBe(0);
     expect(store.submitted?.expectedState).toBeNull();
     expect(store.submitted?.nextState.reps).toBe(1);
@@ -229,6 +245,35 @@ describe("Project-scoped V2 study", () => {
       "实践", "基础", "实践", "基础", "实践",
     ]);
     expect(result.queue).not.toContainEqual(expect.objectContaining({ id: ids[5] }));
+  });
+
+  it("round-robins every new card without a daily cap", async () => {
+    const ids = Array.from({ length: 24 }, (_, index) =>
+      `0x${(index + 41).toString(16).padStart(64, "0")}` as Hex);
+    const store: ProjectQueueStore = {
+      async loadOwnedProject() {
+        return {
+          project: { project_id: projectId, status: "READY" as const },
+          chapters: [
+            { project_id: projectId, chapter_id: 0, position: 0, title: "基础", status: "READY" as const },
+            { project_id: projectId, chapter_id: 1, position: 1, title: "实践", status: "READY" as const },
+          ],
+          cards: ids.map((cardId, position) => ({
+            card_id: cardId,
+            chapter_id: position < 12 ? 0 : 1,
+            position,
+            content: { ...content(0), question: `问题 ${position}`, answer: `答案 ${position}` },
+          })),
+          states: [],
+        };
+      },
+    };
+
+    const result = await getProjectStudyForOwner(projectId, owner, store);
+
+    expect(result.queue).toHaveLength(24);
+    expect(result.newCount).toBe(24);
+    expect(result.queue.map((card) => card.chapterId).slice(0, 6)).toEqual([0, 1, 0, 1, 0, 1]);
   });
 
   it("does not reveal another owner's Project queue", async () => {

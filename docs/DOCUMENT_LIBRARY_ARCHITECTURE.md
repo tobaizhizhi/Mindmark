@@ -51,7 +51,8 @@ Clients never submit an owner address.
 
 ## Invariants
 
-1. One source remains one idempotent Learning Project.
+1. One owner-scoped `clientRequestId` creates one idempotent Learning Project;
+   a later upload may create another Project from identical source content.
 2. Chapters cover the source and are created only after Outline confirmation.
 3. Knowledge Cards belong to Chapters, never directly to folders.
 4. Moving or renaming a folder cannot change any learning or chain commitment.

@@ -1,0 +1,7 @@
+{
+  "fixtureId": "access-control-clarity",
+  "pages": [{
+    "pageNumber": 1,
+    "text": "访问控制应在敏感操作执行前验证调用者权限，并为不同角色授予最小必要权限。"
+  }]
+}

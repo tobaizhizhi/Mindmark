@@ -1,8 +1,32 @@
 # AI Generation Quality Implementation Plan
 
-> Status: Proposed
+> Status: In progress
 > Scope: V2 Learning Project -> Chapter -> Knowledge Card pipeline
 > Decision: Improve generation quality with a versioned learning-design layer before introducing a larger model framework
+
+## Implementation Status (2026-07-30)
+
+Implemented:
+
+- Shared `ChapterConceptInventory`, `CardBlueprint`, coverage, duplicate detection, and Blueprint-aware Work Planning.
+- Bounded Chapter Design Agent, immutable Design Runs, Project Design Freeze, and asynchronous Web confirmation progress.
+- Policy-v3 Workers that generate exactly one grounded candidate per assigned Blueprint Slot.
+- Immutable candidate revisions, atomic candidate persistence, deterministic lexical duplicate fallback, optional model embeddings, and coverage gating.
+- Slot-targeted repair that preserves accepted candidates and combines accepted and repaired revisions before approval.
+- Revision-aware repair context: a repair Worker receives only its rejected card, hard-failure codes, and Slot-specific instruction, so it can correct the failed objective instead of blindly regenerating.
+- Strict citation-sufficiency and six-dimension Rubric evaluation, with a model-backed tool-call adapter in the Runner runtime.
+- Six synthetic fixed-corpus fixtures and a deterministic `pnpm quality:replay` baseline harness, including prompt-injection and unsupported-claim cases.
+- A model-backed `pnpm quality:evaluator-live` corpus gate and `pnpm quality:canary` release command. The Canary combines deterministic corpus replay, V3 generation/repair integration tests, and live evaluator checks.
+- Independent design, generation, evaluator, and embedding model configuration without adding a workflow framework.
+- Authenticated learner feedback capture after answer reveal, including optional reason and proposed question, answer, or key-point correction.
+- Operator-only aggregate quality reporting by chapter, blueprint slot, feedback rating, and hard-failure category. The payload excludes source text, card content, and feedback prose.
+- PGlite transaction coverage plus Shared, Runner, and Web regression tests.
+
+Still required before a production quality rollout:
+
+- Protected live-model corpus runs, score calibration, release-threshold approval, and canary comparison reports.
+- Turning the collected learner feedback into a reviewed calibration dataset and release decision.
+- Applying and validating the additive V3 migration in the target Supabase environment.
 
 ## 1. Executive Decision
 
@@ -194,7 +218,7 @@ Detailed transitions:
 5. Once all Chapters have a valid blueprint, `Work Planning Module` assigns blueprint slots to contiguous Work Units.
 6. The complete Work Unit manifest is persisted and the Learning Project becomes `AWAITING_REGISTRY`.
 7. The user creates the Monad Project using the now-finalized plan.
-8. Workers generate candidates against assigned blueprint slots.
+8. Workers generate candidates against assigned blueprint slots. A repair attempt receives the failed Slot's prior candidate and structured evaluation feedback only.
 9. `QUALITY_CHECK_CHAPTER` evaluates coverage and quality before approved candidates can commit.
 
 The existing database command that currently confirms an outline and materializes Work Units must be split into two transactional commands or two clearly separated phases. The exact HTTP command names may remain stable, but the response must expose that the project is designing cards rather than pretending it is already ready to create on Monad.
@@ -304,7 +328,8 @@ Add learner feedback only after the quality pipeline has stable card provenance.
 
 ## 9. Database Changes
 
-Create a new additive migration, for example `20260730000100_learning_design_v3.sql`.
+Create the additive migrations `20260730000100_learning_design_v3.sql` and
+`20260730000200_learning_quality_operations.sql`.
 
 ### `chapter_design_runs`
 
@@ -387,6 +412,23 @@ created_at timestamptz
 ```
 
 All tables need the same forced RLS and service-role-only pattern as the existing V2 workflow tables. Raw PDF text and complete AI transcripts must not enter standard operations payloads.
+
+The quality operations function returns only aggregate counts. It is exposed
+through the existing operator-wallet guard at `GET /api/operations/quality`.
+The bounded default payload contains at most 384 chapter summaries and 480
+Blueprint Slot summaries, plus full aggregate feedback and failure-category
+counts. It never returns a learner reason, correction text, source block,
+complete card, or transcript.
+
+`pnpm quality:evaluator-live` is the no-human automatic preflight for evaluator changes.
+It uses only the synthetic corpus and each case's explicit Slot objective and
+evidence. It must meet configurable decision-accuracy and violation-detection
+thresholds before the configured model or evaluator prompt is rolled out.
+`pnpm quality:canary` additionally runs deterministic corpus replay and the V3
+generation/repair integration suite before the live evaluator gate. It is a
+hackathon release gate, not a claim that production generation has been tested
+against live traffic. No raw source, card content, or transcript is emitted by
+the integration portion.
 
 ## 10. Prompt and Model Policy
 
@@ -571,18 +613,19 @@ Alert on hard-gate failures, missing required concepts, repeated repair exhausti
 ## 16. Delivery Checklist
 
 - [ ] Audit current cards and publish baseline metrics.
-- [ ] Add `ChapterConceptInventory` schemas and validators.
-- [ ] Add `CardBlueprint` schemas and validators.
-- [ ] Add versioned Design Run persistence.
-- [ ] Split outline confirmation from Work Unit materialization.
-- [ ] Add `DESIGN_CHAPTER` Workflow Job and recovery path.
-- [ ] Implement Chapter Design Graph with bounded repair.
-- [ ] Assign blueprint slots to Work Units before manifest creation.
-- [ ] Make Worker generation slot-aware.
-- [ ] Implement semantic duplicate and coverage evaluation.
-- [ ] Implement Chapter Evaluation Graph with targeted repair.
-- [ ] Add fixed evaluation fixtures and replay tests.
-- [ ] Add human feedback capture.
+- [x] Add `ChapterConceptInventory` schemas and validators.
+- [x] Add `CardBlueprint` schemas and validators.
+- [x] Add versioned Design Run persistence.
+- [x] Split outline confirmation from Work Unit materialization.
+- [x] Add `DESIGN_CHAPTER` Workflow Job and recovery path.
+- [x] Implement Chapter Design Graph with bounded repair.
+- [x] Assign blueprint slots to Work Units before manifest creation.
+- [x] Make Worker generation slot-aware.
+- [x] Implement semantic duplicate and coverage evaluation.
+- [x] Implement Chapter Evaluation Graph with targeted repair.
+- [x] Add fixed evaluation fixtures, deterministic replay, model-backed evaluator preflight, and automated hackathon Canary.
+- [x] Add human feedback capture and authenticated feedback APIs.
+- [x] Add operator-only aggregate quality and feedback reporting.
 - [ ] Run shadow and canary Projects.
 - [ ] Verify Monad commitment immutability and V2 hash vectors.
 - [ ] Enable policy-v3 only after all quality thresholds pass.
@@ -1060,7 +1103,7 @@ only the accepted candidates.
 
 1. Enable policy-v3 only for internal Learning Projects.
 2. Run blinded human audits and compare policy v2/v3 reports.
-3. Add learner feedback capture after card-slot provenance is visible.
+3. Add learner feedback capture after card-slot provenance is visible. Completed: answer-reveal feedback uses the immutable card identity and Chapter provenance, separately from FSRS rating.
 4. Enable a small canary percentage for new Learning Projects.
 
 Exit gate: all release gates in Section 20.4 pass for the canary sample and
@@ -1119,3 +1162,10 @@ The default list view exposes counts and status only. An authorized operator
 can inspect sanitized repair reasons, never raw source blocks or complete model
 transcripts. Alerting thresholds are configured from the Generation Policy,
 not hard-coded in the Web.
+
+Implemented baseline: `/operations` loads a separately protected aggregate
+quality report with feedback totals, feedback rating counts, top hard-failure
+categories, Chapter-level slot acceptance/evaluation counts, and Slot-level
+status counts. The default UI intentionally does not expose learner prose,
+suggested edits, source text, or complete card content. Per-project drill-down
+and calibrated alerts remain production rollout work.

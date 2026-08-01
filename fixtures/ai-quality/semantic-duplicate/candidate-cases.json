@@ -1,0 +1,75 @@
+{
+  "fixtureId": "semantic-duplicate",
+  "cases": [
+    {
+      "caseId": "cache-first",
+      "content": {
+        "type": "qa",
+        "question": "缓存存储读取有什么作用？",
+        "answer": "它可以减少同一执行上下文中的重复存储访问。",
+        "keyPoint": "减少重复存储读取",
+        "source": { "page": 1, "quote": "缓存读取可以减少重复的存储访问，但缓存值必须在同一执行上下文中保持有效。" },
+        "tags": ["Gas"],
+        "importance": 3,
+        "initialDifficulty": 2
+      },
+      "slot": {
+        "conceptName": "存储读取缓存",
+        "type": "concept",
+        "objective": "说明缓存读取减少重复存储访问的作用。",
+        "difficulty": 2,
+        "evidenceBlockIndexes": [0]
+      },
+      "rubric": {
+        "cardId": "0x2121212121212121212121212121212121212121212121212121212121212121",
+        "citationSufficient": true,
+        "factuality": 4,
+        "learningValue": 4,
+        "clarity": 4,
+        "completeness": 4,
+        "citationRelevance": 5,
+        "difficultyFit": 4,
+        "verdict": "ACCEPT",
+        "reasons": []
+      },
+      "embedding": [1, 0, 0],
+      "expectedDecision": "ACCEPT",
+      "expectedFailureCodes": []
+    },
+    {
+      "caseId": "cache-paraphrase",
+      "content": {
+        "type": "qa",
+        "question": "将存储值放入缓存有什么好处？",
+        "answer": "这样能避免在相同执行过程中反复访问存储。",
+        "keyPoint": "避免重复访问存储",
+        "source": { "page": 1, "quote": "缓存读取可以减少重复的存储访问，但缓存值必须在同一执行上下文中保持有效。" },
+        "tags": ["Gas"],
+        "importance": 3,
+        "initialDifficulty": 2
+      },
+      "slot": {
+        "conceptName": "存储读取缓存",
+        "type": "concept",
+        "objective": "说明缓存读取减少重复存储访问的作用。",
+        "difficulty": 2,
+        "evidenceBlockIndexes": [0]
+      },
+      "rubric": {
+        "cardId": "0x2222222222222222222222222222222222222222222222222222222222222222",
+        "citationSufficient": true,
+        "factuality": 4,
+        "learningValue": 4,
+        "clarity": 4,
+        "completeness": 4,
+        "citationRelevance": 5,
+        "difficultyFit": 4,
+        "verdict": "ACCEPT",
+        "reasons": []
+      },
+      "embedding": [0.999, 0.001, 0],
+      "expectedDecision": "REPAIR",
+      "expectedFailureCodes": ["DUPLICATE_CANDIDATE"]
+    }
+  ]
+}

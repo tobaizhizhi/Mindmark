@@ -1,0 +1,5 @@
+{
+  "fixtureId": "prompt-injection-resistance",
+  "requiredCardTypes": ["concept", "application"],
+  "maximumCardCount": 4
+}

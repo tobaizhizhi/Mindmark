@@ -42,6 +42,16 @@ function fixture() {
   return { source, chapter };
 }
 
+function cardPolicy() {
+  return {
+    chapterId: 0,
+    minCardCount: 2,
+    targetCardCount: 2,
+    maxCardCount: 4,
+    policyVersion: 3 as const,
+  };
+}
+
 class InMemoryDesignRepository implements ChapterDesignRepositoryV3 {
   readonly fixture = fixture();
   completed: Parameters<ChapterDesignRepositoryV3["completeChapterDesign"]>[0] | null = null;
@@ -62,6 +72,7 @@ class InMemoryDesignRepository implements ChapterDesignRepositoryV3 {
       goal: "理解重入防御",
       outlineVersion: 1,
       chapter: this.fixture.chapter,
+      cardPolicy: cardPolicy(),
       sourceBlocks: this.fixture.source.blocks,
     };
   }
@@ -129,7 +140,9 @@ class InMemoryFreezerRepository implements ProjectDesignFreezeRepositoryV3 {
       outlineHash: `0x${"65".repeat(32)}` as Hex,
       outlineVersion: 1,
       chapters: [this.fixture.chapter],
+      chapterPolicies: [cardPolicy()],
       sourceBlocks: this.fixture.source.blocks,
+      excludedRanges: [],
       designs: [{
         chapterId: 0,
         inventory,
@@ -203,12 +216,106 @@ describe("ChapterDesignWorkflowAgent", () => {
     expect(repository.failed).toBeNull();
     expect(repository.completed).toMatchObject({
       designRunId,
-      promptVersion: "chapter-design-v3.0.0",
+      promptVersion: "chapter-design-v3.1.0",
       modelId: "configured-model",
       metrics: { conceptCount: 1, slotCount: 2 },
     });
     expect(repository.completed?.inventory.concepts[0]?.conceptId).toBe(conceptId);
     expect(repository.completed?.blueprint.slots.map((slot) => slot.conceptId)).toEqual([conceptId, conceptId]);
+  });
+
+  it("repairs English Inventory and Blueprint text for a Chinese Chapter", async () => {
+    const repository = new InMemoryDesignRepository();
+    const chineseConcepts = [{
+      name: "重入风险",
+      importance: 5 as const,
+      learningObjective: "解释外部调用如何引入重入风险。",
+      sourceBlockIndexes: [1],
+      prerequisites: [],
+      misconceptions: ["外部调用本身一定不安全。"],
+    }];
+    const conceptId = materializeChapterConceptInventory({
+      projectId,
+      chapterId: 0,
+      outlineVersion: 1,
+      sourceHash: repository.fixture.chapter.sourceHash,
+      concepts: chineseConcepts,
+    }).concepts[0]!.conceptId;
+    const model = new ScriptedModel([
+      { id: "read", name: "read_chapter_design_context", arguments: {} },
+      {
+        id: "english-concepts",
+        name: "propose_chapter_concepts",
+        arguments: {
+          concepts: [{
+            name: "Reentrancy Risk",
+            importance: 5,
+            learningObjective: "Explain how external calls introduce reentrancy risk.",
+            sourceBlockIndexes: [1],
+            prerequisites: [],
+            misconceptions: ["Every external call is unsafe."],
+          }],
+        },
+      },
+      { id: "chinese-concepts", name: "propose_chapter_concepts", arguments: { concepts: chineseConcepts } },
+      {
+        id: "english-blueprint",
+        name: "propose_card_blueprint",
+        arguments: {
+          slots: [
+            {
+              conceptId,
+              type: "concept",
+              objective: "Explain the conditions for reentrancy.",
+              difficulty: 2,
+              sourceBlockIndexes: [1],
+              required: true,
+            },
+            {
+              conceptId,
+              type: "misconception",
+              objective: "Correct misconceptions about external calls.",
+              difficulty: 3,
+              sourceBlockIndexes: [1],
+              required: true,
+            },
+          ],
+        },
+      },
+      {
+        id: "chinese-blueprint",
+        name: "propose_card_blueprint",
+        arguments: {
+          slots: [
+            {
+              conceptId,
+              type: "concept",
+              objective: "解释重入发生的条件。",
+              difficulty: 2,
+              sourceBlockIndexes: [1],
+              required: true,
+            },
+            {
+              conceptId,
+              type: "misconception",
+              objective: "纠正对外部调用风险的误解。",
+              difficulty: 3,
+              sourceBlockIndexes: [1],
+              required: true,
+            },
+          ],
+        },
+      },
+    ]);
+    const agent = new ChapterDesignWorkflowAgent(repository, model);
+
+    await expect(agent.runClaimed({ projectId, chapterId: 0 })).resolves.toMatchObject({
+      state: "DESIGNED",
+    });
+
+    expect(model.calls).toBe(5);
+    expect(repository.completed?.inventory.concepts[0]?.name).toBe("重入风险");
+    expect(repository.completed?.blueprint.slots[0]?.objective).toBe("解释重入发生的条件。");
   });
 
   it("freezes a complete Chapter design into a Blueprint-safe Monad manifest", async () => {

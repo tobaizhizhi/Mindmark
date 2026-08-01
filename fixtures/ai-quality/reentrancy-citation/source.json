@@ -1,0 +1,7 @@
+{
+  "fixtureId": "reentrancy-citation",
+  "pages": [{
+    "pageNumber": 1,
+    "text": "外部调用会把执行控制权交给未知代码，因此关键状态应在外部交互之前更新。"
+  }]
+}

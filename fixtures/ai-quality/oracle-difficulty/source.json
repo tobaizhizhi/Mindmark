@@ -1,0 +1,7 @@
+{
+  "fixtureId": "oracle-difficulty",
+  "pages": [{
+    "pageNumber": 1,
+    "text": "时间加权平均价格通过一段时间内的多个观测值降低单个瞬时价格被操纵时造成的影响。"
+  }]
+}

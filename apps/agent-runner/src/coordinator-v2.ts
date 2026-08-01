@@ -21,11 +21,12 @@ export class ProjectCoordinatorV2 {
       pollIntervalMs?: number;
       maxOutlinePlansPerRun?: number;
       maxWorkflowJobsPerRun?: number;
+      startupRetryDelayMs?: number;
     } = {},
   ) {}
 
   async start(): Promise<void> {
-    await this.registry.assertConfiguredWallets();
+    await this.assertConfiguredWallets();
     await this.runOnce();
     this.pollTimer = setInterval(() => void this.scheduleTick(), this.options.pollIntervalMs ?? 20_000);
   }
@@ -75,6 +76,19 @@ export class ProjectCoordinatorV2 {
       await this.runOnce();
     } finally {
       this.tickInProgress = false;
+    }
+  }
+
+  private async assertConfiguredWallets(): Promise<void> {
+    const retryDelayMs = this.options.startupRetryDelayMs ?? 2_000;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        await this.registry.assertConfiguredWallets();
+        return;
+      } catch (error) {
+        if (attempt === 2) throw error;
+        await new Promise((resolve) => setTimeout(resolve, retryDelayMs * 2 ** attempt));
+      }
     }
   }
 }

@@ -26,6 +26,7 @@ export * from "./chapter-assembler.js";
 export * from "./coordinator-v2.js";
 export * from "./project-finalizer-v2.js";
 export * from "./project-design-freezer.js";
+export * from "./quality-evaluator-v3.js";
 export * from "./model.js";
 export * from "./outline-planning-agent.js";
 export * from "./repository-v2.js";

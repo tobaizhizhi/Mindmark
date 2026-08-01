@@ -1,0 +1,9 @@
+{
+  "fixtureId": "reentrancy-citation",
+  "concepts": [{
+    "name": "重入条件",
+    "aliases": ["外部调用控制权"],
+    "importance": 5,
+    "supportingBlockIndexes": [0]
+  }]
+}

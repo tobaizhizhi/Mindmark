@@ -21,15 +21,18 @@ export class ProjectDesignFreezer {
     }
     for (const chapter of source.chapters) {
       const design = source.designs.find((candidate) => candidate.chapterId === chapter.chapterId);
+      const cardPolicy = source.chapterPolicies.find((candidate) => candidate.chapterId === chapter.chapterId);
       if (!design) throw new Error(`Chapter ${chapter.chapterId} has no completed Design Run`);
+      if (!cardPolicy) throw new Error(`Chapter ${chapter.chapterId} has no Card Policy`);
       validateChapterConceptInventory(design.inventory, chapter, source.sourceBlocks);
-      validateCardBlueprint(design.blueprint, design.inventory, chapter);
+      validateCardBlueprint(design.blueprint, design.inventory, chapter, cardPolicy);
     }
     const plan = planBlueprintWorkUnits(
       source.projectId,
       source.chapters,
       source.sourceBlocks,
       source.designs.map((design) => design.blueprint),
+      source.excludedRanges,
     );
     const frozenDesignHash = hashFrozenProjectDesignV3({
       projectId: source.projectId,

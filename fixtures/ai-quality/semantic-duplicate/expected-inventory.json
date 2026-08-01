@@ -1,0 +1,9 @@
+{
+  "fixtureId": "semantic-duplicate",
+  "concepts": [{
+    "name": "存储读取缓存",
+    "aliases": ["缓存 SLOAD"],
+    "importance": 3,
+    "supportingBlockIndexes": [0]
+  }]
+}

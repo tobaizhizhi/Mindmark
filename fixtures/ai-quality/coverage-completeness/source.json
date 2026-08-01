@@ -1,0 +1,7 @@
+{
+  "fixtureId": "coverage-completeness",
+  "pages": [{
+    "pageNumber": 1,
+    "text": "检查条件、更新内部状态，最后执行外部交互，这一顺序可以减少旧状态被重复利用的机会。"
+  }]
+}

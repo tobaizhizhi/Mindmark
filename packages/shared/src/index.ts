@@ -10,6 +10,8 @@ export * from "./hash-v2.js";
 export * from "./merkle-v2.js";
 export * from "./learning-design-hash.js";
 export * from "./project-v2.js";
+export * from "./quality-corpus.js";
 export * from "./schemas.js";
 export * from "./source-intake.js";
+export * from "./source-relevance.js";
 export * from "./work-planning.js";
