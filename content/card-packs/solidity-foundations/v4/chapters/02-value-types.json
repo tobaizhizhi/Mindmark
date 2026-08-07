@@ -1,0 +1,211 @@
+{
+  "chapterId": 1,
+  "position": 1,
+  "slug": "value-types",
+  "title": "02 值类型：把数据含义写进类型",
+  "summary": "只处理 bool、uint、int、address、bytes 和 enum，不引入数组或 mapping。",
+  "estimatedMinutes": 22,
+  "learningObjectives": [
+    "能为状态选择合适的值类型",
+    "能解释值类型赋值会复制数据",
+    "能识别零地址和整数范围边界"
+  ],
+  "prerequisiteChapterIds": [
+    0
+  ],
+  "stageId": 0,
+  "stageTitle": "阶段一：看见合约",
+  "newConcepts": [
+    "bool",
+    "uint/int",
+    "address",
+    "bytes",
+    "enum"
+  ],
+  "prerequisiteConcepts": [
+    "pragma",
+    "contract",
+    "状态变量"
+  ],
+  "practiceFocus": "使用独立值变量描述 Registry 的状态，不创建集合。",
+  "projectMilestone": "给 Registry 增加 active、version、admin 和 lifecycle。",
+  "cards": [
+    {
+      "packCardId": "v4-value-types-concept",
+      "position": 0,
+      "type": "concept",
+      "question": "为什么 address、uint256 和 enum 不能互相随意替代？",
+      "answer": "类型记录业务含义和运算规则：address 表示账户，uint256 表示非负数量，enum 表示有限状态集合。类型越准确，编译器越能提前发现错误。",
+      "keyPoint": "类型不是装饰，而是合约不变量的第一层表达。",
+      "tags": [
+        "类型",
+        "address",
+        "enum"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html",
+        "locator": "Value Types"
+      }
+    },
+    {
+      "packCardId": "v4-value-types-check",
+      "position": 1,
+      "type": "qa",
+      "question": "值类型赋值后修改新变量，为什么不会改变原变量？",
+      "answer": "值类型赋值会复制具体数据；只有引用类型在特定数据位置下才可能共享同一存储对象。",
+      "keyPoint": "先掌握复制语义，再学习 storage、memory、calldata。",
+      "tags": [
+        "复制",
+        "值类型",
+        "数据位置"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html",
+        "locator": "Value Types"
+      }
+    },
+    {
+      "packCardId": "v4-value-types-read",
+      "position": 2,
+      "type": "code_read",
+      "question": "推断 ValueBoard 刚部署时的读取结果。",
+      "answer": "active=false、limit=0、admin=address(0)、phase=Draft；这是值类型零值和 enum 第一项。",
+      "keyPoint": "默认值确定但不一定符合业务要求。",
+      "tags": [
+        "value-types",
+        "code_read"
+      ],
+      "code": {
+        "language": "solidity",
+        "starterCode": "enum Phase { Draft, Published }\nbool public active;\nuint256 public limit;\naddress public admin;\nPhase public phase;",
+        "solutionCode": "active=false；limit=0；admin=address(0)；phase=Phase.Draft。",
+        "testInput": "刚部署，不调用任何函数。",
+        "expectedResult": "返回 false、0、零地址、Draft。",
+        "hints": [
+          "逐个看变量类型。",
+          "enum 从第一个成员开始。"
+        ]
+      },
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html",
+        "locator": "Value Types"
+      }
+    },
+    {
+      "packCardId": "v4-value-types-complete",
+      "position": 3,
+      "type": "code_complete",
+      "question": "补全 setLimit，拒绝 0 并保存新的 uint256 上限。",
+      "answer": "先 require(next > 0)，再 limit = next；这里暂不加入 owner 权限。",
+      "keyPoint": "先练习值边界，权限会在后续章节单独引入。",
+      "tags": [
+        "value-types",
+        "code_complete"
+      ],
+      "code": {
+        "language": "solidity",
+        "starterCode": "uint256 public limit;\nfunction setLimit(uint256 next) external {\n    // TODO\n}",
+        "solutionCode": "uint256 public limit;\nfunction setLimit(uint256 next) external {\n    require(next > 0, \"zero limit\");\n    limit = next;\n}",
+        "testInput": "setLimit(0) 和 setLimit(10)。",
+        "expectedResult": "0 回滚，10 成功。",
+        "hints": [
+          "require 放在写入前。",
+          "next 是 uint256。"
+        ]
+      },
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html",
+        "locator": "Value Types"
+      }
+    },
+    {
+      "packCardId": "v4-value-types-write",
+      "position": 4,
+      "type": "code_write",
+      "question": "写一个 PhaseBoard，使用 enum 表示 Draft、Review、Published，并提供 publish。",
+      "answer": "声明 enum Stage，状态变量 stage 默认 Draft，publish 把它设置为 Published。",
+      "keyPoint": "enum 适合有限且可读的生命周期。",
+      "tags": [
+        "value-types",
+        "code_write"
+      ],
+      "code": {
+        "language": "solidity",
+        "starterCode": "// 写出 enum、状态变量和 publish()\n",
+        "solutionCode": "pragma solidity ^0.8.20;\ncontract PhaseBoard {\n    enum Stage { Draft, Review, Published }\n    Stage public stage;\n    function publish() external { stage = Stage.Published; }\n}",
+        "testInput": "读取初始 stage，再调用 publish。",
+        "expectedResult": "初始 Draft，之后 Published。",
+        "hints": [
+          "enum 第一个成员是默认值。",
+          "赋值使用 Stage.Published。"
+        ]
+      },
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html",
+        "locator": "Value Types"
+      }
+    },
+    {
+      "packCardId": "v4-value-types-application",
+      "position": 5,
+      "type": "application",
+      "question": "为什么把 lifecycle 写成 enum 比写成 magic number 更容易学习和审计？",
+      "answer": "enum 让每个数值有明确名字，代码读者不用猜 0、1、2 代表什么，也能减少非法状态的表达空间。",
+      "keyPoint": "可读性本身就是安全和学习效率。",
+      "tags": [
+        "enum",
+        "可读性",
+        "应用"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html",
+        "locator": "Value Types"
+      }
+    },
+    {
+      "packCardId": "v4-value-types-misconception",
+      "position": 6,
+      "type": "misconception",
+      "question": "误区：private 值类型就不会被链上看到，为什么错误？",
+      "answer": "private 只限制 Solidity 源码中的名称访问，storage 仍公开可读；它不是加密。",
+      "keyPoint": "可见性、不可变性和隐私是三个不同概念。",
+      "tags": [
+        "private",
+        "隐私",
+        "误区"
+      ],
+      "importance": 4,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html",
+        "locator": "Value Types"
+      }
+    }
+  ]
+}

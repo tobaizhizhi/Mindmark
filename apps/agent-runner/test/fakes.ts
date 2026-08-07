@@ -7,10 +7,12 @@ export const address = (nibble: string): `0x${string}` =>
 
 export class ScriptedModel implements ToolCallingModel {
   calls = 0;
+  readonly inputs: Parameters<ToolCallingModel["nextTool"]>[0][] = [];
 
   constructor(private readonly script: AgentToolCall[]) {}
 
-  async nextTool(): Promise<AgentToolCall> {
+  async nextTool(input: Parameters<ToolCallingModel["nextTool"]>[0]): Promise<AgentToolCall> {
+    this.inputs.push(input);
     const call = this.script[this.calls];
     this.calls += 1;
     if (!call) throw new Error("Scripted model has no remaining tool call");

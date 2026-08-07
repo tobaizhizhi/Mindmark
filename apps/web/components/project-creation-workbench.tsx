@@ -11,7 +11,7 @@ import {
   Wallet,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { SiweMessage } from "siwe";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   AuthNonceResponse,
   AuthVerifyResponse,
@@ -20,8 +20,9 @@ import type {
   ProjectConfirmationResponse,
   ProjectCreationView,
   ProjectDesignAcceptedResponse,
-  ProjectDesignProgress,
   ProjectIntakeResponse,
+  ProjectSourceFileResponse,
+  LearnerProjectProgress,
   ProjectSourceRegistrationResponse,
   SourcePage,
 } from "@mindmark/shared";
@@ -34,26 +35,26 @@ import {
   useWriteContract,
 } from "wagmi";
 import { monadChain, registryV2Address } from "@/lib/client/chain";
+import { parseApiResponse } from "@/lib/client/http";
+import {
+  isEip1193Provider,
+  monadCreationErrorMessage,
+  refreshMonadWalletRpc,
+} from "@/lib/client/monad-wallet-network";
 import { extractPdfFile } from "@/lib/client/pdf-source";
 import { createLatestRequestGate } from "@/lib/client/latest-request";
+import { createWalletSignInMessage } from "@/lib/client/wallet-auth";
 import {
   ProjectSourceInput,
   type ProjectSourceMode,
 } from "./project-source-input";
+import { ProjectProgressIndicator } from "@/features/learning-workspace/project-progress-indicator";
+import { shouldPollProjectProgress } from "@/features/learning-workspace/project-progress-policy";
+import { MonadRegistrationCard } from "./monad-registration-card";
 
-type ApiErrorBody = { error?: { code?: string; message?: string } };
-
-class ClientApiError extends Error {
-  constructor(public readonly code: string | undefined, message: string) {
-    super(message);
-  }
-}
-
-async function parseApiResponse<T>(response: Response): Promise<T> {
-  const body = (await response.json()) as T & ApiErrorBody;
-  if (!response.ok) throw new ClientApiError(body.error?.code, body.error?.message ?? "请求失败");
-  return body;
-}
+type WalletSessionResponse = {
+  session: { address: string; expiresAt?: string } | null;
+};
 
 function normalizeText(value: string): string {
   return value.replace(/\r\n?/gu, "\n").split("\n").map((line) => line.trim()).filter(Boolean).join("\n");
@@ -81,26 +82,38 @@ export function ProjectCreationWorkbench() {
   const [text, setText] = useState("");
   const [sourceMode, setSourceMode] = useState<ProjectSourceMode>("pdf");
   const [pdfPages, setPdfPages] = useState<SourcePage[]>([]);
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [fileName, setFileName] = useState("");
   const [project, setProject] = useState<ProjectIntakeResponse | null>(null);
   const [outlineOperation, setOutlineOperation] = useState<OutlinePlanningOperation | null>(null);
   const [proposals, setProposals] = useState<ChapterProposal[]>([]);
   const [confirmation, setConfirmation] = useState<ProjectConfirmationResponse | null>(null);
   const [designingCards, setDesigningCards] = useState(false);
-  const [designProgress, setDesignProgress] = useState<ProjectDesignProgress | null>(null);
+  const [projectProgress, setProjectProgress] = useState<LearnerProjectProgress | null>(null);
   const [createdProjectId, setCreatedProjectId] = useState<string | null>(null);
-  const [sessionAddress, setSessionAddress] = useState<string | null>(null);
+  const [progressRefresh, setProgressRefresh] = useState(0);
   const [busy, setBusy] = useState<"extract" | "login" | "outline" | "confirm" | "create" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const clientRequestIdRef = useRef<string | null>(null);
   const outlineRequestsRef = useRef(createLatestRequestGate());
   const hasLocalSourceInteractionRef = useRef(false);
-  const { address, chainId, isConnected } = useAccount();
+  const queryClient = useQueryClient();
+  const { address, chainId, connector, isConnected } = useAccount();
   const { connectors, connectAsync } = useConnect();
   const { signMessageAsync } = useSignMessage();
   const { switchChainAsync } = useSwitchChain();
   const { writeContractAsync } = useWriteContract();
+  const sessionQuery = useQuery({
+    queryKey: ["wallet-session"],
+    queryFn: async () => {
+      const response = await fetch("/api/auth/session");
+      if (!response.ok) throw new Error("登录状态读取失败");
+      return response.json() as Promise<WalletSessionResponse>;
+    },
+    staleTime: 30_000,
+  });
+  const sessionAddress = sessionQuery.data?.session?.address?.toLowerCase() ?? null;
   const loggedIn = Boolean(address && sessionAddress && address.toLowerCase() === sessionAddress);
   const pastedPages = useMemo(() => splitPastedText(text), [text]);
   const pages = sourceMode === "pdf" ? pdfPages : pastedPages;
@@ -110,6 +123,9 @@ export function ProjectCreationWorkbench() {
   );
   const outlineOperationId = outlineOperation?.operationId ?? null;
   const outlineOperationProjectId = outlineOperation?.projectId ?? null;
+  const progressProjectId = outlinePlanningActive ? null : createdProjectId
+    ?? confirmation?.projectId
+    ?? project?.projectId;
 
   function applyCreationView(view: ProjectCreationView) {
     setError(null);
@@ -128,16 +144,8 @@ export function ProjectCreationWorkbench() {
     }
     setConfirmation(view.confirmation);
     setDesigningCards(view.status === "DESIGNING_CARDS");
-    setDesignProgress(view.designProgress);
     setCreatedProjectId(isCreatedProjectStatus(view.status) ? view.projectId : null);
   }
-
-  useEffect(() => {
-    fetch("/api/auth/session")
-      .then((response) => (response.ok ? response.json() : null))
-      .then((body: { session?: { address?: string } } | null) => setSessionAddress(body?.session?.address ?? null))
-      .catch(() => undefined);
-  }, []);
 
   useEffect(() => {
     if (!sessionAddress) return;
@@ -182,11 +190,16 @@ export function ProjectCreationWorkbench() {
     if (!sessionAddress || !outlineOperationId || !outlineOperationProjectId) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    const controller = new AbortController();
     const refresh = async () => {
+      if (document.visibilityState !== "visible") {
+        timer = setTimeout(() => void refresh(), 5_000);
+        return;
+      }
       try {
         const operation = await parseApiResponse<OutlinePlanningOperation>(await fetch(
           `/api/projects/${outlineOperationProjectId}/outline/operation?operationId=${outlineOperationId}`,
-          { cache: "no-store" },
+          { cache: "no-store", signal: controller.signal },
         ));
         if (cancelled) return;
         if (
@@ -197,7 +210,7 @@ export function ProjectCreationWorkbench() {
         if (operation.status === "SUCCEEDED") {
           const view = await parseApiResponse<ProjectCreationView>(await fetch(
             `/api/projects/${operation.projectId}/creation`,
-            { cache: "no-store" },
+            { cache: "no-store", signal: controller.signal },
           ));
           if (cancelled) return;
           if (view.projectId !== outlineOperationProjectId) throw new Error("章节草稿结果与当前项目不匹配");
@@ -210,53 +223,70 @@ export function ProjectCreationWorkbench() {
           setError(operation.lastError ?? "章节草稿生成失败，请重试");
           return;
         }
-        timer = setTimeout(() => void refresh(), 1_000);
+        timer = setTimeout(() => void refresh(), 2_000);
       } catch (caught) {
-        if (!cancelled) setError(caught instanceof Error ? caught.message : "章节草稿状态读取失败");
+        if (!cancelled) {
+          setError(caught instanceof Error ? caught.message : "章节草稿状态读取失败");
+          timer = setTimeout(() => void refresh(), 5_000);
+        }
       }
     };
     void refresh();
     return () => {
       cancelled = true;
+      controller.abort();
       if (timer) clearTimeout(timer);
     };
   }, [outlineOperationId, outlineOperationProjectId, sessionAddress]);
 
   useEffect(() => {
-    if (!sessionAddress || !project?.projectId || !designingCards) return;
+    if (!sessionAddress || !progressProjectId) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    const controller = new AbortController();
     const refresh = async () => {
+      if (document.visibilityState !== "visible") {
+        timer = setTimeout(() => void refresh(), 5_000);
+        return;
+      }
       try {
-        const view = await parseApiResponse<ProjectCreationView>(await fetch(
-          `/api/projects/${project.projectId}/creation`,
-          { cache: "no-store" },
+        const progress = await parseApiResponse<LearnerProjectProgress>(await fetch(
+          `/api/projects/${progressProjectId}/progress`,
+          { cache: "no-store", signal: controller.signal },
         ));
         if (cancelled) return;
-        if (view.projectId !== project.projectId) throw new Error("知识卡设计结果与当前项目不匹配");
-        setDesignProgress(view.designProgress);
-        if (view.confirmation) {
-          setError(null);
-          setConfirmation(view.confirmation);
-          setDesigningCards(false);
+        setProjectProgress(progress);
+        if (designingCards && progress.stage === "AWAITING_MONAD") {
+          const view = await parseApiResponse<ProjectCreationView>(await fetch(
+            `/api/projects/${progressProjectId}/creation`,
+            { cache: "no-store", signal: controller.signal },
+          ));
+          if (cancelled) return;
+          if (!view.confirmation) throw new Error("知识卡教学设计尚未准备完成");
+          applyCreationView(view);
           return;
         }
-        if (view.status === "FAILED_RETRYABLE" || view.status === "CANCELLED") {
+        if (designingCards && ["ACTION_REQUIRED", "FAILED"].includes(progress.stage)) {
           setDesigningCards(false);
           setError("知识卡教学设计未完成，请在运行诊断中查看失败任务");
           return;
         }
-        timer = setTimeout(() => void refresh(), 1_000);
+        if (shouldPollProjectProgress(progress)) {
+          timer = setTimeout(() => void refresh(), 5_000);
+        }
       } catch (caught) {
-        if (!cancelled) setError(caught instanceof Error ? caught.message : "教学设计状态读取失败");
+        if (cancelled) return;
+        setError(caught instanceof Error ? caught.message : "项目进度读取失败");
+        timer = setTimeout(() => void refresh(), 4_000);
       }
     };
     void refresh();
     return () => {
       cancelled = true;
+      controller.abort();
       if (timer) clearTimeout(timer);
     };
-  }, [designingCards, project?.projectId, sessionAddress]);
+  }, [designingCards, progressProjectId, progressRefresh, sessionAddress]);
 
   async function signIn(walletAddress: string, walletChainId: number | undefined) {
     setBusy("login");
@@ -268,24 +298,19 @@ export function ProjectCreationWorkbench() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ address: walletAddress }),
       }));
-      const message = new SiweMessage({
-        domain: nonce.domain,
+      const message = createWalletSignInMessage({
         address: walletAddress,
-        statement: "Sign in to Mindmark",
-        uri: nonce.uri,
-        version: "1",
-        chainId: nonce.chainId,
-        nonce: nonce.nonce,
-        issuedAt: new Date().toISOString(),
-        expirationTime: nonce.expiresAt,
-      }).prepareMessage();
+        nonce,
+      });
       const signature = await signMessageAsync({ message });
       const verified = await parseApiResponse<AuthVerifyResponse>(await fetch("/api/auth/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message, signature }),
       }));
-      setSessionAddress(verified.address.toLowerCase());
+      queryClient.setQueryData<WalletSessionResponse>(["wallet-session"], {
+        session: { address: verified.address.toLowerCase(), expiresAt: verified.expiresAt },
+      });
     } catch (caught) {
       throw caught instanceof Error ? caught : new Error("登录失败");
     } finally {
@@ -316,7 +341,7 @@ export function ProjectCreationWorkbench() {
     setOutlineOperation(null);
     setConfirmation(null);
     setDesigningCards(false);
-    setDesignProgress(null);
+    setProjectProgress(null);
     setProposals([]);
     clientRequestIdRef.current = null;
   }
@@ -325,6 +350,7 @@ export function ProjectCreationWorkbench() {
     setSourceMode(mode);
     setError(null);
     resetOutline();
+    if (mode !== "pdf") setPdfFile(null);
   }
 
   async function selectPdf(file: File) {
@@ -334,10 +360,12 @@ export function ProjectCreationWorkbench() {
     try {
       const extracted = await extractPdfFile(file);
       setPdfPages(extracted);
+      setPdfFile(file);
       setFileName(file.name);
       if (!title.trim()) setTitle(file.name.replace(/\.pdf$/iu, ""));
     } catch (caught) {
       setPdfPages([]);
+      setPdfFile(null);
       setFileName("");
       setError(caught instanceof Error ? caught.message : "PDF 解析失败");
     } finally {
@@ -369,6 +397,14 @@ export function ProjectCreationWorkbench() {
         }),
       }));
       if (!request.isCurrent()) return;
+      if (sourceMode === "pdf" && pdfFile) {
+        const formData = new FormData();
+        formData.set("file", pdfFile, pdfFile.name);
+        await parseApiResponse<ProjectSourceFileResponse>(await fetch(
+          `/api/projects/${registration.projectId}/source-file`,
+          { method: "POST", body: formData },
+        ));
+      }
       const operation = await parseApiResponse<OutlinePlanningOperation>(await fetch(
         `/api/projects/${registration.projectId}/outline/plan`,
         { method: "POST" },
@@ -452,7 +488,7 @@ export function ProjectCreationWorkbench() {
         body: JSON.stringify(proposals),
       }));
       setDesigningCards(result.status === "DESIGNING_CARDS");
-      setDesignProgress({ completedChapters: 0, totalChapters: result.chapterCount, failedChapters: 0 });
+      setProgressRefresh((value) => value + 1);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "章节确认失败，请检查范围是否连续");
     } finally {
@@ -475,9 +511,20 @@ export function ProjectCreationWorkbench() {
         applyCreationView(view);
         return;
       }
-      if (!view.confirmation) throw new Error("Project 尚未准备好进行 Monad 登记");
+      if (!view.confirmation) throw new Error("项目尚未准备好进行 Monad 登记");
 
       if (chainId !== monadChain.id) await switchChainAsync({ chainId: monadChain.id });
+      const provider = await connector?.getProvider();
+      if (isEip1193Provider(provider)) {
+        await refreshMonadWalletRpc(provider, {
+          origin: window.location.origin,
+          chainId: monadChain.id,
+          chainName: monadChain.name,
+          nativeCurrency: monadChain.nativeCurrency,
+          publicRpcUrls: monadChain.rpcUrls.default.http,
+          blockExplorerUrl: monadChain.blockExplorers.default.url,
+        });
+      }
       const storageKey = `mindmark:create-tx:${view.confirmation.projectId}`;
       let txHash = storedTransactionHash(window.sessionStorage.getItem(storageKey));
       if (!txHash) {
@@ -506,8 +553,9 @@ export function ProjectCreationWorkbench() {
       }));
       window.sessionStorage.removeItem(storageKey);
       setCreatedProjectId(result.projectId);
+      setProgressRefresh((value) => value + 1);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Monad 交易失败");
+      setError(monadCreationErrorMessage(caught));
     } finally {
       setBusy(null);
     }
@@ -516,12 +564,13 @@ export function ProjectCreationWorkbench() {
   if (createdProjectId) {
     return (
       <main className="min-h-screen bg-[var(--background)] px-5 py-12 text-[var(--ink)] md:px-8">
-        <div className="mx-auto max-w-2xl border border-[var(--success-line)] bg-[var(--success-soft)] p-8">
+        <div className="mx-auto max-w-2xl rounded-lg border border-[var(--success-line)] bg-[var(--success-soft)] p-8">
           <Check className="size-8 text-[var(--success)]" />
-          <p className="section-kicker mt-6">Project Created</p>
-          <h1 className="font-display mt-2 text-3xl font-semibold">章节已经登记，Worker 即将开始生成</h1>
-          <p className="mt-4 text-sm leading-7 text-[var(--muted)]">你可以先回到项目列表。Chapter 会独立进入可学习状态。</p>
-          <a href={`/learn/projects/${createdProjectId}`} className="command-button command-button-dark mt-7">打开 Project <ChevronRight className="size-4" /></a>
+          <p className="section-kicker mt-6">项目创建完成</p>
+          <h1 className="font-display mt-2 text-3xl font-semibold">章节已经登记，生成服务即将开始工作</h1>
+          <p className="mt-4 text-sm leading-7 text-[var(--muted)]">你可以先回到项目列表。每个章节会独立进入可学习状态。</p>
+          {projectProgress ? <div className="mt-6"><ProjectProgressIndicator progress={projectProgress} /></div> : null}
+          <a href={`/learn/projects/${createdProjectId}`} className="command-button command-button-dark mt-7">打开项目 <ChevronRight className="size-4" /></a>
         </div>
       </main>
     );
@@ -530,7 +579,7 @@ export function ProjectCreationWorkbench() {
   return (
     <main className="min-h-screen bg-[var(--background)] text-[var(--ink)]">
       <header className="border-b border-[var(--line)] bg-white">
-        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-5 md:px-8">
+        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-5 md:px-8">
           <a href="/learn" className="flex items-center gap-3 text-sm font-semibold"><ArrowLeft className="size-4" />返回项目</a>
           <button type="button" onClick={() => void connectAndSignIn()} disabled={Boolean(busy)} className="command-button command-button-dark">
             {busy === "login" ? <LoaderCircle className="size-4 animate-spin" /> : <Wallet className="size-4" />}
@@ -538,11 +587,11 @@ export function ProjectCreationWorkbench() {
           </button>
         </div>
       </header>
-      <div className="mx-auto grid max-w-6xl gap-8 px-5 py-10 md:px-8 lg:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="mx-auto grid max-w-6xl gap-8 px-5 py-8 md:px-8 lg:grid-cols-[minmax(0,1fr)_320px] lg:py-10">
         <section>
-          <p className="section-kicker">Chapter-first Project</p>
-          <h1 className="font-display mt-2 text-4xl font-semibold">先整理章节，再生成知识卡</h1>
-          <p className="mt-4 max-w-2xl text-sm leading-7 text-[var(--muted)]">AI 只负责理解资料结构。你确认章节后，系统才会冻结承诺并创建 Monad Project。</p>
+          <p className="section-kicker">分章节生成</p>
+          <h1 className="font-display mt-2 text-3xl font-semibold leading-10">先整理章节，再生成知识卡</h1>
+          <p className="mt-4 max-w-2xl text-sm leading-7 text-[var(--muted)]">AI 先理解资料结构。你确认章节后，系统才会冻结承诺并在 Monad 创建学习项目。</p>
           <div className="mt-8 space-y-5">
             <label className="block"><span className="field-label">项目名称</span><input className="text-input mt-2" value={title} onChange={(event) => setTitle(event.target.value)} placeholder="例如：Monad 合约安全" /></label>
             <label className="block"><span className="field-label">学习目标 <span>可选</span></span><input className="text-input mt-2" value={goal} onChange={(event) => setGoal(event.target.value)} placeholder="你希望掌握什么？" /></label>
@@ -563,25 +612,32 @@ export function ProjectCreationWorkbench() {
               isExtracting={busy === "extract"}
             />
             {error ? <div className="border-l-2 border-[var(--danger)] bg-[var(--danger-soft)] px-4 py-3 text-sm text-[var(--danger)]">{error}</div> : null}
+            {projectProgress ? <ProjectProgressIndicator progress={projectProgress} /> : null}
             {!project ? <button type="button" onClick={() => void generateOutline()} disabled={Boolean(busy) || outlinePlanningActive} className="command-button command-button-accent"><Sparkles className="size-4" />{busy === "outline" || outlinePlanningActive ? "正在生成章节草稿" : outlineOperation?.status === "FAILED" ? "重新分析资料结构" : "分析资料结构"}<ChevronRight className="size-4" /></button> : null}
-            {outlinePlanningActive ? <p className="text-sm leading-6 text-[var(--muted)]">Runner 正在整理章节结构（第 {outlineOperation?.attempt ?? 0} 次）。</p> : null}
+            {outlinePlanningActive ? <p className="text-sm leading-6 text-[var(--muted)]">生成服务正在整理章节结构（第 {outlineOperation?.attempt ?? 0} 次）。</p> : null}
           </div>
         </section>
-        <aside className="border-l border-[var(--line)] bg-[var(--paper)] p-6">
-          <div className="flex items-center justify-between"><p className="section-kicker">Outline Review</p>{project ? <span className="font-mono text-xs text-[var(--muted)]">v{project.outlineVersion}</span> : null}</div>
+        <aside className="border-t border-[var(--line)] bg-[var(--paper)] p-5 lg:border-l lg:border-t-0 lg:p-6">
+          <div className="flex items-center justify-between"><p className="section-kicker">章节草稿</p>{project ? <span className="font-mono text-xs text-[var(--muted)]">版本 {project.outlineVersion}</span> : null}</div>
           {!project ? <p className="mt-8 text-sm leading-7 text-[var(--muted)]">章节草稿会显示在这里。你可以重命名、拆分或删除章节，但必须覆盖全部资料范围。</p> : (
             <>
               <div className="mt-6 space-y-3">
                 {proposals.map((proposal, index) => (
-                  <div key={`${index}-${proposal.startBlock}`} className="border border-[var(--line-strong)] bg-white p-4">
-                    <div className="flex items-start gap-3"><span className="font-mono text-xs text-[var(--accent)]">{String(index + 1).padStart(2, "0")}</span><div className="min-w-0 flex-1 space-y-2"><input className="w-full border-0 border-b border-[var(--line)] bg-transparent px-0 py-1 text-sm font-semibold outline-none" value={proposal.title} onChange={(event) => updateProposal(index, { title: event.target.value })} /><textarea className="w-full resize-none border-0 bg-transparent px-0 py-1 text-xs leading-5 text-[var(--muted)] outline-none" rows={2} value={proposal.summary} onChange={(event) => updateProposal(index, { summary: event.target.value })} /><p className="font-mono text-[10px] text-[var(--muted)]">blocks {proposal.startBlock}–{proposal.endBlock}</p></div></div>
+                  <div key={`${index}-${proposal.startBlock}`} className="rounded-lg border border-[var(--line-strong)] bg-white p-4">
+                    <div className="flex items-start gap-3"><span className="font-mono text-xs text-[var(--accent)]">{String(index + 1).padStart(2, "0")}</span><div className="min-w-0 flex-1 space-y-2"><input className="w-full border-0 border-b border-[var(--line)] bg-transparent px-0 py-1 text-sm font-semibold outline-none" value={proposal.title} onChange={(event) => updateProposal(index, { title: event.target.value })} /><textarea className="w-full resize-none border-0 bg-transparent px-0 py-1 text-xs leading-5 text-[var(--muted)] outline-none" rows={2} value={proposal.summary} onChange={(event) => updateProposal(index, { summary: event.target.value })} /><p className="font-mono text-[10px] text-[var(--muted)]">资料段落 {proposal.startBlock}–{proposal.endBlock}</p></div></div>
                     <div className="mt-3 flex items-center gap-3"><button type="button" onClick={() => splitProposal(index)} className="text-command text-xs"><Plus className="size-3" />拆分</button><button type="button" onClick={() => mergeProposal(index)} disabled={proposals.length <= 1} className="text-command text-xs">合并</button>{index < proposals.length - 1 ? <><button type="button" onClick={() => moveBoundary(index, -1)} className="icon-button size-7" aria-label="分界向前" title="分界向前"><ArrowLeft className="size-3" /></button><button type="button" onClick={() => moveBoundary(index, 1)} className="icon-button size-7" aria-label="分界向后" title="分界向后"><ArrowRight className="size-3" /></button></> : null}</div>
                   </div>
                 ))}
               </div>
               <div className="mt-6 border-t border-[var(--line)] pt-5"><button type="button" onClick={() => void confirmOutline()} disabled={Boolean(busy) || proposals.length === 0 || Boolean(confirmation) || designingCards} className="command-button command-button-dark w-full">{busy === "confirm" || designingCards ? <LoaderCircle className="size-4 animate-spin" /> : <Check className="size-4" />}{confirmation ? "章节已确认" : designingCards ? "正在设计知识卡" : "确认章节"}</button></div>
-              {designingCards ? <div className="mt-5 border border-[var(--line-strong)] bg-white p-4"><p className="text-sm font-semibold">正在规划章节知识结构</p><p className="mt-2 text-xs leading-5 text-[var(--muted)]">已完成 {designProgress?.completedChapters ?? 0} / {designProgress?.totalChapters ?? proposals.length} 个章节</p></div> : null}
-              {confirmation ? <div className="mt-5 border border-[var(--success-line)] bg-[var(--success-soft)] p-4"><p className="text-sm font-semibold text-[var(--success)]">章节结构已确认</p><p className="mt-2 text-xs leading-5 text-[var(--muted)]">共 {confirmation.chapterCount} 个章节，确认上链后开始生成知识卡。</p><button type="button" onClick={() => void createOnMonad()} disabled={Boolean(busy)} className="command-button command-button-accent mt-4 w-full">{busy === "create" ? <LoaderCircle className="size-4 animate-spin" /> : <ChevronRight className="size-4" />}在 Monad 创建 Project</button></div> : null}
+              {confirmation ? <MonadRegistrationCard
+                projectId={confirmation.projectId}
+                chainId={monadChain.id}
+                registryAddress={registryV2Address}
+                explorerUrl={monadChain.blockExplorers.default.url}
+                busy={busy === "create"}
+                onCreate={() => void createOnMonad()}
+              /> : null}
             </>
           )}
         </aside>

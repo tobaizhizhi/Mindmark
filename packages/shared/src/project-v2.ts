@@ -5,6 +5,7 @@ import {
   KnowledgeCardContentSchema,
   SourcePageSchema,
 } from "./schemas.js";
+import { PackKnowledgeCardContentSchema, ProjectKindSchema } from "./card-pack.js";
 
 export const MAX_PROJECT_CHAPTERS = 16;
 export const MAX_CHAPTER_WORK_UNITS = 8;
@@ -299,12 +300,26 @@ export const ProjectSourceRegistrationResponseSchema = z.object({
   sourceCharacterCount: z.number().int().positive(),
 }).strict();
 
+export const ProjectSourceFileStatusSchema = z.enum(["MISSING", "UPLOADING", "READY", "FAILED"]);
+
+export const ProjectSourceFileResponseSchema = z.object({
+  projectId: Bytes32Schema,
+  available: z.boolean(),
+  status: ProjectSourceFileStatusSchema,
+  url: z.string().url().nullable(),
+  filename: z.string().min(1).max(255).nullable(),
+  fileSize: z.number().int().positive().nullable(),
+  expiresAt: z.string().datetime({ offset: true }).nullable(),
+}).strict();
+
 export const ProjectSummarySchema = z
   .object({
     projectId: Bytes32Schema,
     title: z.string().min(1).max(200),
     goal: z.string().max(500).nullable(),
     status: ProjectStatusSchema,
+    projectKind: ProjectKindSchema.optional(),
+    packVersionId: z.string().uuid().nullable().optional(),
     registryVersion: z.literal(2),
     chapterCount: z.number().int().min(0).max(MAX_PROJECT_CHAPTERS),
     readyChapterCount: z.number().int().min(0).max(MAX_PROJECT_CHAPTERS),
@@ -318,8 +333,8 @@ export const ChapterSummarySchema = ChapterProgressSchema.extend({
   position: z.number().int().min(0).max(MAX_PROJECT_CHAPTERS - 1),
   title: z.string().min(1).max(200),
   summary: z.string().min(1).max(500),
-  pageStart: z.number().int().positive(),
-  pageEnd: z.number().int().positive(),
+  pageStart: z.number().int().positive().nullable(),
+  pageEnd: z.number().int().positive().nullable(),
   importance: z.number().int().min(1).max(5),
   status: ChapterStatusSchema,
 }).strict();
@@ -357,8 +372,6 @@ export const WorkflowJobKindSchema = z.enum([
   "SETTLE_WORK_UNIT_REWARD",
 ]);
 
-export const WorkflowJobStatusSchema = OutlinePlanningOperationStatusSchema;
-
 export const WorkflowOperationsMetricsSchema = z.object({
   queuedJobs: z.number().int().nonnegative(),
   runningJobs: z.number().int().nonnegative(),
@@ -377,7 +390,7 @@ export const WorkflowOperationsJobSchema = z.object({
   projectId: Bytes32Schema,
   projectTitle: z.string().trim().min(1).max(200),
   kind: WorkflowJobKindSchema,
-  status: WorkflowJobStatusSchema,
+  status: OutlinePlanningOperationStatusSchema,
   chapterId: z.number().int().min(0).max(MAX_PROJECT_CHAPTERS - 1).nullable(),
   workUnitId: z.number().int().min(0).max(MAX_PROJECT_WORK_UNITS - 1).nullable(),
   attempt: z.number().int().nonnegative(),
@@ -489,6 +502,8 @@ export const LibraryDocumentSchema = z.object({
   projectId: Bytes32Schema,
   folderId: z.string().uuid().nullable(),
   title: z.string().trim().min(1).max(200),
+  projectKind: ProjectKindSchema.optional(),
+  packVersionId: z.string().uuid().nullable().optional(),
   sourceFilename: z.string().trim().min(1).max(255).nullable(),
   sourceMimeType: z.string().trim().min(1).max(100).nullable(),
   sourcePageCount: z.number().int().positive().nullable(),
@@ -581,17 +596,6 @@ export const ProjectDesignAcceptedResponseSchema = z.object({
   chapterCount: z.number().int().min(1).max(MAX_PROJECT_CHAPTERS),
 }).strict();
 
-export const ProjectOutlineConfirmationResponseSchema = z.discriminatedUnion("status", [
-  ProjectDesignAcceptedResponseSchema,
-  ProjectConfirmationResponseSchema,
-]);
-
-export const ProjectDesignProgressSchema = z.object({
-  completedChapters: z.number().int().min(0).max(MAX_PROJECT_CHAPTERS),
-  totalChapters: z.number().int().min(0).max(MAX_PROJECT_CHAPTERS),
-  failedChapters: z.number().int().min(0).max(MAX_PROJECT_CHAPTERS),
-}).strict();
-
 export const ProjectCreationViewSchema = z.object({
   projectId: Bytes32Schema,
   status: ProjectStatusSchema,
@@ -603,7 +607,6 @@ export const ProjectCreationViewSchema = z.object({
   sourceCharacterCount: z.number().int().positive().nullable(),
   outline: ProjectIntakeResponseSchema.nullable(),
   confirmation: ProjectConfirmationResponseSchema.nullable(),
-  designProgress: ProjectDesignProgressSchema.nullable(),
 }).strict();
 
 export const SaveCreateProjectResponseSchema = z
@@ -618,14 +621,25 @@ export const SaveCreateProjectTransactionRequestSchema = z
   .object({ txHash: Bytes32Schema })
   .strict();
 
-export const ChapterStudyCardSchema = KnowledgeCardContentSchema.extend({
+const ChapterStudyCardFields = {
   id: Bytes32Schema,
   position: z.number().int().min(0).max(MAX_PROJECT_CARDS - 1),
   state: z.enum(["NEW", "LEARNING", "DUE", "SCHEDULED"]),
   dueAt: z.string().datetime({ offset: true }).nullable(),
   reps: z.number().int().nonnegative(),
   lapses: z.number().int().nonnegative(),
-}).strict();
+} as const;
+
+const UploadChapterStudyCardSchema = KnowledgeCardContentSchema.extend(ChapterStudyCardFields).strict();
+const PackChapterStudyCardSchema = PackKnowledgeCardContentSchema.extend(ChapterStudyCardFields).strict();
+export const StudyKnowledgeCardContentSchema = z.union([
+  KnowledgeCardContentSchema,
+  PackKnowledgeCardContentSchema,
+]);
+export const ChapterStudyCardSchema = z.union([
+  UploadChapterStudyCardSchema,
+  PackChapterStudyCardSchema,
+]);
 
 export const ChapterStudyResponseSchema = z.object({
   projectId: Bytes32Schema,
@@ -637,11 +651,53 @@ export const ChapterStudyResponseSchema = z.object({
   newCount: z.number().int().nonnegative(),
 }).strict();
 
-export const ProjectStudyCardSchema = ChapterStudyCardSchema.extend({
+export const ChapterReadingBlockSchema = z.object({
+  blockId: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u).max(120),
+  position: z.number().int().nonnegative().max(65_535),
+  kind: z.enum(["heading", "paragraph", "code", "callout"]),
+  text: z.string().trim().min(1).max(30_000),
+  pageNumber: z.number().int().positive().nullable(),
+  language: z.string().trim().min(1).max(40).nullable(),
+}).strict();
+
+export const ChapterCardReadingLinkSchema = z.object({
+  cardId: Bytes32Schema,
+  blockId: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u).max(120),
+  match: z.enum(["EXPLICIT", "QUOTE", "PAGE_FALLBACK"]),
+}).strict();
+
+export const ChapterReadingResponseSchema = z.object({
+  projectId: Bytes32Schema,
+  chapterId: z.number().int().min(0).max(MAX_PROJECT_CHAPTERS - 1),
+  origin: z.enum(["UPLOAD_SOURCE", "PACK_LESSON"]),
+  title: z.string().trim().min(1).max(200),
+  pageStart: z.number().int().positive().nullable(),
+  pageEnd: z.number().int().positive().nullable(),
+  blocks: z.array(ChapterReadingBlockSchema).max(65_536),
+  cardLinks: z.array(ChapterCardReadingLinkSchema).max(MAX_PROJECT_CARDS),
+}).strict().superRefine((reading, context) => {
+  const blockIds = new Set(reading.blocks.map((block) => block.blockId));
+  if (blockIds.size !== reading.blocks.length) {
+    context.addIssue({ code: "custom", path: ["blocks"], message: "Reading block IDs must be unique" });
+  }
+  if (reading.blocks.some((block, position) => block.position !== position)) {
+    context.addIssue({ code: "custom", path: ["blocks"], message: "Reading block positions must be contiguous" });
+  }
+  if (reading.cardLinks.some((link) => !blockIds.has(link.blockId))) {
+    context.addIssue({ code: "custom", path: ["cardLinks"], message: "Card links must reference a Reading block" });
+  }
+});
+
+const ProjectStudyCardFields = {
   chapterId: z.number().int().min(0).max(MAX_PROJECT_CHAPTERS - 1),
   chapterPosition: z.number().int().min(0).max(MAX_PROJECT_CHAPTERS - 1),
   chapterTitle: z.string().min(1).max(200),
-}).strict();
+} as const;
+
+export const ProjectStudyCardSchema = z.union([
+  UploadChapterStudyCardSchema.extend(ProjectStudyCardFields).strict(),
+  PackChapterStudyCardSchema.extend(ProjectStudyCardFields).strict(),
+]);
 
 export const ProjectStudyResponseSchema = z.object({
   projectId: Bytes32Schema,
@@ -722,6 +778,8 @@ export type KnowledgeCardV2 = z.infer<typeof KnowledgeCardV2Schema>;
 export type ChapterProgress = z.infer<typeof ChapterProgressSchema>;
 export type ProjectIntakeRequest = z.infer<typeof ProjectIntakeRequestSchema>;
 export type ProjectSourceRegistrationResponse = z.infer<typeof ProjectSourceRegistrationResponseSchema>;
+export type ProjectSourceFileStatus = z.infer<typeof ProjectSourceFileStatusSchema>;
+export type ProjectSourceFileResponse = z.infer<typeof ProjectSourceFileResponseSchema>;
 export type ProjectSummary = z.infer<typeof ProjectSummarySchema>;
 export type ChapterSummary = z.infer<typeof ChapterSummarySchema>;
 export type ProjectIntakeResponse = z.infer<typeof ProjectIntakeResponseSchema>;
@@ -733,6 +791,9 @@ export type CreateFolderRequest = z.infer<typeof CreateFolderRequestSchema>;
 export type FolderMutationResponse = z.infer<typeof FolderMutationResponseSchema>;
 export type MoveProjectRequest = z.infer<typeof MoveProjectRequestSchema>;
 export type ChapterListResponse = z.infer<typeof ChapterListResponseSchema>;
+export type ChapterReadingBlock = z.infer<typeof ChapterReadingBlockSchema>;
+export type ChapterCardReadingLink = z.infer<typeof ChapterCardReadingLinkSchema>;
+export type ChapterReadingResponse = z.infer<typeof ChapterReadingResponseSchema>;
 export type ChapterProposal = z.infer<typeof ChapterProposalSchema>;
 export type SourceExclusionCategory = z.infer<typeof SourceExclusionCategorySchema>;
 export type SourceExclusionRange = z.infer<typeof SourceExclusionRangeSchema>;
@@ -740,8 +801,6 @@ export type ChapterPlanningProposal = z.infer<typeof ChapterPlanningProposalSche
 export type ChapterOutlineDraft = z.infer<typeof ChapterOutlineDraftSchema>;
 export type ProjectConfirmationResponse = z.infer<typeof ProjectConfirmationResponseSchema>;
 export type ProjectDesignAcceptedResponse = z.infer<typeof ProjectDesignAcceptedResponseSchema>;
-export type ProjectOutlineConfirmationResponse = z.infer<typeof ProjectOutlineConfirmationResponseSchema>;
-export type ProjectDesignProgress = z.infer<typeof ProjectDesignProgressSchema>;
 export type ProjectCreationView = z.infer<typeof ProjectCreationViewSchema>;
 export type SaveCreateProjectResponse = z.infer<typeof SaveCreateProjectResponseSchema>;
 export type ChapterStudyCard = z.infer<typeof ChapterStudyCardSchema>;

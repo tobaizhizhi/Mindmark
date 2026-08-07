@@ -1,0 +1,15 @@
+{
+  "chapterId": 6,
+  "position": 6,
+  "slug": "cei-and-reentrancy",
+  "title": "CEI 与重入防护",
+  "summary": "识别重入条件并应用 Checks-Effects-Interactions。",
+  "estimatedMinutes": 16,
+  "cards": [
+    { "packCardId": "reentrancy-condition", "position": 0, "type": "concept", "question": "重入漏洞成立通常需要哪些条件？", "answer": "合约向不可信地址进行可执行外部调用，在调用前尚未完成关键状态更新，而被调用方能够在原调用结束前再次进入受影响逻辑。重入可能跨函数，甚至跨合约。", "keyPoint": "外部控制转移与未完成的状态更新共同形成重入窗口。", "tags": ["重入", "外部调用", "状态"], "importance": 5, "initialDifficulty": 3, "sourceReference": { "kind": "pack_reference", "label": "Solidity Reentrancy", "url": "https://docs.soliditylang.org/en/latest/security-considerations.html#reentrancy", "locator": "Reentrancy" } },
+    { "packCardId": "reentrancy-guard", "position": 1, "type": "qa", "question": "重入锁解决的核心问题是什么？", "answer": "重入锁在受保护调用执行期间标记合约处于进入状态，再次进入同一保护域时回滚。它能减少意外的嵌套调用，但不能替代正确的状态更新顺序和完整的不变量分析。", "keyPoint": "重入锁是纵深防御，不是唯一防线。", "tags": ["重入锁", "防御", "不变量"], "importance": 4, "initialDifficulty": 3, "sourceReference": { "kind": "pack_reference", "label": "Solidity Reentrancy", "url": "https://docs.soliditylang.org/en/latest/security-considerations.html#reentrancy", "locator": "Checks-Effects-Interactions pattern" } },
+    { "packCardId": "reentrancy-cei-process", "position": 2, "type": "process", "question": "Checks-Effects-Interactions 模式的执行顺序和目的是什么？", "answer": "先检查权限、输入和余额，再更新内部状态使不变量在本次调用中成立，最后才与外部合约交互。即使外部地址回调，看到的也是已经更新后的状态。", "keyPoint": "把外部控制转移放在内部状态稳定之后。", "tags": ["CEI", "流程", "重入"], "importance": 5, "initialDifficulty": 3, "sourceReference": { "kind": "pack_reference", "label": "Solidity Common Patterns", "url": "https://docs.soliditylang.org/en/latest/common-patterns.html#withdrawal-from-contracts", "locator": "Checks-Effects-Interactions pattern" } },
+    { "packCardId": "reentrancy-application-withdraw", "position": 3, "type": "application", "question": "余额提款函数如何按 CEI 重排以缩小重入风险？", "answer": "先读取并检查用户余额，再把该用户余额置零或扣减，最后使用 call 发送 Ether 并检查 success。若发送失败而函数 revert，之前的状态修改也会回滚。", "keyPoint": "扣减余额必须发生在向用户地址转移控制权之前。", "tags": ["提款", "CEI", "应用"], "importance": 5, "initialDifficulty": 3, "sourceReference": { "kind": "pack_reference", "label": "Solidity Reentrancy", "url": "https://docs.soliditylang.org/en/latest/security-considerations.html#reentrancy", "locator": "Reentrancy example" } },
+    { "packCardId": "reentrancy-misconception-ether-only", "position": 4, "type": "misconception", "question": "误区：只有发送 Ether 才会发生重入，为什么错误？", "answer": "任何把执行控制权交给不可信合约的外部调用都可能触发回调，包括代币钩子、NFT 安全转账、任意接口调用和 delegatecall。审计时应追踪控制流，而不是只搜索 value 转账。", "keyPoint": "重入风险来自外部控制转移，不只来自 Ether。", "tags": ["重入", "token hook", "误区"], "importance": 5, "initialDifficulty": 4, "sourceReference": { "kind": "pack_reference", "label": "Solidity Reentrancy", "url": "https://docs.soliditylang.org/en/latest/security-considerations.html#reentrancy", "locator": "Reentrancy is not only an effect of Ether transfer" } }
+  ]
+}

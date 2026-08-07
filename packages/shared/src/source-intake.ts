@@ -1,4 +1,5 @@
 import { normalizeSourceText } from "./citations.js";
+import { isUsableChapterTitle } from "./chapter-title.js";
 import { hashSourceBlockV2, hashSourceBlocksV2 } from "./hash-v2.js";
 import {
   MAX_SOURCE_BLOCK_CHARACTERS,
@@ -28,17 +29,19 @@ function headingLevel(value: string): number | null {
   const line = normalizeSourceText(value);
   if (line.length < 2 || line.length > 160) return null;
   const markdown = /^(#{1,6})\s+\S+/u.exec(line);
-  if (markdown) return markdown[1]!.length;
+  if (markdown) return isUsableChapterTitle(line) ? markdown[1]!.length : null;
   const chinese = /^第[0-9一二三四五六七八九十百]+([章节篇部单元])\s*\S*/u.exec(line);
-  if (chinese) return chinese[1] === "节" ? 2 : 1;
+  if (chinese) return isUsableChapterTitle(line) ? chinese[1] === "节" ? 2 : 1 : null;
   const english = /^(chapter|unit|part|section)\s+[0-9ivxlcdm]+(?:\s*[:：.-]\s*|\s+)\S*/iu.exec(line);
-  if (english) return english[1]!.toLowerCase() === "section" ? 2 : 1;
+  if (english) return isUsableChapterTitle(line)
+    ? english[1]!.toLowerCase() === "section" ? 2 : 1
+    : null;
   if (
     /^(?:目\s*录|contents|table\s+of\s+contents|(?:\d{2,4}\s*年?)?(?:考\s*纲|考试大纲)(?:变化|调整|更新|修订)?|考试安排|报名通知|版本说明|更新说明|勘误说明|作者简介|出版说明)$/iu.test(line)
   ) return 1;
   if (classifyStandaloneSourceText(line)) return null;
-  const numbered = /^(\d+(?:\.\d+){0,3})[.)、:：\s]+\S+/u.exec(line);
-  return numbered ? numbered[1]!.split(".").length : null;
+  const numbered = /^(\d+(?:\.\d+){0,3})(?:\s*[.)、:：）]\s*|\s+(?=\p{L}))\S+/u.exec(line);
+  return numbered && isUsableChapterTitle(line) ? numbered[1]!.split(".").length : null;
 }
 
 function splitMetadataPrefix(line: string): { notice: string; remainder: string } | null {

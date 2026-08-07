@@ -3,7 +3,10 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import {
+  PackChapterSchema,
+  PackManifestSchema,
   buildCardTree,
+  buildCardPackArtifact,
   deriveCardIdV2,
   hashGoal,
   hashKnowledgeCard,
@@ -18,6 +21,7 @@ import {
   planBlueprintWorkUnits,
   planChaptersDeterministically,
   planWorkUnits,
+  type CardPackBundle,
 } from "@mindmark/shared";
 import type { Hex } from "viem";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -27,9 +31,21 @@ const projectId = `0x${"77".repeat(32)}` as Hex;
 const duplicateSourceProjectId = `0x${"66".repeat(32)}` as Hex;
 const workflowProjectId = `0x${"88".repeat(32)}` as Hex;
 const designProjectId = `0x${"99".repeat(32)}` as Hex;
+const legacyPricingProjectId = `0x${"44".repeat(32)}` as Hex;
 const relevanceProjectId = `0x${"55".repeat(32)}` as Hex;
 const owner = `0x${"aa".repeat(20)}`;
 let database: PGlite;
+
+async function loadCardPackFixture(version = "v1"): Promise<CardPackBundle> {
+  const versionDir = path.join(root, `content/card-packs/solidity-foundations/${version}`);
+  const manifest = PackManifestSchema.parse(JSON.parse(
+    await readFile(path.join(versionDir, "manifest.json"), "utf8"),
+  ));
+  const chapters = await Promise.all(manifest.chapters.map(async (chapter) => (
+    PackChapterSchema.parse(JSON.parse(await readFile(path.join(versionDir, chapter.cardsFile), "utf8")))
+  )));
+  return { manifest, chapters };
+}
 
 beforeAll(async () => {
   database = new PGlite();
@@ -47,6 +63,21 @@ beforeAll(async () => {
     "20260730000200_learning_quality_operations.sql",
     "20260730000300_allow_duplicate_project_sources.sql",
     "20260731000100_outline_learning_relevance.sql",
+    "20260731000200_blueprint_capacity_guards.sql",
+    "20260801000100_card_packs.sql",
+    "20260801000200_card_pack_code_exercises.sql",
+    "20260801000300_card_pack_curriculum_progression.sql",
+    "20260802000100_card_pack_curriculum_v4.sql",
+    "20260802000200_card_pack_curriculum_v4_constraints.sql",
+    "20260802000300_card_pack_reading_v5.sql",
+    "20260802000400_original_pdf_storage.sql",
+    "20260803000100_schema_capabilities.sql",
+    "20260804000100_preserve_upload_source_text.sql",
+    "20260805000200_retry_blocked_moss_rewards.sql",
+    "20260807000100_project_sponsor_escrow.sql",
+    "20260807000200_generation_failure_recovery.sql",
+    "20260807000300_dynamic_work_unit_pricing.sql",
+    "20260807000400_legacy_escrow_pricing_recovery.sql",
   ]) {
     await database.exec(await readFile(path.join(root, "supabase/migrations", migration), "utf8"));
   }
@@ -55,6 +86,127 @@ beforeAll(async () => {
 afterAll(async () => database.close());
 
 describe("V2 database baseline", () => {
+  it("resets blocked Moss rewards before enqueuing a safe retry", async () => {
+    const result = await database.query<{ definition: string }>(`
+      select pg_get_functiondef(functions.oid) as definition
+      from pg_proc as functions
+      join pg_namespace as namespaces on namespaces.oid = functions.pronamespace
+      where namespaces.nspname = 'public'
+        and functions.proname = 'retry_blocked_work_unit_reward_v2'
+    `);
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]!.definition).toMatch(/status\s*=\s*'RETRYABLE'/iu);
+    expect(result.rows[0]!.definition).toMatch(/signed_transaction\s*=\s*null/iu);
+    expect(result.rows[0]!.definition).toMatch(/treasury_nonce\s*=\s*null/iu);
+    expect(result.rows[0]!.definition).toMatch(/enqueue_workflow_job_v2/iu);
+  });
+
+  it("retains uploaded Source Block text after Project finalization", async () => {
+    const result = await database.query<{ definition: string }>(`
+      select pg_get_functiondef(functions.oid) as definition
+      from pg_proc as functions
+      join pg_namespace as namespaces on namespaces.oid = functions.pronamespace
+      where namespaces.nspname = 'public' and functions.proname = 'mark_project_ready_v2'
+    `);
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]!.definition).not.toMatch(/update\s+public\.source_blocks\s+set\s+text\s*=\s*null/iu);
+  });
+
+  it("exposes the final schema capabilities and exact read-only RPC signature", async () => {
+    const capabilityResult = await database.query<{ capabilities: unknown }>(
+      "select public.get_schema_capabilities_v1() as capabilities",
+    );
+    expect(capabilityResult.rows[0]?.capabilities).toEqual({
+      schemaVersion: "2026-08-07.2",
+      capabilities: {
+        coreLearningV2: true,
+        learningDesignV3: true,
+        cardPackReadingV5: true,
+        originalPdfStorage: true,
+        learnerProgress: true,
+        sponsorEscrow: true,
+      },
+      missing: [],
+    });
+    const signature = await database.query<{ arguments: string }>(`
+      select pg_get_function_identity_arguments(functions.oid) as arguments
+      from pg_proc as functions
+      join pg_namespace as namespaces on namespaces.oid = functions.pronamespace
+      where namespaces.nspname = 'public' and functions.proname = 'get_schema_capabilities_v1'
+    `);
+    expect(signature.rows).toEqual([{ arguments: "" }]);
+  });
+
+  it("derives Escrow Reward terms from the funded Project instead of confirmation input", async () => {
+    const result = await database.query<{ arguments: string; definition: string }>(`
+      select pg_get_function_identity_arguments(functions.oid) as arguments,
+        pg_get_functiondef(functions.oid) as definition
+      from pg_proc as functions
+      join pg_namespace as namespaces on namespaces.oid = functions.pronamespace
+      where namespaces.nspname = 'public'
+        and functions.proname = 'confirm_work_unit_and_enqueue_escrow_reward_v3'
+    `);
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]!.arguments).not.toMatch(/treasury|amount_wei/iu);
+    expect(result.rows[0]!.definition).toMatch(/escrow_state\s*=\s*'FUNDED'/iu);
+    expect(result.rows[0]!.definition).toMatch(/card_quality_evaluations/iu);
+    expect(result.rows[0]!.definition).toMatch(/v_unit\.reward_amount_wei/iu);
+  });
+
+  it("detects the exact seven-argument Outline Draft RPC even when the legacy overload remains", async () => {
+    await database.exec("begin");
+    try {
+      await database.exec(`
+        drop function public.save_project_outline_draft_v2(
+          text, text, integer, text, text, jsonb, jsonb
+        )
+      `);
+      const capabilityResult = await database.query<{
+        capabilities: { capabilities: { coreLearningV2: boolean }; missing: string[] };
+      }>("select public.get_schema_capabilities_v1() as capabilities");
+      expect(capabilityResult.rows[0]?.capabilities).toMatchObject({
+        capabilities: { coreLearningV2: false },
+        missing: expect.arrayContaining(["core_learning_v2"]),
+      });
+    } finally {
+      await database.exec("rollback");
+    }
+  });
+
+  it("rejects an unsafe or incomplete source PDF Storage bucket", async () => {
+    await database.exec(`
+      create schema storage;
+      create table storage.buckets (
+        id text primary key,
+        public boolean not null,
+        file_size_limit bigint,
+        allowed_mime_types text[]
+      );
+      insert into storage.buckets (id, public, file_size_limit, allowed_mime_types)
+      values ('learning-source-files', true, 15728640, array['application/pdf']::text[])
+    `);
+    const unsafe = await database.query<{
+      capabilities: { capabilities: { originalPdfStorage: boolean }; missing: string[] };
+    }>("select public.get_schema_capabilities_v1() as capabilities");
+    expect(unsafe.rows[0]?.capabilities).toMatchObject({
+      capabilities: { originalPdfStorage: false },
+      missing: expect.arrayContaining(["original_pdf_storage"]),
+    });
+
+    await database.exec(`
+      update storage.buckets
+      set public = false
+      where id = 'learning-source-files'
+    `);
+    const safe = await database.query<{
+      capabilities: { capabilities: { originalPdfStorage: boolean }; missing: string[] };
+    }>("select public.get_schema_capabilities_v1() as capabilities");
+    expect(safe.rows[0]?.capabilities).toMatchObject({
+      capabilities: { originalPdfStorage: true },
+      missing: expect.not.arrayContaining(["original_pdf_storage"]),
+    });
+  });
+
   it("creates V2 and additive V3 learning tables with forced RLS and no browser policies", async () => {
     const result = await database.query<{
       relname: string;
@@ -71,15 +223,370 @@ describe("V2 database baseline", () => {
           'review_sessions', 'project_review_logs', 'project_agent_events', 'work_unit_rewards',
           'workflow_jobs', 'workflow_events', 'chapter_design_runs',
           'card_blueprint_slots', 'card_slot_candidates', 'card_quality_evaluations',
-          'knowledge_card_feedback', 'project_outline_exclusions'
+          'knowledge_card_feedback', 'project_outline_exclusions',
+          'card_packs', 'card_pack_versions', 'card_pack_chapters',
+          'card_pack_cards', 'card_pack_installations',
+          'card_pack_chapter_reading_blocks'
         )
     `);
-    expect(result.rows).toHaveLength(23);
+    expect(result.rows).toHaveLength(29);
     expect(result.rows.every((row) => row.relrowsecurity && row.relforcerowsecurity)).toBe(true);
     const policies = await database.query<{ count: number }>(
       "select count(*)::integer as count from pg_policies where schemaname = 'public'",
     );
     expect(policies.rows[0]?.count).toBe(0);
+  });
+
+  it("publishes and installs a Card Pack atomically with owner-scoped progress", async () => {
+    const artifact = buildCardPackArtifact(await loadCardPackFixture());
+    const published = await database.query<{ pack_version_id: string }>(
+      "select public.publish_card_pack_v1($1::jsonb, $2::jsonb, $3, $4) as pack_version_id",
+      [
+        JSON.stringify(artifact.manifest),
+        JSON.stringify(artifact.chapters),
+        artifact.manifestHash,
+        artifact.contentHash,
+      ],
+    );
+    const packVersionId = published.rows[0]!.pack_version_id;
+    const first = await database.query<{ result: {
+      projectId: Hex;
+      installationId: string;
+      idempotent: boolean;
+      chapterCount: number;
+      cardCount: number;
+    } }>(
+      "select public.install_card_pack_v1($1, $2::uuid, null) as result",
+      [owner, packVersionId],
+    );
+    const repeated = await database.query<{ result: { projectId: Hex; installationId: string; idempotent: boolean } }>(
+      "select public.install_card_pack_v1($1, $2::uuid, null) as result",
+      [owner, packVersionId],
+    );
+    const secondOwner = `0x${"bb".repeat(20)}`;
+    const second = await database.query<{ result: { projectId: Hex; idempotent: boolean } }>(
+      "select public.install_card_pack_v1($1, $2::uuid, null) as result",
+      [secondOwner, packVersionId],
+    );
+
+    expect(first.rows[0]?.result).toMatchObject({
+      idempotent: false,
+      chapterCount: 8,
+      cardCount: 40,
+    });
+    expect(repeated.rows[0]?.result).toEqual({
+      ...first.rows[0]!.result,
+      idempotent: true,
+    });
+    expect(second.rows[0]?.result.idempotent).toBe(false);
+    expect(second.rows[0]?.result.projectId).not.toBe(first.rows[0]?.result.projectId);
+
+    const projects = await database.query<{
+      project_id: Hex;
+      project_kind: string;
+      status: string;
+      chapter_count: number;
+      card_count: number;
+      work_unit_count: number;
+      workflow_job_count: number;
+    }>(`
+      select projects.project_id, projects.project_kind, projects.status,
+        (select count(*)::integer from public.chapters where project_id = projects.project_id) as chapter_count,
+        (select count(*)::integer from public.knowledge_cards where project_id = projects.project_id) as card_count,
+        (select count(*)::integer from public.work_units where project_id = projects.project_id) as work_unit_count,
+        (select count(*)::integer from public.workflow_jobs where project_id = projects.project_id) as workflow_job_count
+      from public.learning_projects as projects
+      where projects.pack_version_id = $1::uuid
+      order by projects.owner_address
+    `, [packVersionId]);
+    expect(projects.rows).toHaveLength(2);
+    expect(projects.rows.every((project) => (
+      project.project_kind === "PACK"
+      && project.status === "READY"
+      && project.chapter_count === 8
+      && project.card_count === 40
+      && project.work_unit_count === 0
+      && project.workflow_job_count === 0
+    ))).toBe(true);
+
+    const origins = await database.query<{ origin_type: string; count: number }>(`
+      select origin_type, count(*)::integer as count
+      from public.knowledge_cards where project_id = $1
+      group by origin_type
+    `, [first.rows[0]!.result.projectId]);
+    expect(origins.rows).toEqual([{ origin_type: "PACK", count: 40 }]);
+    const projectSummary = await database.query<{ project_kind: string; pack_version_id: string }>(`
+      select project_kind, pack_version_id
+      from public.get_project_summaries_v2($1, now())
+      where project_id = $2
+    `, [owner, first.rows[0]!.result.projectId]);
+    expect(projectSummary.rows[0]).toEqual({ project_kind: "PACK", pack_version_id: packVersionId });
+    const catalog = await database.query<{ result: { packs: Array<{ slug: string; cardCount: number; installedProjectId: Hex | null }> } }>(
+      "select public.list_published_card_packs_v1($1) as result",
+      [owner],
+    );
+    expect(catalog.rows[0]?.result.packs).toEqual([
+      expect.objectContaining({ slug: "solidity-foundations", cardCount: 40, installedProjectId: first.rows[0]!.result.projectId }),
+    ]);
+    const detail = await database.query<{ result: { chapters: Array<{ cards: unknown[] }> } }>(
+      "select public.get_published_card_pack_v1($1::uuid, $2) as result",
+      [packVersionId, owner],
+    );
+    expect(detail.rows[0]?.result.chapters).toHaveLength(8);
+    expect(detail.rows[0]?.result.chapters[0]?.cards).toHaveLength(5);
+    const secondInstallation = await database.query<{ installation_id: string; project_id: Hex }>(
+      "select installation_id, project_id from public.card_pack_installations where owner_address = $1",
+      [secondOwner],
+    );
+    await database.query("select public.delete_card_pack_installation_v1($1, $2::uuid)", [
+      secondOwner,
+      secondInstallation.rows[0]!.installation_id,
+    ]);
+    const deletedProject = await database.query<{ count: number }>(
+      "select count(*)::integer as count from public.learning_projects where project_id = $1",
+      [secondInstallation.rows[0]!.project_id],
+    );
+    expect(deletedProject.rows[0]?.count).toBe(0);
+    await expect(database.query(
+      "update public.learning_projects set status = 'GENERATING' where project_id = $1",
+      [first.rows[0]!.result.projectId],
+    )).rejects.toThrow(/cannot enter the AI or Monad execution lifecycle/u);
+  });
+
+  it("publishes code exercises and exposes only the newest Pack release by default", async () => {
+    const artifact = buildCardPackArtifact(await loadCardPackFixture("v2"));
+    const published = await database.query<{ pack_version_id: string }>(
+      "select public.publish_card_pack_v2($1::jsonb, $2::jsonb, $3, $4) as pack_version_id",
+      [
+        JSON.stringify(artifact.manifest),
+        JSON.stringify(artifact.chapters),
+        artifact.manifestHash,
+        artifact.contentHash,
+      ],
+    );
+    const packVersionId = published.rows[0]!.pack_version_id;
+    const detail = await database.query<{ result: {
+      title: string;
+      version: string;
+      cardCount: number;
+      chapters: Array<{ cards: Array<{ type: string; code?: { language: string; solutionCode: string } }> }>;
+    } }>("select public.get_published_card_pack_v1($1::uuid, null) as result", [packVersionId]);
+
+    expect(detail.rows[0]?.result).toMatchObject({
+      title: "Solidity 基础与代码实战",
+      version: "2.0.0",
+      cardCount: 48,
+    });
+    expect(detail.rows[0]?.result.chapters.flatMap((chapter) => chapter.cards).filter((card) => card.code)).toHaveLength(16);
+    expect(detail.rows[0]?.result.chapters[0]?.cards[2]).toMatchObject({
+      type: "code_complete",
+      code: { language: "solidity", solutionCode: expect.stringContaining("count += 1") },
+    });
+
+    const catalog = await database.query<{ result: { packs: Array<{ version: string; cardCount: number }> } }>(
+      "select public.list_published_card_packs_v1(null) as result",
+    );
+    expect(catalog.rows[0]?.result.packs).toEqual([
+      expect.objectContaining({ version: "2.0.0", cardCount: 48 }),
+    ]);
+  });
+
+  it("publishes and installs the progressive v3 curriculum without an AI workflow", async () => {
+    const artifact = buildCardPackArtifact(await loadCardPackFixture("v3"));
+    const published = await database.query<{ pack_version_id: string }>(
+      "select public.publish_card_pack_v3($1::jsonb, $2::jsonb, $3, $4) as pack_version_id",
+      [
+        JSON.stringify(artifact.manifest),
+        JSON.stringify(artifact.chapters),
+        artifact.manifestHash,
+        artifact.contentHash,
+      ],
+    );
+    const packVersionId = published.rows[0]!.pack_version_id;
+    const detail = await database.query<{ result: {
+      version: string;
+      chapterCount: number;
+      cardCount: number;
+      chapters: Array<{
+        learningObjectives: string[];
+        prerequisiteChapterIds: number[];
+        cards: Array<{ code?: { starterCode?: string; solutionCode: string } }>;
+      }>;
+    } }>("select public.get_published_card_pack_v1($1::uuid, null) as result", [packVersionId]);
+
+    expect(detail.rows[0]?.result).toMatchObject({
+      version: "3.0.0",
+      chapterCount: 15,
+      cardCount: 105,
+    });
+    expect(detail.rows[0]?.result.chapters).toHaveLength(15);
+    expect(detail.rows[0]?.result.chapters[0]?.learningObjectives).toHaveLength(3);
+    expect(detail.rows[0]?.result.chapters[0]?.prerequisiteChapterIds).toEqual([]);
+    expect(detail.rows[0]?.result.chapters[1]?.prerequisiteChapterIds).toEqual([0]);
+    const publishedCodeCards = detail.rows[0]!.result.chapters
+      .flatMap((chapter) => chapter.cards)
+      .filter((card) => card.code);
+    expect(publishedCodeCards).toHaveLength(45);
+    expect(publishedCodeCards.every((card) => (
+      Boolean(card.code?.starterCode) && Boolean(card.code?.solutionCode)
+    ))).toBe(true);
+
+    const progressiveOwner = `0x${"cc".repeat(20)}`;
+    const first = await database.query<{ result: {
+      projectId: Hex;
+      installationId: string;
+      chapterCount: number;
+      cardCount: number;
+      idempotent: boolean;
+    } }>("select public.install_card_pack_v1($1, $2::uuid, null) as result", [progressiveOwner, packVersionId]);
+    const repeated = await database.query<{ result: { projectId: Hex; installationId: string; idempotent: boolean } }>(
+      "select public.install_card_pack_v1($1, $2::uuid, null) as result",
+      [progressiveOwner, packVersionId],
+    );
+
+    expect(first.rows[0]?.result).toMatchObject({ chapterCount: 15, cardCount: 105, idempotent: false });
+    expect(repeated.rows[0]?.result).toEqual({
+      ...first.rows[0]!.result,
+      idempotent: true,
+    });
+    const installed = await database.query<{
+      project_kind: string;
+      status: string;
+      chapter_count: number;
+      card_count: number;
+      code_card_count: number;
+      work_unit_count: number;
+      workflow_job_count: number;
+    }>(`
+      select projects.project_kind, projects.status,
+        (select count(*)::integer from public.chapters where project_id = projects.project_id) as chapter_count,
+        (select count(*)::integer from public.knowledge_cards where project_id = projects.project_id) as card_count,
+        (select count(*)::integer from public.knowledge_cards where project_id = projects.project_id and content ? 'code') as code_card_count,
+        (select count(*)::integer from public.work_units where project_id = projects.project_id) as work_unit_count,
+        (select count(*)::integer from public.workflow_jobs where project_id = projects.project_id) as workflow_job_count
+      from public.learning_projects as projects
+      where projects.project_id = $1
+    `, [first.rows[0]!.result.projectId]);
+    expect(installed.rows[0]).toEqual({
+      project_kind: "PACK",
+      status: "READY",
+      chapter_count: 15,
+      card_count: 105,
+      code_card_count: 45,
+      work_unit_count: 0,
+      workflow_job_count: 0,
+    });
+
+    const catalog = await database.query<{ result: { packs: Array<{ version: string; chapterCount: number; cardCount: number }> } }>(
+      "select public.list_published_card_packs_v1(null) as result",
+    );
+    expect(catalog.rows[0]?.result.packs).toEqual([
+      expect.objectContaining({ version: "3.0.0", chapterCount: 15, cardCount: 105 }),
+    ]);
+  });
+
+  it("publishes and installs the structured v4 staged curriculum", async () => {
+    const artifact = buildCardPackArtifact(await loadCardPackFixture("v4"));
+    const published = await database.query<{ pack_version_id: string }>(
+      "select public.publish_card_pack_v4($1::jsonb, $2::jsonb, $3, $4) as pack_version_id",
+      [
+        JSON.stringify(artifact.manifest),
+        JSON.stringify(artifact.chapters),
+        artifact.manifestHash,
+        artifact.contentHash,
+      ],
+    );
+    const packVersionId = published.rows[0]!.pack_version_id;
+    const detail = await database.query<{ result: {
+      version: string;
+      chapterCount: number;
+      cardCount: number;
+      chapters: Array<{
+        stageId: number;
+        stageTitle: string;
+        newConcepts: string[];
+        prerequisiteConcepts: string[];
+        practiceFocus: string;
+        projectMilestone: string;
+        cards: Array<{ code?: { starterCode?: string; solutionCode: string } }>;
+      }>;
+    } }>("select public.get_published_card_pack_v1($1::uuid, null) as result", [packVersionId]);
+
+    expect(detail.rows[0]?.result).toMatchObject({ version: "4.0.0", chapterCount: 16, cardCount: 112 });
+    expect(detail.rows[0]?.result.chapters).toHaveLength(16);
+    expect(detail.rows[0]?.result.chapters.map((chapter) => chapter.stageId)).toEqual([
+      0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 3, 3, 3, 4, 4, 5,
+    ]);
+    expect(detail.rows[0]?.result.chapters[8]).toMatchObject({
+      newConcepts: expect.arrayContaining(["delete 重置"]),
+      practiceFocus: expect.any(String),
+      projectMilestone: expect.any(String),
+    });
+    expect(detail.rows[0]?.result.chapters[9]?.newConcepts).toEqual(
+      expect.arrayContaining(["constant 配置"]),
+    );
+    const codeCards = detail.rows[0]!.result.chapters.flatMap((chapter) => chapter.cards).filter((card) => card.code);
+    expect(codeCards).toHaveLength(48);
+    expect(codeCards.every((card) => Boolean(card.code?.starterCode) && Boolean(card.code?.solutionCode))).toBe(true);
+
+    const ownerV4 = `0x${"ce".repeat(20)}`;
+    const installed = await database.query<{ result: {
+      projectId: Hex;
+      projectKind: string;
+      status: string;
+      chapterCount: number;
+      cardCount: number;
+      idempotent: boolean;
+    } }>("select public.install_card_pack_v1($1, $2::uuid, null) as result", [ownerV4, packVersionId]);
+    expect(installed.rows[0]?.result).toMatchObject({
+      projectKind: "PACK",
+      status: "READY",
+      chapterCount: 16,
+      cardCount: 112,
+      idempotent: false,
+    });
+    const counts = await database.query<{ chapter_count: number; card_count: number; workflow_job_count: number }>(`
+      select
+        (select count(*)::integer from public.chapters where project_id = $1) as chapter_count,
+        (select count(*)::integer from public.knowledge_cards where project_id = $1) as card_count,
+        (select count(*)::integer from public.workflow_jobs where project_id = $1) as workflow_job_count
+    `, [installed.rows[0]!.result.projectId]);
+    expect(counts.rows[0]).toEqual({ chapter_count: 16, card_count: 112, workflow_job_count: 0 });
+  });
+
+  it("publishes v5 authored reading blocks and preserves card anchors on install", async () => {
+    const artifact = buildCardPackArtifact(await loadCardPackFixture("v5"));
+    const published = await database.query<{ pack_version_id: string }>(
+      "select public.publish_card_pack_v5($1::jsonb, $2::jsonb, $3, $4) as pack_version_id",
+      [JSON.stringify(artifact.manifest), JSON.stringify(artifact.chapters), artifact.manifestHash, artifact.contentHash],
+    );
+    const packVersionId = published.rows[0]!.pack_version_id;
+    const reading = await database.query<{ count: number; first_kind: string; first_text: string }>(`
+      select count(*)::integer as count,
+        min(kind) filter (where position = 0) as first_kind,
+        min(text) filter (where position = 0) as first_text
+      from public.card_pack_chapter_reading_blocks
+      where pack_version_id = $1 and chapter_id = 0
+    `, [packVersionId]);
+    expect(reading.rows[0]).toMatchObject({ count: 12, first_kind: "heading" });
+    expect(reading.rows[0]?.first_text).toContain("合约外壳");
+
+    const ownerV5 = `0x${"dd".repeat(20)}`;
+    const installed = await database.query<{ result: { projectId: Hex; status: string } }>(
+      "select public.install_card_pack_v1($1, $2::uuid, null) as result",
+      [ownerV5, packVersionId],
+    );
+    const cards = await database.query<{ content: { readingBlockId?: string } }>(`
+      select content from public.knowledge_cards
+      where project_id = $1 and chapter_id = 0 order by position
+    `, [installed.rows[0]!.result.projectId]);
+    expect(cards.rows).toHaveLength(7);
+    expect(cards.rows.every((row) => typeof row.content.readingBlockId === "string")).toBe(true);
+    const invalidMutation = database.query(
+      "insert into public.card_pack_chapter_reading_blocks(pack_version_id, chapter_id, block_id, position, kind, text) values ($1, 0, 'late-block', 99, 'paragraph', 'late')",
+      [packVersionId],
+    );
+    await expect(invalidMutation).rejects.toThrow(/immutable/u);
   });
 
   it("queues, retries, completes and recovers outline planning jobs", async () => {
@@ -331,7 +838,7 @@ describe("V2 database baseline", () => {
       [owner, folderId],
     );
     expect(library.rows[0]?.result.documents).toEqual([
-      { projectId, chapterCount: 2, readyChapterCount: 0, cardCount: 0, dueCount: 0, folderId, sourceFilename: "security.pdf", sourceMimeType: "application/pdf", sourcePageCount: 2, status: "AWAITING_REGISTRY", title: "重入安全资料", updatedAt: expect.any(String) },
+      { projectId, projectKind: "UPLOAD", packVersionId: null, chapterCount: 2, readyChapterCount: 0, cardCount: 0, dueCount: 0, folderId, sourceFilename: "security.pdf", sourceMimeType: "application/pdf", sourcePageCount: 2, status: "AWAITING_REGISTRY", title: "重入安全资料", updatedAt: expect.any(String) },
     ]);
   });
 
@@ -344,9 +851,29 @@ describe("V2 database baseline", () => {
   });
 
   it("creates exact Runner jobs from Project and Work Unit state transitions", async () => {
-    await database.query(
-      "update public.learning_projects set status = 'GENERATING' where project_id = $1",
+    const pricedUnits = await database.query<{ work_unit_id: number }>(
+      "select work_unit_id from public.work_units where project_id = $1 order by work_unit_id",
       [projectId],
+    );
+    const quotes = pricedUnits.rows.map(({ work_unit_id }) => ({
+      work_unit_id,
+      workload_score: 1,
+      reward_tier: "S",
+      reward_amount_wei: "1000",
+    }));
+    await database.query(
+      "select public.mark_project_escrow_funded_v2($1, $2, $3, $4, $5, $6::jsonb, $7, $7, $8, 0, $9, 1)",
+      [
+        projectId,
+        `0x${"22".repeat(20)}`,
+        `0x${"33".repeat(20)}`,
+        "work-unit-pricing-v1",
+        `0x${"44".repeat(32)}`,
+        JSON.stringify(quotes),
+        quotes.length * 1000,
+        quotes.length,
+        `0x${"55".repeat(32)}`,
+      ],
     );
     const generationJobs = await database.query<{
       kind: string;
@@ -359,14 +886,11 @@ describe("V2 database baseline", () => {
       where project_id = $1 and kind = 'GENERATE_WORK_UNIT'
       order by work_unit_id
     `, [projectId]);
-    const unitCount = await database.query<{ count: number }>(
-      "select count(*)::integer as count from public.work_units where project_id = $1",
-      [projectId],
-    );
-    expect(generationJobs.rows).toHaveLength(unitCount.rows[0]!.count);
+    expect(generationJobs.rows).toHaveLength(pricedUnits.rows.length);
     expect(generationJobs.rows.every((job) => job.status === "QUEUED" && job.chapter_id !== null)).toBe(true);
 
     const firstJob = generationJobs.rows[0]!;
+    const completedJob = generationJobs.rows.find((job) => job.work_unit_id !== firstJob.work_unit_id)!;
     const claimed = await database.query<{ status: string; worker_address: string }>(
       "select status, worker_address from public.claim_work_unit_for_workflow_v2($1, $2, $3)",
       [projectId, firstJob.work_unit_id, `0x${"11".repeat(20)}`],
@@ -382,6 +906,78 @@ describe("V2 database baseline", () => {
       [projectId, firstJob.work_unit_id, `0x${"11".repeat(20)}`],
     );
     expect(fourthAttempt.rows[0]).toMatchObject({ status: "GENERATING", attempt: 4 });
+
+    await database.query(
+      "select public.mark_work_unit_retryable_v2($1, $2, $3)",
+      [projectId, firstJob.work_unit_id, "citation is outside the Blueprint Slot evidence"],
+    );
+    await database.query(
+      "update public.workflow_jobs set status = 'RUNNING', attempt = 10 where project_id = $1 and kind = 'GENERATE_WORK_UNIT' and work_unit_id = $2",
+      [projectId, firstJob.work_unit_id],
+    );
+    await database.query<{ failed: boolean }>(
+      "select public.retry_workflow_job_v2(job_id, 'citation is outside the Blueprint Slot evidence') as failed from public.workflow_jobs where project_id = $1 and kind = 'GENERATE_WORK_UNIT' and work_unit_id = $2",
+      [projectId, firstJob.work_unit_id],
+    );
+    await database.query(
+      "update public.workflow_jobs set status = 'SUCCEEDED', completed_at = now() where project_id = $1 and kind = 'GENERATE_WORK_UNIT' and work_unit_id <> $2 and status = 'QUEUED'",
+      [projectId, firstJob.work_unit_id],
+    );
+    const terminalFailure = await database.query<{ project_status: string; chapter_status: string }>(`
+      select projects.status as project_status, chapters.status as chapter_status
+      from public.learning_projects as projects
+      join public.chapters as chapters on chapters.project_id = projects.project_id
+      where projects.project_id = $1 and chapters.chapter_id = $2
+    `, [projectId, firstJob.chapter_id]);
+    expect(terminalFailure.rows[0]).toEqual({
+      project_status: "FAILED_RETRYABLE",
+      chapter_status: "FAILED_RETRYABLE",
+    });
+    await database.query(
+      "update public.work_units set status = 'CANDIDATE_READY' where project_id = $1 and work_unit_id = $2",
+      [projectId, completedJob.work_unit_id],
+    );
+
+    const recovered = await database.query<{ job_count: number }>(
+      "select public.retry_failed_project_generation_v2($1, $2) as job_count",
+      [projectId, owner],
+    );
+    expect(recovered.rows[0]?.job_count).toBe(1);
+    const recoveredState = await database.query<{
+      project_status: string;
+      chapter_status: string;
+      unit_status: string;
+      unit_attempt: number;
+      job_status: string;
+      job_attempt: number;
+    }>(`
+      select projects.status as project_status, chapters.status as chapter_status,
+        units.status as unit_status, units.attempt as unit_attempt,
+        jobs.status as job_status, jobs.attempt as job_attempt
+      from public.learning_projects as projects
+      join public.chapters as chapters on chapters.project_id = projects.project_id and chapters.chapter_id = $2
+      join public.work_units as units on units.project_id = projects.project_id and units.work_unit_id = $3
+      join public.workflow_jobs as jobs on jobs.project_id = projects.project_id
+        and jobs.kind = 'GENERATE_WORK_UNIT' and jobs.work_unit_id = units.work_unit_id
+      where projects.project_id = $1
+    `, [projectId, firstJob.chapter_id, firstJob.work_unit_id]);
+    expect(recoveredState.rows[0]).toEqual({
+      project_status: "GENERATING",
+      chapter_status: "GENERATING",
+      unit_status: "RETRYABLE",
+      unit_attempt: 0,
+      job_status: "QUEUED",
+      job_attempt: 0,
+    });
+    const preservedCandidate = await database.query<{ status: string }>(
+      "select status from public.work_units where project_id = $1 and work_unit_id = $2",
+      [projectId, completedJob.work_unit_id],
+    );
+    expect(preservedCandidate.rows[0]?.status).toBe("CANDIDATE_READY");
+    await database.query(
+      "update public.work_units set status = 'QUEUED' where project_id = $1 and work_unit_id = $2",
+      [projectId, completedJob.work_unit_id],
+    );
 
     await database.query(
       "update public.work_units set status = 'CANDIDATE_READY' where project_id = $1",
@@ -868,6 +1464,152 @@ describe("V2 database baseline", () => {
       rejected_candidates: 1,
       evaluations: 4,
     });
+
+    const escrowAddress = `0x${"22".repeat(20)}`;
+    const workerAddress = `0x${"33".repeat(20)}`;
+    const fundingTxHash = `0x${"44".repeat(32)}`;
+    const confirmationTxHash = `0x${"55".repeat(32)}`;
+    const pricingRoot = `0x${"66".repeat(32)}`;
+    await database.query(
+      "update public.work_units set worker_address = $3 where project_id = $1 and work_unit_id = $2",
+      [designProjectId, workUnit.workUnitId, workerAddress],
+    );
+    await database.query(
+      "select public.mark_project_escrow_funded_v2($1, $2, $3, 'work-unit-pricing-v1', $4, $5::jsonb, 1000, 1000, 1, 0, $6, 100)",
+      [
+        designProjectId,
+        escrowAddress,
+        owner,
+        pricingRoot,
+        JSON.stringify([{
+          work_unit_id: workUnit.workUnitId,
+          workload_score: 9,
+          reward_tier: "S",
+          reward_amount_wei: "1000",
+        }]),
+        fundingTxHash,
+      ],
+    );
+    await database.query(
+      "select public.confirm_work_unit_and_enqueue_escrow_reward_v3($1, $2, $3, 101, 21000, 250)",
+      [designProjectId, workUnit.workUnitId, confirmationTxHash],
+    );
+    const confirmed = await database.query<{
+      unit_status: string;
+      reward_status: string;
+      reward_recipient: string;
+      reward_amount: string;
+    }>(`
+      select units.status as unit_status,
+        rewards.status as reward_status,
+        rewards.recipient_address as reward_recipient,
+        rewards.amount_wei::text as reward_amount
+      from public.work_units as units
+      join public.work_unit_rewards as rewards
+        on rewards.project_id = units.project_id and rewards.work_unit_id = units.work_unit_id
+      where units.project_id = $1 and units.work_unit_id = $2
+    `, [designProjectId, workUnit.workUnitId]);
+    expect(confirmed.rows).toEqual([{
+      unit_status: "CONFIRMED",
+      reward_status: "PENDING",
+      reward_recipient: workerAddress,
+      reward_amount: "1000",
+    }]);
+  });
+
+  it("confirms legacy fixed-price Work Units after dynamic pricing is installed", async () => {
+    const workerAddress = `0x${"33".repeat(20)}`;
+    const confirmationTxHash = `0x${"77".repeat(32)}`;
+
+    await database.exec("begin");
+    try {
+      await database.query(
+        `insert into public.learning_projects (
+           project_id, owner_address, title, goal, source_hash, goal_hash,
+           outline_version, outline_hash, status, project_escrow_address,
+           sponsor_treasury_address, reward_per_work_unit_wei,
+           escrow_total_budget_wei, escrow_remaining_budget_wei,
+           escrow_work_unit_count, escrow_settled_work_unit_count,
+           escrow_funding_tx_hash, escrow_funded_block, escrow_state
+         ) values (
+           $1, $2, 'Legacy pricing fixture', 'Verify fixed pricing compatibility',
+           $3, $4, 1, $5, 'FAILED_RETRYABLE', $6, $7, 1000, 1000, 1000, 1, 0, $8, 100, 'FUNDED'
+         )`,
+        [
+          legacyPricingProjectId,
+          owner,
+          `0x${"11".repeat(32)}`,
+          `0x${"22".repeat(32)}`,
+          `0x${"33".repeat(32)}`,
+          `0x${"55".repeat(20)}`,
+          `0x${"66".repeat(20)}`,
+          `0x${"88".repeat(32)}`,
+        ],
+      );
+      await database.query(
+        `insert into public.chapters (
+           project_id, chapter_id, position, title, summary, start_block, end_block,
+           page_start, page_end, source_hash, importance, status, min_card_count,
+           target_card_count, max_card_count
+         ) values ($1, 0, 0, 'Legacy chapter', 'Compatibility fixture', 0, 0, 1, 1, $2, 1, 'FAILED_RETRYABLE', 2, 2, 2)`,
+        [legacyPricingProjectId, `0x${"99".repeat(32)}`],
+      );
+      await database.query(
+        `insert into public.work_units (
+           project_id, work_unit_id, chapter_id, unit_index, start_block, end_block,
+           source_unit_hash, manifest_proof, card_budget, card_minimum, card_target,
+           worker_address, status, worker_cards, cards_root, card_count
+         ) values ($1, 0, 0, 0, 0, 0, $2, '[]'::jsonb, 1, 1, 1, $3, 'APPROVED', '[{}]'::jsonb, $4, 1)`,
+        [legacyPricingProjectId, `0x${"aa".repeat(32)}`, workerAddress, `0x${"bb".repeat(32)}`],
+      );
+      await database.query(
+        `insert into public.workflow_jobs (
+           project_id, kind, chapter_id, work_unit_id, status, attempt, last_error, completed_at
+         ) values ($1, 'GENERATE_WORK_UNIT', 0, 0, 'FAILED', 10,
+           'quality-approved priced Work Unit confirmation target is missing', now())`,
+        [legacyPricingProjectId],
+      );
+
+      const retried = await database.query<{ job_count: number }>(
+        "select public.retry_failed_project_generation_v2($1, $2) as job_count",
+        [legacyPricingProjectId, owner],
+      );
+      expect(retried.rows).toEqual([{ job_count: 1 }]);
+      const recovered = await database.query<{
+        project_status: string;
+        unit_status: string;
+        job_status: string;
+      }>(`
+        select projects.status as project_status, units.status as unit_status,
+          jobs.status as job_status
+        from public.learning_projects as projects
+        join public.work_units as units on units.project_id = projects.project_id
+        join public.workflow_jobs as jobs
+          on jobs.project_id = units.project_id and jobs.work_unit_id = units.work_unit_id
+        where projects.project_id = $1
+      `, [legacyPricingProjectId]);
+      expect(recovered.rows).toEqual([{
+        project_status: "GENERATING",
+        unit_status: "APPROVED",
+        job_status: "QUEUED",
+      }]);
+
+      await database.query(
+        "select public.confirm_work_unit_and_enqueue_escrow_reward_v3($1, 0, $2, 101, 21000, 250)",
+        [legacyPricingProjectId, confirmationTxHash],
+      );
+
+      const confirmed = await database.query<{ unit_status: string; reward_amount: string }>(`
+        select units.status as unit_status, rewards.amount_wei::text as reward_amount
+        from public.work_units as units
+        join public.work_unit_rewards as rewards
+          on rewards.project_id = units.project_id and rewards.work_unit_id = units.work_unit_id
+        where units.project_id = $1 and units.work_unit_id = 0
+      `, [legacyPricingProjectId]);
+      expect(confirmed.rows).toEqual([{ unit_status: "CONFIRMED", reward_amount: "1000" }]);
+    } finally {
+      await database.exec("rollback");
+    }
   });
 
   it("returns bounded aggregate V3 quality operations without card or source content", async () => {

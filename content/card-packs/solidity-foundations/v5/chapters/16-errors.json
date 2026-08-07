@@ -1,0 +1,298 @@
+{
+  "chapterId": 15,
+  "position": 15,
+  "slug": "errors",
+  "title": "16 errors：把失败路径写成合约契约",
+  "summary": "收束 require、revert、assert、custom error，并完成 MiniVault 综合审查。",
+  "estimatedMinutes": 34,
+  "learningObjectives": [
+    "能区分 require、revert、assert 的职责",
+    "能定义带参数 custom error",
+    "能审查权限、资产转移和状态不变量"
+  ],
+  "prerequisiteChapterIds": [
+    14
+  ],
+  "stageId": 5,
+  "stageTitle": "阶段六：综合审查",
+  "newConcepts": [
+    "custom error",
+    "revert",
+    "assert",
+    "失败路径审计",
+    "MiniVault"
+  ],
+  "prerequisiteConcepts": [
+    "interface",
+    "payable",
+    "modifier",
+    "事件",
+    "CEI"
+  ],
+  "practiceFocus": "把前 17 章能力合并成可测试的 MiniVault 完整实现。",
+  "projectMilestone": "完成 LearningRegistry v1：权限、事件、Ether、外部接口和错误契约齐全。",
+  "cards": [
+    {
+      "packCardId": "v5-v4-errors-concept",
+      "position": 0,
+      "type": "concept",
+      "question": "require、revert、assert 和 custom error 应该怎么分工？",
+      "answer": "require 适合输入和前置条件；revert 适合分支中主动终止并返回 custom error；assert 只保护理论上永真的内部不变量；custom error 为失败提供稳定 selector 和参数。",
+      "keyPoint": "错误类型要区分用户失败和程序缺陷。",
+      "tags": [
+        "require",
+        "revert",
+        "assert",
+        "custom error"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/control-structures.html#error-handling-assert-require-revert-and-exceptions",
+        "locator": "Error Handling"
+      },
+      "readingBlockId": "errors-concept-text"
+    },
+    {
+      "packCardId": "v5-v4-errors-check",
+      "position": 1,
+      "type": "qa",
+      "question": "为什么 MiniVault 的失败测试必须同时检查错误和状态？",
+      "answer": "错误类型能定位失败规则，状态不变能证明回滚原子性；只检查错误文本可能漏掉先扣账后失败的资产漏洞。",
+      "keyPoint": "失败路径也是合约接口的一部分。",
+      "tags": [
+        "测试",
+        "回滚",
+        "原子性"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/control-structures.html#error-handling-assert-require-revert-and-exceptions",
+        "locator": "Error Handling"
+      },
+      "readingBlockId": "errors-concept-text"
+    },
+    {
+      "packCardId": "v5-v4-errors-read",
+      "position": 2,
+      "type": "code_read",
+      "question": "审查 MiniVault 的四条失败路径和记账顺序。",
+      "answer": "零存款、非 owner、余额不足和 call 失败都回滚；total 只有外部转账成功后才减少。",
+      "keyPoint": "资产效果和本地记账必须共处于成功路径。",
+      "tags": [
+        "errors",
+        "code_read"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/control-structures.html#error-handling-assert-require-revert-and-exceptions",
+        "locator": "Error Handling"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "error NotOwner(address caller);\nerror Insufficient(uint256 requested, uint256 available);\nerror TransferFailed();\n// MiniVault: constructor owner, deposit, withdraw with CEI",
+        "solutionCode": "失败 -> NotOwner/Insufficient/TransferFailed；成功 -> total 减少、Withdrawn 事件出现。",
+        "testInput": "B 存款 1 ether；B 提取；A 超额提取；A 正常提取。",
+        "expectedResult": "前两种失败不改变 total，A 正常提取成功。",
+        "hints": [
+          "逐条列出 revert 分支。",
+          "检查 total 更新位置。"
+        ]
+      },
+      "readingBlockId": "errors-code-1"
+    },
+    {
+      "packCardId": "v5-v4-errors-complete",
+      "position": 3,
+      "type": "code_complete",
+      "question": "补全 withdraw 的 custom error 检查和安全扣账。",
+      "answer": "非 owner revert NotOwner，超额 revert Insufficient，先 total -= amount，再 call 并检查 ok。",
+      "keyPoint": "错误参数和 CEI 顺序同时服务审计与前端。",
+      "tags": [
+        "errors",
+        "code_complete"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/control-structures.html#error-handling-assert-require-revert-and-exceptions",
+        "locator": "Error Handling"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "error NotOwner(address caller);\nerror Insufficient(uint256 requested, uint256 available);\nerror TransferFailed();\nfunction withdraw(uint256 amount) external {\n    // TODO\n}",
+        "solutionCode": "function withdraw(uint256 amount) external {\n    if (msg.sender != owner) revert NotOwner(msg.sender);\n    if (amount > total) revert Insufficient(amount, total);\n    total -= amount;\n    (bool ok,) = payable(owner).call{value: amount}(\"\");\n    if (!ok) revert TransferFailed();\n}",
+        "testInput": "非 owner、超额、正常提取和接收方失败。",
+        "expectedResult": "错误类型清晰，所有失败都保持 total 不变。",
+        "hints": [
+          "custom error 用 revert。",
+          "外部 call 后检查 ok。"
+        ]
+      },
+      "readingBlockId": "errors-code-2"
+    },
+    {
+      "packCardId": "v5-v4-errors-write",
+      "position": 4,
+      "type": "code_write",
+      "question": "独立完成 LearningRegistry v1 的审查版：owner、chapter struct、deposit、event、custom error 和 withdraw。",
+      "answer": "组合已有章节记录、onlyOwner、事件、payable、CEI、interface/错误思想；每条失败路径都要可解释。",
+      "keyPoint": "综合题不是引入新语法，而是验证前 17 章的组合顺序。",
+      "tags": [
+        "errors",
+        "code_write"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/control-structures.html#error-handling-assert-require-revert-and-exceptions",
+        "locator": "Error Handling"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "// 完成 LearningRegistry v1：章节登记、学习押金、owner 提取、失败路径",
+        "solutionCode": "pragma solidity ^0.8.20;\ncontract LearningRegistryV1 {\n    error NotOwner(address caller); error Insufficient(uint256 requested, uint256 available); error TransferFailed();\n    address public immutable owner;\n    struct Chapter { uint256 id; string title; bool active; }\n    Chapter[] public chapters; uint256 public total;\n    event ChapterAdded(uint256 indexed id, string title); event Deposited(address indexed user, uint256 amount); event Withdrawn(uint256 amount);\n    constructor() { owner = msg.sender; }\n    modifier onlyOwner() { if (msg.sender != owner) revert NotOwner(msg.sender); _; }\n    function addChapter(string calldata title) external onlyOwner { uint256 id = chapters.length; chapters.push(Chapter(id, title, true)); emit ChapterAdded(id, title); }\n    function deposit() external payable { require(msg.value > 0, \"zero deposit\"); total += msg.value; emit Deposited(msg.sender, msg.value); }\n    function withdraw(uint256 amount) external onlyOwner { if (amount > total) revert Insufficient(amount, total); total -= amount; (bool ok,) = payable(owner).call{value: amount}(\"\"); if (!ok) revert TransferFailed(); emit Withdrawn(amount); }\n}",
+        "testInput": "B 存款；B 添加章节；A 添加章节；A 超额和正常提取。",
+        "expectedResult": "权限和金额错误可解释，正常路径状态、事件和余额一致。",
+        "hints": [
+          "按检查 -> 效果 -> 交互排序。",
+          "综合题不需要再添加未学的抽象。"
+        ]
+      },
+      "readingBlockId": "errors-code-3"
+    },
+    {
+      "packCardId": "v5-v4-errors-application",
+      "position": 5,
+      "type": "application",
+      "question": "为什么最后一章应该是审查和综合，而不是继续堆新语法？",
+      "answer": "学习迁移发生在组合已有概念、解释失败路径和测试不变量时；再增加语法会稀释主线，无法验证真正掌握。",
+      "keyPoint": "最后用一个小而完整的系统收束，而不是用大而杂的 API 结束。",
+      "tags": [
+        "综合",
+        "审查",
+        "学习迁移"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/control-structures.html#error-handling-assert-require-revert-and-exceptions",
+        "locator": "Error Handling"
+      },
+      "readingBlockId": "errors-practice-text"
+    },
+    {
+      "packCardId": "v5-v4-errors-misconception",
+      "position": 6,
+      "type": "misconception",
+      "question": "误区：assert 越多越安全，为什么不对？",
+      "answer": "assert 表示内部不变量被破坏，用户输入、权限和外部调用失败应使用 require 或 custom error；滥用 assert 会混淆 bug 与正常失败。",
+      "keyPoint": "错误原语选择本身就是安全设计。",
+      "tags": [
+        "assert",
+        "输入校验",
+        "误区"
+      ],
+      "importance": 4,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/control-structures.html#error-handling-assert-require-revert-and-exceptions",
+        "locator": "Error Handling"
+      },
+      "readingBlockId": "errors-practice-text"
+    }
+  ],
+  "readingBlocks": [
+    {
+      "blockId": "errors-title",
+      "position": 0,
+      "kind": "heading",
+      "text": "16 errors：把失败路径写成合约契约"
+    },
+    {
+      "blockId": "errors-overview",
+      "position": 1,
+      "kind": "paragraph",
+      "text": "收束 require、revert、assert、custom error，并完成 MiniVault 综合审查。"
+    },
+    {
+      "blockId": "errors-stage",
+      "position": 2,
+      "kind": "callout",
+      "text": "阶段六：综合审查。练习重点：把前 17 章能力合并成可测试的 MiniVault 完整实现。"
+    },
+    {
+      "blockId": "errors-objectives",
+      "position": 3,
+      "kind": "heading",
+      "text": "本章学习目标"
+    },
+    {
+      "blockId": "errors-objective-text",
+      "position": 4,
+      "kind": "paragraph",
+      "text": "1. 能区分 require、revert、assert 的职责\n2. 能定义带参数 custom error\n3. 能审查权限、资产转移和状态不变量"
+    },
+    {
+      "blockId": "errors-concepts",
+      "position": 5,
+      "kind": "heading",
+      "text": "关键概念"
+    },
+    {
+      "blockId": "errors-concept-text",
+      "position": 6,
+      "kind": "paragraph",
+      "text": "本章引入：custom error、revert、assert、失败路径审计、MiniVault。完成 LearningRegistry v1：权限、事件、Ether、外部接口和错误契约齐全。"
+    },
+    {
+      "blockId": "errors-code-1",
+      "position": 7,
+      "kind": "code",
+      "text": "error NotOwner(address caller);\nerror Insufficient(uint256 requested, uint256 available);\nerror TransferFailed();\n// MiniVault: constructor owner, deposit, withdraw with CEI",
+      "language": "solidity"
+    },
+    {
+      "blockId": "errors-code-2",
+      "position": 8,
+      "kind": "code",
+      "text": "error NotOwner(address caller);\nerror Insufficient(uint256 requested, uint256 available);\nerror TransferFailed();\nfunction withdraw(uint256 amount) external {\n    // TODO\n}",
+      "language": "solidity"
+    },
+    {
+      "blockId": "errors-code-3",
+      "position": 9,
+      "kind": "code",
+      "text": "// 完成 LearningRegistry v1：章节登记、学习押金、owner 提取、失败路径",
+      "language": "solidity"
+    },
+    {
+      "blockId": "errors-practice",
+      "position": 10,
+      "kind": "heading",
+      "text": "迁移练习"
+    },
+    {
+      "blockId": "errors-practice-text",
+      "position": 11,
+      "kind": "paragraph",
+      "text": "把前 17 章能力合并成可测试的 MiniVault 完整实现。\n项目里程碑：完成 LearningRegistry v1：权限、事件、Ether、外部接口和错误契约齐全。"
+    }
+  ]
+}

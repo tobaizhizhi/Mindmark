@@ -1,4 +1,4 @@
-import { AddressSchema } from "@mindmark/shared";
+import { AddressSchema, mossNetworkSupport } from "@mindmark/shared";
 import { z } from "zod";
 import { parseEther, type Hex } from "viem";
 import { ViemProjectRegistryGatewayV2 } from "./chain-v2.js";
@@ -15,7 +15,7 @@ import { ProjectDesignFreezer } from "./project-design-freezer.js";
 import { ModelCardQualityEvaluatorV3 } from "./quality-evaluator-v3.js";
 import { OpenAICompatibleToolModel } from "./model.js";
 import { OutlinePlanningAgent } from "./outline-planning-agent.js";
-import { SupabaseProjectRunnerRepositoryV2 } from "./repository-v2.js";
+import { connectRunnerPersistence } from "./persistence/index.js";
 import { MossViemRewardGateway } from "./reward.js";
 import { WorkUnitSettlementAgentV2 } from "./reward-v2.js";
 import { DEFAULT_AI_TOOL_TIMEOUT_MS } from "./runtime-types.js";
@@ -32,6 +32,7 @@ const RunnerEnvironmentSchema = z.object({
   MONAD_RPC_URL: z.string().url(),
   MONAD_CHAIN_ID: z.coerce.number().int().positive().default(10143),
   REGISTRY_V2_ADDRESS: AddressSchema,
+  PROJECT_ESCROW_ADDRESS: AddressSchema,
   SUPABASE_URL: z.string().url(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
   AI_API_KEY: z.string().min(1),
@@ -45,6 +46,7 @@ const RunnerEnvironmentSchema = z.object({
   AI_EMBEDDING_API_KEY: z.string().min(1).optional(),
   AI_EMBEDDING_BASE_URL: z.string().url().optional(),
   AI_TOOL_TIMEOUT_MS: z.coerce.number().int().min(45_000).max(600_000).default(DEFAULT_AI_TOOL_TIMEOUT_MS),
+  AI_CHAPTER_DESIGN_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(120_000).default(20_000),
   COORDINATOR_PRIVATE_KEY: PrivateKeySchema,
   WORKER_0_PRIVATE_KEY: PrivateKeySchema,
   WORKER_1_PRIVATE_KEY: PrivateKeySchema,
@@ -54,19 +56,21 @@ const RunnerEnvironmentSchema = z.object({
     .string()
     .regex(/^\d+(?:\.\d{1,18})?$/u, "Expected a positive MON amount with at most 18 decimals")
     .transform((value) => parseEther(value))
-    .refine((value) => value > 0n, "Worker reward amount must be positive")
+    .refine((value) => value > 0n, "Worker reward pricing base must be positive")
     .default(parseEther("0.001")),
   RUNNER_POLL_INTERVAL_MS: z.coerce.number().int().min(1_000).max(30_000).default(5_000),
 });
-
-export interface RunnerController {
-  stop(): void;
-}
 
 export async function startRunnerFromEnvironment(
   environment: NodeJS.ProcessEnv = process.env,
 ): Promise<ProjectCoordinatorV2> {
   const configuration = RunnerEnvironmentSchema.parse(environment);
+  const mossNetwork = mossNetworkSupport(configuration.MONAD_CHAIN_ID);
+  if (mossNetwork === "EXPERIMENTAL_TESTNET") {
+    console.warn(
+      "Moss 0.1.0 is running in Mindmark experimental Monad Testnet mode; official Moss support targets Monad Mainnet (143).",
+    );
+  }
   const registry = new ViemProjectRegistryGatewayV2({
     rpcUrl: configuration.MONAD_RPC_URL,
     chainId: configuration.MONAD_CHAIN_ID,
@@ -81,8 +85,11 @@ export async function startRunnerFromEnvironment(
   const rewardGateway = new MossViemRewardGateway({
     rpcUrl: configuration.MONAD_RPC_URL,
     chainId: configuration.MONAD_CHAIN_ID,
+    registryAddress: configuration.REGISTRY_V2_ADDRESS,
+    escrowAddress: configuration.PROJECT_ESCROW_ADDRESS,
     treasuryPrivateKey: configuration.REWARD_TREASURY_PRIVATE_KEY,
   });
+  await rewardGateway.assertConfiguredEscrow(configuration.REGISTRY_V2_ADDRESS);
   const operationalAddresses = [
     registry.coordinatorAddress(),
     registry.workerAddress(0),
@@ -93,11 +100,11 @@ export async function startRunnerFromEnvironment(
     address.toLowerCase() === rewardGateway.treasuryAddress().toLowerCase())) {
     throw new Error("Reward Treasury must not reuse the V2 Coordinator or a Worker wallet");
   }
-  const repository = SupabaseProjectRunnerRepositoryV2.connect(
+  const persistence = connectRunnerPersistence(
     configuration.SUPABASE_URL,
     configuration.SUPABASE_SERVICE_ROLE_KEY,
-    { treasuryAddress: rewardGateway.treasuryAddress(), amountWei: configuration.WORKER_REWARD_AMOUNT_MON },
   );
+  await persistence.assertSchemaCapabilities();
   const generationModel = new OpenAICompatibleToolModel({
     apiKey: configuration.AI_API_KEY,
     model: configuration.AI_MODEL,
@@ -131,20 +138,28 @@ export async function startRunnerFromEnvironment(
       })
     : new DeterministicCardEmbeddingGatewayV3();
   const workers = [0, 1, 2].map((index) =>
-    new WorkUnitWorkerAgent(repository, registry, generationModel, index, {
+    new WorkUnitWorkerAgent(persistence.generation, registry, generationModel, index, {
       timeoutMs: configuration.AI_TOOL_TIMEOUT_MS,
     }),
   ) as [WorkUnitWorkerAgent, WorkUnitWorkerAgent, WorkUnitWorkerAgent];
-  const assembler = new ChapterAssembler(repository, registry);
-  const finalizer = new ProjectFinalizerV2(repository, registry);
-  const settlement = new WorkUnitSettlementAgentV2(repository, registry, rewardGateway);
+  const outlinePlanner = new OutlinePlanningAgent(persistence.workflow, designModel, {
+    timeoutMs: configuration.AI_TOOL_TIMEOUT_MS,
+  });
+  const assembler = new ChapterAssembler(persistence.commitment, registry);
+  const finalizer = new ProjectFinalizerV2(persistence.commitment, registry);
+  const settlement = new WorkUnitSettlementAgentV2(persistence.reward, registry, rewardGateway);
   const dispatcher = new ProjectWorkflowDispatcherV2(
-    repository,
+    persistence.workflow,
     registry,
     workers,
-    new RegistryReconcilerV2(repository, registry),
+    new RegistryReconcilerV2(
+      persistence.commitment,
+      registry,
+      rewardGateway,
+      configuration.WORKER_REWARD_AMOUNT_MON,
+    ),
     new ChapterQualityGate(
-      repository,
+      persistence.generation,
       embeddings,
       new ModelCardQualityEvaluatorV3(evaluationModel, {
         modelId: evaluationModelId,
@@ -154,15 +169,15 @@ export async function startRunnerFromEnvironment(
     assembler,
     finalizer,
     settlement,
-    new ChapterDesignWorkflowAgent(repository, designModel, {
-      timeoutMs: configuration.AI_TOOL_TIMEOUT_MS,
+    new ChapterDesignWorkflowAgent(persistence.design, designModel, {
+      timeoutMs: configuration.AI_CHAPTER_DESIGN_TIMEOUT_MS,
       modelId: designModelId,
     }),
-    new ProjectDesignFreezer(repository),
+    new ProjectDesignFreezer(persistence.design),
+    outlinePlanner,
   );
   const coordinator = new ProjectCoordinatorV2(
     registry,
-    new OutlinePlanningAgent(repository, designModel, { timeoutMs: configuration.AI_TOOL_TIMEOUT_MS }),
     dispatcher,
     { pollIntervalMs: configuration.RUNNER_POLL_INTERVAL_MS },
   );

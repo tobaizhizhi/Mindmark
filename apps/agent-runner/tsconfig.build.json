@@ -7,7 +7,13 @@
     "rootDir": "src",
     "sourceMap": true,
     "paths": {
-      "@mindmark/shared": ["../../packages/shared/dist/index.d.ts"]
+      "@mindmark/ai-gateway": ["../../packages/ai-gateway/dist/index.d.ts"],
+      "@mindmark/shared": ["../../packages/shared/dist/index.d.ts"],
+      "@mindmark/shared/learning-project": ["../../packages/shared/dist/learning-project/index.d.ts"],
+      "@mindmark/shared/chapter": ["../../packages/shared/dist/chapter/index.d.ts"],
+      "@mindmark/shared/knowledge-card": ["../../packages/shared/dist/knowledge-card/index.d.ts"],
+      "@mindmark/shared/study": ["../../packages/shared/dist/study/index.d.ts"],
+      "@mindmark/shared/commitments": ["../../packages/shared/dist/commitments/index.d.ts"]
     },
     "types": ["node"]
   },

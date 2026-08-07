@@ -1,0 +1,211 @@
+{
+  "chapterId": 14,
+  "position": 14,
+  "slug": "interfaces",
+  "title": "15 interfaces：只依赖外部合约的最小 ABI",
+  "summary": "最后学习跨合约边界、IERC20 风格函数和返回值检查。",
+  "estimatedMinutes": 30,
+  "learningObjectives": [
+    "能写只含签名的 interface",
+    "能通过接口调用外部合约",
+    "能检查 bool 返回值和外部失败"
+  ],
+  "prerequisiteChapterIds": [
+    13
+  ],
+  "stageId": 4,
+  "stageTitle": "阶段五：组合合约",
+  "newConcepts": [
+    "interface",
+    "外部调用",
+    "ABI 兼容",
+    "返回值检查"
+  ],
+  "prerequisiteConcepts": [
+    "继承",
+    "函数签名",
+    "payable",
+    "require"
+  ],
+  "practiceFocus": "让 Registry 通过 IProgressToken 接口发放学习奖励，不实现完整代币。",
+  "projectMilestone": "LearningRegistry 可插入外部奖励合约，但只依赖最小 ABI。",
+  "cards": [
+    {
+      "packCardId": "v4-interfaces-concept",
+      "position": 0,
+      "type": "concept",
+      "question": "interface 为什么能降低跨合约耦合？",
+      "answer": "interface 只描述调用者需要的函数签名和返回类型，不携带实现、状态变量或构造逻辑；实现可以替换，只要 ABI 兼容。",
+      "keyPoint": "跨边界只依赖最小契约。",
+      "tags": [
+        "interface",
+        "ABI",
+        "耦合"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#interfaces",
+        "locator": "Interfaces"
+      }
+    },
+    {
+      "packCardId": "v4-interfaces-check",
+      "position": 1,
+      "type": "qa",
+      "question": "调用外部 token.transfer 后为什么不能忽略 bool？",
+      "answer": "有些实现返回 false 而不回滚；忽略它会让本地账本把失败当成成功。",
+      "keyPoint": "外部合约返回值是输入，必须验证后使用。",
+      "tags": [
+        "返回值",
+        "token",
+        "检查"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#interfaces",
+        "locator": "Interfaces"
+      }
+    },
+    {
+      "packCardId": "v4-interfaces-read",
+      "position": 2,
+      "type": "code_read",
+      "question": "阅读 RewardRouter，描述奖励转账成功路径。",
+      "answer": "Router 通过 IProgressToken 调用 mint，检查返回 bool，成功后才更新 rewardsIssued。",
+      "keyPoint": "外部效果和本地记账必须保持一致。",
+      "tags": [
+        "interfaces",
+        "code_read"
+      ],
+      "code": {
+        "language": "solidity",
+        "starterCode": "interface IProgressToken { function mint(address to, uint256 amount) external returns (bool); }\ncontract RewardRouter { mapping(address => uint256) public rewardsIssued; function reward(address token, uint256 amount) external { bool ok = IProgressToken(token).mint(msg.sender, amount); require(ok, \"mint failed\"); rewardsIssued[msg.sender] += amount; } }",
+        "solutionCode": "调用顺序 -> 接口编码调用 mint -> 检查 ok -> 成功后增加 rewardsIssued。",
+        "testInput": "token 返回 true 和 false 两种情况。",
+        "expectedResult": "true 记账，false 回滚且不增加 rewardsIssued。",
+        "hints": [
+          "先看接口返回值。",
+          "本地写入在外部成功之后。"
+        ]
+      },
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#interfaces",
+        "locator": "Interfaces"
+      }
+    },
+    {
+      "packCardId": "v4-interfaces-complete",
+      "position": 3,
+      "type": "code_complete",
+      "question": "补全 IProgressToken 和 reward，使零 token 地址与 false 返回都失败。",
+      "answer": "接口声明 mint 返回 bool；reward 检查 token != address(0)，调用后 require(ok)。",
+      "keyPoint": "地址边界和外部结果是两层不同检查。",
+      "tags": [
+        "interfaces",
+        "code_complete"
+      ],
+      "code": {
+        "language": "solidity",
+        "starterCode": "interface IProgressToken {\n    // TODO\n}\nfunction reward(address token, uint256 amount) external {\n    // TODO\n}",
+        "solutionCode": "interface IProgressToken { function mint(address to, uint256 amount) external returns (bool); }\nfunction reward(address token, uint256 amount) external {\n    require(token != address(0), \"zero token\");\n    require(IProgressToken(token).mint(msg.sender, amount), \"mint failed\");\n}",
+        "testInput": "token=address(0)，以及 token 返回 false。",
+        "expectedResult": "两种情况都回滚。",
+        "hints": [
+          "接口只写签名。",
+          "require 可以直接检查 bool。"
+        ]
+      },
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#interfaces",
+        "locator": "Interfaces"
+      }
+    },
+    {
+      "packCardId": "v4-interfaces-write",
+      "position": 4,
+      "type": "code_write",
+      "question": "写一个 RewardRouter，constructor 固定 token，owner 才能 distribute。",
+      "answer": "定义 IERC20Like.transfer，constructor 校验并保存 immutable token，distribute 检查 owner 并验证 transfer 返回 true。",
+      "keyPoint": "固定外部依赖、限制调用者、检查返回值组成完整跨合约边界。",
+      "tags": [
+        "interfaces",
+        "code_write"
+      ],
+      "code": {
+        "language": "solidity",
+        "starterCode": "// 完成 RewardRouter：immutable token、owner、distribute\n",
+        "solutionCode": "pragma solidity ^0.8.20;\ninterface IERC20Like { function transfer(address to, uint256 value) external returns (bool); }\ncontract RewardRouter { address public immutable owner; IERC20Like public immutable token; constructor(address tokenAddress) { require(tokenAddress != address(0)); owner = msg.sender; token = IERC20Like(tokenAddress); } function distribute(address to, uint256 amount) external { require(msg.sender == owner, \"not owner\"); require(token.transfer(to, amount), \"transfer failed\"); } }",
+        "testInput": "普通地址和 owner 分别 distribute，token 返回 true/false。",
+        "expectedResult": "权限或 token 失败都回滚，成功才转账。",
+        "hints": [
+          "constructor 固定 token。",
+          "外部返回值必须 require。"
+        ]
+      },
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#interfaces",
+        "locator": "Interfaces"
+      }
+    },
+    {
+      "packCardId": "v4-interfaces-application",
+      "position": 5,
+      "type": "application",
+      "question": "为什么接口应只包含当前需要的函数？",
+      "answer": "最小接口减少耦合和审计面，也不要求调用者了解远端合约的其他实现细节。",
+      "keyPoint": "跨合约依赖越小，替换和测试越容易。",
+      "tags": [
+        "最小接口",
+        "审计",
+        "应用"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#interfaces",
+        "locator": "Interfaces"
+      }
+    },
+    {
+      "packCardId": "v4-interfaces-misconception",
+      "position": 6,
+      "type": "misconception",
+      "question": "误区：地址转成 interface 就证明它实现了接口，为什么不对？",
+      "answer": "类型转换只改变本地 ABI 视图，不验证对方代码；对方仍可能返回 false、异常数据或恶意执行。",
+      "keyPoint": "interface 是编码契约，不是信任证明。",
+      "tags": [
+        "interface",
+        "信任边界",
+        "误区"
+      ],
+      "importance": 4,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#interfaces",
+        "locator": "Interfaces"
+      }
+    }
+  ]
+}

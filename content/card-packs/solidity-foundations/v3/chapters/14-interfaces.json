@@ -1,0 +1,198 @@
+{
+  "chapterId": 13,
+  "position": 13,
+  "slug": "interfaces",
+  "title": "接口与外部调用：只依赖必要的 ABI",
+  "summary": "从接口声明到 IERC20 风格调用，建立跨合约交互和返回值检查习惯。",
+  "estimatedMinutes": 30,
+  "learningObjectives": [
+    "能写只包含函数签名的 interface",
+    "能通过接口调用另一个合约并处理返回值",
+    "能区分 interface、abstract contract 与具体实现"
+  ],
+  "prerequisiteChapterIds": [
+    12
+  ],
+  "cards": [
+    {
+      "packCardId": "v3-interfaces-concept",
+      "position": 0,
+      "type": "concept",
+      "question": "interface 与具体合约相比省略了什么，又保留了什么？",
+      "answer": "interface 只描述可从外部调用的函数和事件签名，不包含实现、构造函数或状态变量；ABI 形状和类型仍然完整。",
+      "keyPoint": "接口是跨合约边界的最小契约，越小越容易替换实现。",
+      "tags": [
+        "interface",
+        "ABI",
+        "外部调用"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#interfaces",
+        "locator": "Interfaces"
+      }
+    },
+    {
+      "packCardId": "v3-interfaces-check",
+      "position": 1,
+      "type": "qa",
+      "question": "调用 IERC20.transfer 后为什么还要检查 bool 返回值？",
+      "answer": "标准接口要求返回 bool，但不同代币实现可能返回 false 而不回滚。忽略返回值会让调用方误以为转账成功。",
+      "keyPoint": "外部合约不是可信函数库，返回值和低级调用结果都必须处理。",
+      "tags": [
+        "IERC20",
+        "返回值",
+        "检查"
+      ],
+      "importance": 4,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#interfaces",
+        "locator": "Interfaces"
+      }
+    },
+    {
+      "packCardId": "v3-interfaces-read",
+      "position": 2,
+      "type": "code_read",
+      "question": "阅读 TokenSpender，调用 spend 时执行了哪些跨合约步骤？",
+      "answer": "先用 IERC20Like(token).transferFrom 从用户授权额度转入本合约，再检查返回值；只有返回 true 才增加 spent 记账。",
+      "keyPoint": "授权、转账和本地记账必须在同一成功路径上保持一致。",
+      "tags": [
+        "读代码",
+        "IERC20",
+        "transferFrom"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#interfaces",
+        "locator": "Interfaces"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "interface IERC20Like { function transferFrom(address from, address to, uint256 value) external returns (bool); } contract TokenSpender { mapping(address => uint256) public spent; function spend(address token, uint256 value) external { bool ok = IERC20Like(token).transferFrom(msg.sender, address(this), value); require(ok, \"token transfer failed\"); spent[msg.sender] += value; } }",
+        "solutionCode": "1. 按 ABI 调用 transferFrom；2. 检查返回值；3. 成功后更新 spent。",
+        "testInput": "用户先 approve 10，再 spend(token, 6)；随后用未授权账户调用。",
+        "expectedResult": "授权账户记账 6；未授权或返回 false 的调用回滚。",
+        "hints": [
+          "先看接口返回值。",
+          "本地状态写入放在外部调用成功之后。"
+        ]
+      }
+    },
+    {
+      "packCardId": "v3-interfaces-complete",
+      "position": 3,
+      "type": "code_complete",
+      "question": "补全 OracleReader，通过 IPriceOracle 接口读取价格并拒绝零价格。",
+      "answer": "接口声明 latestPrice() external view returns (uint256)；读取后 require(price > 0)，再返回 price。",
+      "keyPoint": "接口调用的类型安全来自签名，业务有效性仍要由调用方检查。",
+      "tags": [
+        "interface",
+        "oracle",
+        "补全"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#interfaces",
+        "locator": "Interfaces"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "interface IPriceOracle { /* TODO */ } contract OracleReader { function readPrice(address oracle) external view returns (uint256) { /* TODO */ } }",
+        "solutionCode": "interface IPriceOracle { function latestPrice() external view returns (uint256); } contract OracleReader { function readPrice(address oracle) external view returns (uint256) { uint256 price = IPriceOracle(oracle).latestPrice(); require(price > 0, \"invalid price\"); return price; } }",
+        "testInput": "oracle 返回 2500，再返回 0。",
+        "expectedResult": "2500 正常返回；零价格回滚。",
+        "hints": [
+          "接口函数只写签名和分号。",
+          "外部数据先验证再使用。"
+        ]
+      }
+    },
+    {
+      "packCardId": "v3-interfaces-write",
+      "position": 4,
+      "type": "code_write",
+      "question": "写一个 TreasuryRouter：保存 immutable token 和 receiver，调用 token.transfer 并检查返回值。",
+      "answer": "构造函数设置并校验 token、receiver；send 调用 IERC20Like(token).transfer(receiver, value)，要求返回 true。",
+      "keyPoint": "把外部依赖固定在 constructor，并在每次调用时检查返回值。",
+      "tags": [
+        "interface",
+        "transfer",
+        "写代码"
+      ],
+      "importance": 5,
+      "initialDifficulty": 4,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#interfaces",
+        "locator": "Interfaces"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "// 完成 TreasuryRouter，使用 IERC20Like 接口向 receiver 转账\\n",
+        "solutionCode": "interface IERC20Like { function transfer(address to, uint256 value) external returns (bool); } contract TreasuryRouter { IERC20Like public immutable token; address public immutable receiver; constructor(address tokenAddress, address nextReceiver) { require(tokenAddress != address(0) && nextReceiver != address(0)); token = IERC20Like(tokenAddress); receiver = nextReceiver; } function send(uint256 value) external { require(token.transfer(receiver, value), \"token transfer failed\"); } }",
+        "testInput": "部署后调用 send(25)，模拟 token 返回 true 和 false。",
+        "expectedResult": "返回 true 时完成调用；返回 false 时回滚。",
+        "hints": [
+          "immutable 可以保存接口类型。",
+          "require 可以直接检查 bool 返回值。"
+        ]
+      }
+    },
+    {
+      "packCardId": "v3-interfaces-application",
+      "position": 5,
+      "type": "application",
+      "question": "为什么接口应尽量只包含当前用到的函数，而不是复制完整代币 ABI？",
+      "answer": "最小接口减少耦合和审计面，也能让替换实现更容易。只要函数选择器和编码兼容，调用方不需要知道其他函数。",
+      "keyPoint": "跨合约依赖的最小化是可维护性和安全性的一部分。",
+      "tags": [
+        "最小接口",
+        "耦合",
+        "应用"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#interfaces",
+        "locator": "Interfaces"
+      }
+    },
+    {
+      "packCardId": "v3-interfaces-misconception",
+      "position": 6,
+      "type": "misconception",
+      "question": "误区：把地址强转成 interface 就能证明对方实现了这些函数，为什么不对？",
+      "answer": "类型转换只改变本地 ABI 视图，不会在转换时验证代码。对方可能返回异常数据、false，甚至是恶意实现。",
+      "keyPoint": "interface 提供编码约束，不提供对远端实现的信任背书。",
+      "tags": [
+        "类型转换",
+        "信任边界",
+        "误区"
+      ],
+      "importance": 4,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#interfaces",
+        "locator": "Interfaces"
+      }
+    }
+  ]
+}

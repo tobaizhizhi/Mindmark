@@ -12,3 +12,5 @@ contracts/out/
 !.env.example
 *.log
 *.tsbuildinfo
+/apps/agent-runner/artifacts/
+/apps/web/app/generated-globals.css

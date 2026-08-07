@@ -17,23 +17,13 @@ import type {
   LearningQualityOperationsReport,
   WorkflowOperationsSnapshot,
 } from "@mindmark/shared";
-
-type ApiError = { error?: { message?: string; requestId?: string } };
+import { parseApiResponse } from "@/lib/client/http";
 
 type Metric = {
   label: string;
   value: number;
   tone: "neutral" | "working" | "warning" | "danger" | "success";
 };
-
-async function parseApi<T>(response: Response): Promise<T> {
-  const body = await response.json().catch(() => ({})) as T & ApiError;
-  if (!response.ok) {
-    const reference = body.error?.requestId ? ` (${body.error.requestId})` : "";
-    throw new Error(`${body.error?.message ?? "无法读取运营状态"}${reference}`);
-  }
-  return body;
-}
 
 function percentage(numerator: number, denominator: number) {
   if (denominator === 0) return "-";
@@ -81,7 +71,7 @@ export function OperationsWorkspace() {
   const refresh = useCallback(async (manual = false) => {
     if (manual) setRefreshing(true);
     try {
-      const next = await parseApi<WorkflowOperationsSnapshot>(await fetch("/api/operations", { cache: "no-store" }));
+      const next = await parseApiResponse<WorkflowOperationsSnapshot>(await fetch("/api/operations", { cache: "no-store" }), "无法读取运营状态");
       setSnapshot(next);
       setError(null);
     } catch (caught) {
@@ -90,7 +80,7 @@ export function OperationsWorkspace() {
       if (manual) setRefreshing(false);
     }
     try {
-      const nextQuality = await parseApi<LearningQualityOperationsReport>(await fetch("/api/operations/quality", { cache: "no-store" }));
+      const nextQuality = await parseApiResponse<LearningQualityOperationsReport>(await fetch("/api/operations/quality", { cache: "no-store" }), "无法读取质量汇总");
       setQualityReport(nextQuality);
       setQualityError(null);
     } catch (caught) {
@@ -193,7 +183,7 @@ export function OperationsWorkspace() {
           <section className="operations-section" aria-labelledby="quality-heading">
             <div className="operations-section-heading">
               <div>
-                <p>Learning quality</p>
+                <p>学习质量</p>
                 <h2 id="quality-heading">生成质量与学习者反馈</h2>
               </div>
               {qualityReport ? <span>更新于 {formatTime(qualityReport.generatedAt)}</span> : null}
@@ -248,7 +238,7 @@ export function OperationsWorkspace() {
                 ) : <div className="operations-empty"><Activity /><span>尚无 V3 质量数据</span></div>}
                 {qualityReport.slots.length ? (
                   <>
-                    <div className="quality-subheading"><span>Blueprint slots</span><strong>槽位质量明细</strong><small>{qualityReport.slots.length} 条</small></div>
+                    <div className="quality-subheading"><span>卡片蓝图槽位</span><strong>槽位质量明细</strong><small>{qualityReport.slots.length} 条</small></div>
                     <div className="operations-table-scroll">
                       <table className="operations-table quality-slot-table">
                         <thead>
@@ -277,7 +267,7 @@ export function OperationsWorkspace() {
           <section className="operations-section" aria-labelledby="active-jobs-heading">
             <div className="operations-section-heading">
               <div>
-                <p>Workflow jobs</p>
+                <p>工作流任务</p>
                 <h2 id="active-jobs-heading">待处理与失败任务</h2>
               </div>
               <span>{snapshot.jobs.length} 条</span>
@@ -311,7 +301,7 @@ export function OperationsWorkspace() {
           <section className="operations-section" aria-labelledby="events-heading">
             <div className="operations-section-heading">
               <div>
-                <p>Workflow events</p>
+                <p>工作流事件</p>
                 <h2 id="events-heading">最近运行事件</h2>
               </div>
               <span>{snapshot.events.length} 条</span>

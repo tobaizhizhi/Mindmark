@@ -1,0 +1,198 @@
+{
+  "chapterId": 12,
+  "position": 12,
+  "slug": "inheritance",
+  "title": "继承：复用合约行为并明确 override",
+  "summary": "从基础合约和抽象函数开始，理解 virtual、override 与构造函数参数传递。",
+  "estimatedMinutes": 28,
+  "learningObjectives": [
+    "能编写基础合约和派生合约",
+    "能正确使用 virtual 与 override",
+    "能解释多重继承下的线性化和构造顺序"
+  ],
+  "prerequisiteChapterIds": [
+    11
+  ],
+  "cards": [
+    {
+      "packCardId": "v3-inheritance-concept",
+      "position": 0,
+      "type": "concept",
+      "question": "virtual 和 override 分别表达什么意图？",
+      "answer": "virtual 表示派生合约可以重写该函数；override 表示当前函数正在履行父合约的可重写接口。编译器会检查签名和继承关系。",
+      "keyPoint": "显式标记重写关系能避免父子合约接口悄悄漂移。",
+      "tags": [
+        "继承",
+        "virtual",
+        "override"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#inheritance",
+        "locator": "Inheritance"
+      }
+    },
+    {
+      "packCardId": "v3-inheritance-check",
+      "position": 1,
+      "type": "qa",
+      "question": "抽象合约为什么不能直接部署，而派生合约可以？",
+      "answer": "抽象合约包含未实现的 virtual 函数或 abstract 函数，编译器无法生成完整行为；派生合约实现全部要求后才具备可部署代码。",
+      "keyPoint": "抽象层定义契约，具体层提供可执行实现。",
+      "tags": [
+        "abstract",
+        "部署",
+        "接口"
+      ],
+      "importance": 4,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#inheritance",
+        "locator": "Inheritance"
+      }
+    },
+    {
+      "packCardId": "v3-inheritance-read",
+      "position": 2,
+      "type": "code_read",
+      "question": "阅读 BaseCounter 和 BonusCounter，调用 increment 后 count 与 bonus 如何变化？",
+      "answer": "BonusCounter 的 increment 通过 override 替换父实现，只把 count 增加 2；父函数不会自动额外执行，除非显式调用 super.increment()。",
+      "keyPoint": "override 是替换关系，是否保留父行为必须在代码中明确写出。",
+      "tags": [
+        "读代码",
+        "super",
+        "override"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#inheritance",
+        "locator": "Inheritance"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "contract BaseCounter { uint256 public count; function increment() public virtual { count += 1; } } contract BonusCounter is BaseCounter { uint256 public bonus; function increment() public override { count += 2; bonus += 1; } }",
+        "solutionCode": "increment() 后：count 增加 2，bonus 增加 1；父实现不会隐式执行。",
+        "testInput": "部署 BonusCounter，调用 increment 一次。",
+        "expectedResult": "count=2，bonus=1。",
+        "hints": [
+          "看 override 函数体。",
+          "父实现不会自动叠加。"
+        ]
+      }
+    },
+    {
+      "packCardId": "v3-inheritance-complete",
+      "position": 3,
+      "type": "code_complete",
+      "question": "补全 PausableCounter 的 override，使暂停时不能递增并保留父合约逻辑。",
+      "answer": "在 override 函数中先 require(!paused)，再调用 super.increment()。",
+      "keyPoint": "重写可以增加前置条件，但要确认不破坏父合约承诺。",
+      "tags": [
+        "override",
+        "super",
+        "补全"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#inheritance",
+        "locator": "Inheritance"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "contract BaseCounter { uint256 public count; function increment() public virtual { count += 1; } } contract PausableCounter is BaseCounter { bool public paused; function setPaused(bool next) external { paused = next; } function increment() public override { /* TODO */ } }",
+        "solutionCode": "function increment() public override { require(!paused, \"paused\"); super.increment(); }",
+        "testInput": "暂停后调用 increment，再恢复后调用。",
+        "expectedResult": "暂停时回滚；恢复后 count 增加 1。",
+        "hints": [
+          "先检查 paused。",
+          "用 super.increment() 复用父实现。"
+        ]
+      }
+    },
+    {
+      "packCardId": "v3-inheritance-write",
+      "position": 4,
+      "type": "code_write",
+      "question": "写一个 LedgerBase 与 RewardLedger：基础合约提供 virtual record，派生合约在记录后累计 points。",
+      "answer": "LedgerBase 保存 entries 并实现 virtual record；RewardLedger override 后先 super.record(value)，再 points[msg.sender] += value / 10。",
+      "keyPoint": "把通用状态写入留在父层，把奖励策略留在派生层。",
+      "tags": [
+        "继承",
+        "super",
+        "写代码"
+      ],
+      "importance": 5,
+      "initialDifficulty": 4,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#inheritance",
+        "locator": "Inheritance"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "// 完成 LedgerBase 和 RewardLedger，record(100) 应让 points 增加 10\\n",
+        "solutionCode": "contract LedgerBase { mapping(address => uint256) public entries; function record(uint256 value) public virtual { entries[msg.sender] += value; } } contract RewardLedger is LedgerBase { mapping(address => uint256) public points; function record(uint256 value) public override { super.record(value); points[msg.sender] += value / 10; } }",
+        "testInput": "A 调用 record(100)，B 调用 record(9)。",
+        "expectedResult": "entries[A]=100、points[A]=10；entries[B]=9、points[B]=0。",
+        "hints": [
+          "先调用父实现。",
+          "整数除法会向下取整。"
+        ]
+      }
+    },
+    {
+      "packCardId": "v3-inheritance-application",
+      "position": 5,
+      "type": "application",
+      "question": "什么时候继承会让合约设计变复杂，应该改用组合？",
+      "answer": "当父合约带来大量状态、权限或不可替换行为时，继承会扩大审计范围并产生线性化细节。若只需调用独立组件，组合通常更容易测试。",
+      "keyPoint": "继承表达稳定的 is-a 关系，组合表达可替换的 has-a 依赖。",
+      "tags": [
+        "组合",
+        "架构",
+        "应用"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#inheritance",
+        "locator": "Inheritance"
+      }
+    },
+    {
+      "packCardId": "v3-inheritance-misconception",
+      "position": 6,
+      "type": "misconception",
+      "question": "误区：派生合约可以 override 任意父函数，为什么不行？",
+      "answer": "父函数必须声明 virtual，签名、可见性和状态可变性也必须兼容；private 函数不参与继承重写。",
+      "keyPoint": "override 受编译器契约约束。",
+      "tags": [
+        "override",
+        "private",
+        "误区"
+      ],
+      "importance": 4,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#inheritance",
+        "locator": "Inheritance"
+      }
+    }
+  ]
+}

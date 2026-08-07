@@ -1,0 +1,196 @@
+{
+  "chapterId": 0,
+  "position": 0,
+  "slug": "hello-web3",
+  "title": "Hello Web3：三行合约与 Remix",
+  "summary": "先建立合约、编译、部署、调用的完整心智模型，不急着背语法细节。",
+  "estimatedMinutes": 18,
+  "learningObjectives": [
+    "能解释 pragma、contract 和状态变量的作用",
+    "能在 Remix 编译并部署一个最小合约",
+    "能区分部署交易和之后的函数调用"
+  ],
+  "prerequisiteChapterIds": [],
+  "cards": [
+    {
+      "packCardId": "v3-hello-web3-concept",
+      "position": 0,
+      "type": "concept",
+      "question": "一份最小 Solidity 合约为什么至少需要 pragma 和 contract 两个层次？",
+      "answer": "pragma 告诉编译器期望的语言版本范围；contract 定义部署到链上的代码和状态边界。编译只产出字节码和 ABI，部署交易才会创建链上实例。",
+      "keyPoint": "先理解源代码 -> 编译产物 -> 部署实例，再继续学习函数和数据结构。",
+      "tags": [
+        "pragma",
+        "contract",
+        "Remix"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/structure-of-a-contract.html",
+        "locator": "Structure of a Contract"
+      }
+    },
+    {
+      "packCardId": "v3-hello-web3-check",
+      "position": 1,
+      "type": "qa",
+      "question": "在 Remix 中点击 Deploy 后，为什么还要在 Deployed Contracts 面板点击函数？",
+      "answer": "Deploy 只执行构造和创建合约实例；之后的函数调用是对已部署实例发起的新消息或交易。读函数可能是 eth_call，写函数通常会产生交易。",
+      "keyPoint": "部署不是自动执行所有函数，合约状态只会被实际执行的路径改变。",
+      "tags": [
+        "部署",
+        "ABI",
+        "交易"
+      ],
+      "importance": 4,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/structure-of-a-contract.html",
+        "locator": "Structure of a Contract"
+      }
+    },
+    {
+      "packCardId": "v3-hello-web3-read",
+      "position": 2,
+      "type": "code_read",
+      "question": "阅读这份 HelloWeb3 合约：部署和调用 getMessage 分别会发生什么？",
+      "answer": "部署时 message 被初始化为 Hello Web3；getMessage 是 view 读取函数，不修改状态，前端可以通过 eth_call 读取它。",
+      "keyPoint": "view 读取不等于没有 ABI；调用者仍需选择正确的合约实例和函数。",
+      "tags": [
+        "读代码",
+        "view",
+        "状态"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/structure-of-a-contract.html",
+        "locator": "Structure of a Contract"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "pragma solidity ^0.8.20;\ncontract HelloWeb3 {\n    string public message = \"Hello Web3\";\n\n    function getMessage() external view returns (string memory) {\n        return message;\n    }\n}",
+        "solutionCode": "pragma solidity ^0.8.20;\ncontract HelloWeb3 {\n    string public message = \"Hello Web3\";\n\n    function getMessage() external view returns (string memory) {\n        return message;\n    }\n}",
+        "testInput": "部署合约，然后调用 getMessage。",
+        "expectedResult": "返回 Hello Web3，状态变量不改变。",
+        "hints": [
+          "先看状态变量初始化值。",
+          "view 函数不会写 storage。"
+        ]
+      }
+    },
+    {
+      "packCardId": "v3-hello-web3-complete",
+      "position": 3,
+      "type": "code_complete",
+      "question": "补全 setMessage，让调用者可以更新 message。",
+      "answer": "函数需要接收 string calldata，并把它赋给状态变量。因为会写状态，不能声明 view 或 pure。",
+      "keyPoint": "第一步写状态函数时，先识别输入位置和状态写入，再决定可见性。",
+      "tags": [
+        "string",
+        "calldata",
+        "补全"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/structure-of-a-contract.html",
+        "locator": "Structure of a Contract"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "contract HelloWeb3 {\n    string public message;\n\n    function setMessage(string calldata next) external {\n        // TODO\n    }\n}",
+        "solutionCode": "contract HelloWeb3 {\n    string public message;\n\n    function setMessage(string calldata next) external {\n        message = next;\n    }\n}",
+        "testInput": "调用 setMessage(\"学习 Solidity\")，再读取 message。",
+        "expectedResult": "读取结果变为 学习 Solidity。",
+        "hints": [
+          "next 是 calldata 输入。",
+          "直接给状态变量赋值。"
+        ]
+      }
+    },
+    {
+      "packCardId": "v3-hello-web3-write",
+      "position": 4,
+      "type": "code_write",
+      "question": "独立写一个 Counter 合约：包含 public count 和 increment 函数。",
+      "answer": "状态变量用 uint256，increment 外部调用时执行 count += 1。先写最小可运行版本，再考虑事件和权限。",
+      "keyPoint": "能独立写出可编译的最小闭环，比一次引入所有高级模式更重要。",
+      "tags": [
+        "Counter",
+        "uint256",
+        "写代码"
+      ],
+      "importance": 5,
+      "initialDifficulty": 4,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/structure-of-a-contract.html",
+        "locator": "Structure of a Contract"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "// 从 pragma 和 contract 开始，完成一个可递增的计数器\n",
+        "solutionCode": "pragma solidity ^0.8.20;\ncontract Counter {\n    uint256 public count;\n\n    function increment() external {\n        count += 1;\n    }\n}",
+        "testInput": "部署后调用 increment 三次。",
+        "expectedResult": "count 为 3。",
+        "hints": [
+          "状态变量需要 public 方便读取。",
+          "函数写状态时不使用 view。"
+        ]
+      }
+    },
+    {
+      "packCardId": "v3-hello-web3-application",
+      "position": 5,
+      "type": "application",
+      "question": "为什么本课程先要求在 Remix 里部署并调用，而不是直接讲 gas 优化？",
+      "answer": "初学者先要建立 ABI、账户、交易、状态和读取的反馈闭环。没有这个闭环，后面看到 payable、事件或重入时很难判断代码究竟在链上做了什么。",
+      "keyPoint": "先形成可观察的执行模型，再增加语言和安全复杂度。",
+      "tags": [
+        "学习路径",
+        "Remix",
+        "执行模型"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/structure-of-a-contract.html",
+        "locator": "Structure of a Contract"
+      }
+    },
+    {
+      "packCardId": "v3-hello-web3-misconception",
+      "position": 6,
+      "type": "misconception",
+      "question": "误区：Solidity 文件编译成功就说明合约已经存在于链上，为什么错误？",
+      "answer": "编译只在本地生成 bytecode 和 ABI，链上实例要通过部署交易创建，并且需要确认交易所在网络和地址。",
+      "keyPoint": "编译、部署、调用是三个不同状态，调试时要分别确认。",
+      "tags": [
+        "编译",
+        "部署",
+        "误区"
+      ],
+      "importance": 4,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/structure-of-a-contract.html",
+        "locator": "Structure of a Contract"
+      }
+    }
+  ]
+}

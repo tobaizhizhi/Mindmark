@@ -1,0 +1,212 @@
+{
+  "chapterId": 5,
+  "position": 5,
+  "slug": "data-locations",
+  "title": "06 数据位置：storage、memory、calldata",
+  "summary": "在数组基础上理解引用类型的存储位置，再进入循环和结构体。",
+  "estimatedMinutes": 28,
+  "learningObjectives": [
+    "能解释 storage、memory、calldata 的生命周期",
+    "能判断参数是否应使用 calldata",
+    "能识别 storage 引用导致的原地修改"
+  ],
+  "prerequisiteChapterIds": [
+    4
+  ],
+  "stageId": 1,
+  "stageTitle": "阶段二：组织数据",
+  "newConcepts": [
+    "storage",
+    "memory",
+    "calldata",
+    "引用类型复制"
+  ],
+  "prerequisiteConcepts": [
+    "数组",
+    "view",
+    "pure",
+    "return",
+    "string"
+  ],
+  "practiceFocus": "只使用 uint 数组作为例子，暂不引入 mapping 和权限。",
+  "projectMilestone": "为 Registry 添加临时排序和只读数组摘要能力。",
+  "cards": [
+    {
+      "packCardId": "v4-data-locations-concept",
+      "position": 0,
+      "type": "concept",
+      "question": "storage、memory 和 calldata 的核心差异是什么？",
+      "answer": "storage 是持久链上状态；memory 是一次调用期间可修改的临时内存；calldata 是外部输入的只读区域。选择位置会影响生命周期、可修改性和 gas。",
+      "keyPoint": "引用类型必须同时回答‘放在哪里’和‘能否修改’。",
+      "tags": [
+        "storage",
+        "memory",
+        "calldata"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html#data-location",
+        "locator": "Data location"
+      }
+    },
+    {
+      "packCardId": "v4-data-locations-check",
+      "position": 1,
+      "type": "qa",
+      "question": "为什么外部函数的数组参数通常使用 calldata？",
+      "answer": "calldata 直接引用调用输入且只读，避免不必要的复制；若需要修改，才复制到 memory。",
+      "keyPoint": "只读输入优先使用 calldata 表达意图。",
+      "tags": [
+        "calldata",
+        "数组",
+        "gas"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html#data-location",
+        "locator": "Data location"
+      }
+    },
+    {
+      "packCardId": "v4-data-locations-read",
+      "position": 2,
+      "type": "code_read",
+      "question": "判断 mutate 与 inspect 是否会改变状态数组。",
+      "answer": "mutate 使用 storage 引用，修改 temp[0] 会直接改写 storage；inspect 使用 calldata，只读取输入，不影响状态。",
+      "keyPoint": "storage 引用不是副本，修改会落到链上状态。",
+      "tags": [
+        "data-locations",
+        "code_read"
+      ],
+      "code": {
+        "language": "solidity",
+        "starterCode": "uint256[] public values;\nfunction mutate() external { uint256[] storage temp = values; temp.push(7); }\nfunction inspect(uint256[] calldata input) external pure returns (uint256) { return input[0]; }",
+        "solutionCode": "mutate -> 改变 values；inspect -> 只读 calldata，不改变状态。",
+        "testInput": "调用 mutate，再 inspect([9])。",
+        "expectedResult": "values 长度增加；inspect 返回 9。",
+        "hints": [
+          "看到 storage 就问是否是原地引用。",
+          "calldata 只读。"
+        ]
+      },
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html#data-location",
+        "locator": "Data location"
+      }
+    },
+    {
+      "packCardId": "v4-data-locations-complete",
+      "position": 3,
+      "type": "code_complete",
+      "question": "补全 copyFirst，把 calldata 数组复制到 memory 后返回首元素。",
+      "answer": "声明 uint256[] memory local = input，再 return local[0]；这里复制后仍只读。",
+      "keyPoint": "显式复制能把外部输入带入可修改的 memory 生命周期。",
+      "tags": [
+        "data-locations",
+        "code_complete"
+      ],
+      "code": {
+        "language": "solidity",
+        "starterCode": "function copyFirst(uint256[] calldata input) external pure returns (uint256) {\n    // TODO\n}",
+        "solutionCode": "function copyFirst(uint256[] calldata input) external pure returns (uint256) {\n    uint256[] memory local = input;\n    return local[0];\n}",
+        "testInput": "copyFirst([4, 8])。",
+        "expectedResult": "返回 4。",
+        "hints": [
+          "calldata 可以复制到 memory。",
+          "访问 local[0]。"
+        ]
+      },
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html#data-location",
+        "locator": "Data location"
+      }
+    },
+    {
+      "packCardId": "v4-data-locations-write",
+      "position": 4,
+      "type": "code_write",
+      "question": "写一个 MemorySort 的 firstGreater，使用 calldata 输入和纯函数返回第一个大于 threshold 的值。",
+      "answer": "遍历 calldata 数组，找到 values[i] > threshold 后 return；没有找到时返回 0。",
+      "keyPoint": "先练习只读遍历，下一章再单独学习循环边界和数组修改。",
+      "tags": [
+        "data-locations",
+        "code_write"
+      ],
+      "code": {
+        "language": "solidity",
+        "starterCode": "// 写出 firstGreater(uint256[] calldata values, uint256 threshold)\n",
+        "solutionCode": "pragma solidity ^0.8.20;\ncontract MemorySort {\n    function firstGreater(uint256[] calldata values, uint256 threshold) external pure returns (uint256) {\n        for (uint256 i = 0; i < values.length; i++) {\n            if (values[i] > threshold) return values[i];\n        }\n        return 0;\n    }\n}",
+        "testInput": "firstGreater([2, 5, 9], 4)。",
+        "expectedResult": "返回 5。",
+        "hints": [
+          "参数使用 calldata。",
+          "找到后立即 return。"
+        ]
+      },
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html#data-location",
+        "locator": "Data location"
+      }
+    },
+    {
+      "packCardId": "v4-data-locations-application",
+      "position": 5,
+      "type": "application",
+      "question": "为什么数据位置是 Solidity 初学者最容易混淆的主题之一？",
+      "answer": "同一个数组类型在 storage、memory、calldata 中有不同生命周期和副作用；把其他语言的‘变量就是副本’直觉直接搬过来会产生状态漏洞。",
+      "keyPoint": "先通过小数组实验观察副作用，再进入复杂结构。",
+      "tags": [
+        "数据位置",
+        "副作用",
+        "应用"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html#data-location",
+        "locator": "Data location"
+      }
+    },
+    {
+      "packCardId": "v4-data-locations-misconception",
+      "position": 6,
+      "type": "misconception",
+      "question": "误区：memory 数组的修改会永久写入链上，为什么不对？",
+      "answer": "memory 只在当前调用执行期间存在，函数结束后消失；只有把结果写回 storage 才会持久化。",
+      "keyPoint": "临时计算和持久状态必须明确分开。",
+      "tags": [
+        "memory",
+        "storage",
+        "误区"
+      ],
+      "importance": 4,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html#data-location",
+        "locator": "Data location"
+      }
+    }
+  ]
+}

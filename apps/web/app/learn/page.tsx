@@ -3,7 +3,7 @@ import { DocumentLibraryWorkspace } from "@/components/document-library-workspac
 
 export const metadata: Metadata = {
   title: "资料和文件夹 | Mindmark",
-  description: "整理 PDF 资料，从章节进入知识卡学习。",
+  description: "整理上传资料和预置卡包，从章节进入知识卡学习。",
 };
 
 export default function LearnPage() {

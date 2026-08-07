@@ -1,0 +1,211 @@
+{
+  "chapterId": 2,
+  "position": 2,
+  "slug": "function-signatures",
+  "title": "03 函数签名：让合约能够被调用",
+  "summary": "先学习参数、返回值和可见性，再学习函数能否读写状态。",
+  "estimatedMinutes": 24,
+  "learningObjectives": [
+    "能写带值类型参数的函数签名",
+    "能区分 external、public、internal、private 的入口范围",
+    "能按 ABI 顺序传参与接收返回值"
+  ],
+  "prerequisiteChapterIds": [
+    1
+  ],
+  "stageId": 0,
+  "stageTitle": "阶段一：看见合约",
+  "newConcepts": [
+    "function",
+    "参数",
+    "external/public",
+    "返回值签名",
+    "msg.sender 上下文"
+  ],
+  "prerequisiteConcepts": [
+    "uint/int",
+    "address",
+    "public getter"
+  ],
+  "practiceFocus": "函数只接受和返回值类型，暂时不使用 mapping、struct 或 payable。",
+  "projectMilestone": "为 Registry 增加 rename、setLimit 和 readSummary 接口。",
+  "cards": [
+    {
+      "packCardId": "v4-function-signatures-concept",
+      "position": 0,
+      "type": "concept",
+      "question": "函数签名中的可见性解决什么问题？",
+      "answer": "可见性规定函数能否从外部消息调用、能否被内部代码调用；它不自动表示业务权限，external 函数仍可能被任何地址调用。",
+      "keyPoint": "入口范围和调用资格必须分开设计。",
+      "tags": [
+        "function",
+        "external",
+        "ABI"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#functions",
+        "locator": "Function Visibility and Function Types"
+      }
+    },
+    {
+      "packCardId": "v4-function-signatures-check",
+      "position": 1,
+      "type": "qa",
+      "question": "为什么同一个函数的参数顺序必须稳定？",
+      "answer": "ABI 按签名和参数顺序编码 calldata；顺序改变会改变函数选择器后的数据布局，调用者就会得到错误或回滚。",
+      "keyPoint": "ABI 是跨前端和合约边界的严格契约。",
+      "tags": [
+        "ABI",
+        "参数",
+        "调用"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#functions",
+        "locator": "Function Visibility and Function Types"
+      }
+    },
+    {
+      "packCardId": "v4-function-signatures-read",
+      "position": 2,
+      "type": "code_read",
+      "question": "判断 Registry API 中哪些函数可以从浏览器直接调用。",
+      "answer": "external 和 public 都能被外部调用；internal 和 private 只能从合约内部路径调用。",
+      "keyPoint": "先看可见性，再看函数体的状态影响。",
+      "tags": [
+        "function-signatures",
+        "code_read"
+      ],
+      "code": {
+        "language": "solidity",
+        "starterCode": "function rename(string calldata next) external { }\nfunction currentName() public view returns (string memory) { }\nfunction helper() internal pure returns (uint256) { return 1; }\nfunction secret() private pure returns (uint256) { return 2; }",
+        "solutionCode": "浏览器可直接调用 rename 和 currentName；helper、secret 没有外部入口。",
+        "testInput": "在 Remix 的 ABI 面板查看函数。",
+        "expectedResult": "只出现 external/public 函数。",
+        "hints": [
+          "public/external 是外部可见性。",
+          "private 不是隐私。"
+        ]
+      },
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#functions",
+        "locator": "Function Visibility and Function Types"
+      }
+    },
+    {
+      "packCardId": "v4-function-signatures-complete",
+      "position": 3,
+      "type": "code_complete",
+      "question": "补全 rename，让它接收 string calldata 并写入 name。",
+      "answer": "函数参数使用 string calldata next，函数体执行 name = next。",
+      "keyPoint": "复杂类型的 data location 会在下一章详细展开，这里先照模板使用 calldata。",
+      "tags": [
+        "function-signatures",
+        "code_complete"
+      ],
+      "code": {
+        "language": "solidity",
+        "starterCode": "string public name;\nfunction rename(/* TODO */) external {\n    // TODO\n}",
+        "solutionCode": "string public name;\nfunction rename(string calldata next) external {\n    name = next;\n}",
+        "testInput": "rename(\"Alice\") 后读取 name。",
+        "expectedResult": "返回 Alice。",
+        "hints": [
+          "参数类型写 string calldata。",
+          "写入状态变量 name。"
+        ]
+      },
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#functions",
+        "locator": "Function Visibility and Function Types"
+      }
+    },
+    {
+      "packCardId": "v4-function-signatures-write",
+      "position": 4,
+      "type": "code_write",
+      "question": "写一个 Summary 合约，提供 setValues(uint256,uint256) 和 values() 返回两个值。",
+      "answer": "保存 first、second；setValues 写入它们；values 声明 returns (uint256,uint256) 并按顺序返回。",
+      "keyPoint": "函数签名把输入输出固定下来，后续才能组合调用。",
+      "tags": [
+        "function-signatures",
+        "code_write"
+      ],
+      "code": {
+        "language": "solidity",
+        "starterCode": "// 写出两个状态变量、写函数和双返回值读取函数\n",
+        "solutionCode": "pragma solidity ^0.8.20;\ncontract Summary {\n    uint256 public first;\n    uint256 public second;\n    function setValues(uint256 a, uint256 b) external { first = a; second = b; }\n    function values() external view returns (uint256, uint256) { return (first, second); }\n}",
+        "testInput": "setValues(3, 8)，再调用 values。",
+        "expectedResult": "返回 (3, 8)。",
+        "hints": [
+          "返回值用 returns 声明。",
+          "顺序必须和签名一致。"
+        ]
+      },
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#functions",
+        "locator": "Function Visibility and Function Types"
+      }
+    },
+    {
+      "packCardId": "v4-function-signatures-application",
+      "position": 5,
+      "type": "application",
+      "question": "为什么先学函数签名，再学状态可变性？",
+      "answer": "签名先解决‘怎么调用’；view、pure、payable 再解决‘调用会不会读写状态或接收价值’，分层后错误更容易定位。",
+      "keyPoint": "把 API 形状和执行效果拆开学习。",
+      "tags": [
+        "学习路径",
+        "API",
+        "应用"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#functions",
+        "locator": "Function Visibility and Function Types"
+      }
+    },
+    {
+      "packCardId": "v4-function-signatures-misconception",
+      "position": 6,
+      "type": "misconception",
+      "question": "误区：external 就等于只有管理员可以调用，为什么错误？",
+      "answer": "external 只说明可以从外部消息入口调用，任何地址都可能发起调用；管理员资格需要后续的权限检查。",
+      "keyPoint": "可见性不是授权。",
+      "tags": [
+        "external",
+        "授权",
+        "误区"
+      ],
+      "importance": 4,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#functions",
+        "locator": "Function Visibility and Function Types"
+      }
+    }
+  ]
+}

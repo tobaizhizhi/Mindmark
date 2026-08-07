@@ -33,6 +33,51 @@ function cleanStructuralPrefix(value: string): string {
   return normalizeSourceText(value).replace(/^#{1,6}\s+/u, "").trim();
 }
 
+function normalizedHeadingKey(value: string): string {
+  return normalizeSourceText(value)
+    .replace(/^#{1,6}\s+/u, "")
+    .replace(/^第\s*[0-9一二三四五六七八九十百千万两]+\s*(?:章|节|篇|部|单元)\s*/u, "")
+    .replace(/^(?:chapter|unit|part|section)\s+[0-9ivxlcdm]+\s*/iu, "")
+    .replace(/^(?:\d+(?:\.\d+){0,3}|[一二三四五六七八九十百千万两]+)\s*[.)、:：）]?\s*/u, "")
+    .replace(/\s+/gu, "")
+    .toLocaleLowerCase();
+}
+
+function implicitContentsPages(blocks: SourceBlock[]): Set<number> {
+  const headingsByPage = new Map<number, string[]>();
+  for (const block of blocks) {
+    if (block.kind !== "heading" || block.headingLevel === null || !isUsableHeading(block.text)) continue;
+    const titles = headingsByPage.get(block.pageNumber) ?? [];
+    titles.push(normalizedHeadingKey(block.text));
+    headingsByPage.set(block.pageNumber, titles);
+  }
+  const pages = [...new Set(blocks.map((block) => block.pageNumber))].sort((left, right) => left - right);
+  const contentsPages = new Set<number>();
+  for (const [pageIndex, pageNumber] of pages.entries()) {
+    const headings = [...new Set(headingsByPage.get(pageNumber) ?? [])].filter(Boolean);
+    if (headings.length < 6) continue;
+    const pageBlockCount = blocks.filter((block) => block.pageNumber === pageNumber).length;
+    if (headings.length / Math.max(1, pageBlockCount) < 0.3) continue;
+    const laterHeadings = new Set(
+      pages
+        .slice(pageIndex + 1)
+        .flatMap((laterPage) => headingsByPage.get(laterPage) ?? []),
+    );
+    const repeated = headings.filter((heading) => laterHeadings.has(heading)).length;
+    if (repeated >= 4 && repeated / headings.length >= 0.5) contentsPages.add(pageNumber);
+  }
+  return contentsPages;
+}
+
+function isUsableHeading(value: string): boolean {
+  const text = cleanStructuralPrefix(value);
+  return text.length >= 2
+    && text.length <= 160
+    && !classifyStandaloneSourceText(text)
+    && !/[。！？!?；;]/u.test(text)
+    && !/^\d+(?:\s*[+\-−×÷=]\s*\d+)+/u.test(text);
+}
+
 export function classifyStandaloneSourceText(rawText: string): SourceTextExclusion | null {
   const text = cleanStructuralPrefix(rawText);
   const compact = text.replace(/\s+/gu, "");
@@ -45,8 +90,8 @@ export function classifyStandaloneSourceText(rawText: string): SourceTextExclusi
   if (text.length <= 600 && /(?:版权所有|copyright|未经许可|保留所有权利|免责声明|©|®)/iu.test(text)) {
     return { category: "COPYRIGHT", reason: "内容为版权或免责声明" };
   }
-  const examScope = /(?:考\s*纲|考试大纲|大纲|考点|命题|题型|分值)/u.test(compact);
-  const changeAction = /(?:变化|变动|调整|更新|修订|新增|增加|删除|移除|取消|趋势)/u.test(compact);
+  const examScope = /(?:考\s*纲|考试大纲|大纲|考点|考试范围|考试内容|考试章节|考试科目|命题|题型|分值|考查范围|可考查|参考自|仅作参考|拓展内容)/u.test(compact);
+  const changeAction = /(?:变化|变动|改动|改版|调整|更新|修订|增补|新增|增加|删减|删除|移除|取消|趋势)/u.test(compact);
   if (
     text.length <= 600
     && (
@@ -176,6 +221,7 @@ export function mergeSourceExclusionRanges(
 
 export function classifySourceExclusions(rawBlocks: SourceBlock[]): SourceExclusionRange[] {
   const blocks = SourceBlockSchema.array().min(1).parse(rawBlocks);
+  const contentsPages = implicitContentsPages(blocks);
   const pageCount = new Set(blocks.map((block) => block.pageNumber)).size;
   const repeatedThreshold = pageCount >= 3 ? Math.max(2, Math.ceil(pageCount * 0.3)) : 3;
   const textPages = new Map<string, Set<number>>();
@@ -192,7 +238,20 @@ export function classifySourceExclusions(rawBlocks: SourceBlock[]): SourceExclus
   );
   const classified: ClassifiedBlock[] = [];
   let activeSection: { headingLevel: number; classification: SourceTextExclusion } | null = null;
+  let previousPage: number | null = null;
   for (const block of blocks) {
+    if (previousPage !== null && block.pageNumber !== previousPage && contentsPages.has(previousPage)) {
+      activeSection = null;
+    }
+    previousPage = block.pageNumber;
+    if (contentsPages.has(block.pageNumber)) {
+      classified.push({
+        blockIndex: block.blockIndex,
+        category: "TABLE_OF_CONTENTS",
+        reason: "页面密集列出后文重复标题，判定为隐式目录页",
+      });
+      continue;
+    }
     if (
       block.kind === "heading"
       && block.headingLevel !== null

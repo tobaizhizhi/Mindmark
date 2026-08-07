@@ -36,8 +36,10 @@ export interface ProjectRegistryV2Store {
 }
 
 export class SupabaseProjectRegistryV2Store implements ProjectRegistryV2Store {
+  constructor(private readonly client = getSupabaseAdmin()) {}
+
   async findOwned(projectId: Hex, owner: `0x${string}`): Promise<StoredProjectV2 | null> {
-    const { data, error } = await getSupabaseAdmin()
+    const { data, error } = await this.client
       .from("learning_projects")
       .select(
         "project_id,owner_address,source_hash,goal_hash,outline_hash,work_unit_manifest_root,outline_version,status,create_tx_hash,chapters(count),work_units(count)",
@@ -59,7 +61,7 @@ export class SupabaseProjectRegistryV2Store implements ProjectRegistryV2Store {
   }
 
   async recordCreateTransaction(projectId: Hex, owner: `0x${string}`, txHash: Hex): Promise<void> {
-    const { data, error } = await getSupabaseAdmin()
+    const { data, error } = await this.client
       .from("learning_projects")
       .update({ create_tx_hash: txHash })
       .eq("project_id", projectId)
@@ -72,9 +74,11 @@ export class SupabaseProjectRegistryV2Store implements ProjectRegistryV2Store {
   }
 
   async markCreated(projectId: Hex, owner: `0x${string}`, txHash: Hex): Promise<void> {
-    const { data, error } = await getSupabaseAdmin()
+    const { data, error } = await this.client
       .from("learning_projects")
-      .update({ status: "GENERATING", create_tx_hash: txHash })
+      // Registry confirmation is not Sponsor Escrow funding. The Runner must
+      // reconcile and fund the Project before any Work Unit can generate.
+      .update({ create_tx_hash: txHash })
       .eq("project_id", projectId)
       .eq("owner_address", owner)
       .in("status", ["AWAITING_REGISTRY", "GENERATING"])

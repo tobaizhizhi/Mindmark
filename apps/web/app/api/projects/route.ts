@@ -1,6 +1,6 @@
 import { requireWalletSession } from "@/lib/server/auth";
 import { jsonError } from "@/lib/server/http";
-import { listProjectsForOwner } from "@/lib/server/projects";
+import { listProjectsForOwner } from "@/lib/server/project-lifecycle/queries";
 
 export async function GET() {
   try {

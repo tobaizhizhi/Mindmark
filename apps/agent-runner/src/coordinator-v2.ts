@@ -1,6 +1,11 @@
-import type { OutlinePlanningAgent } from "./outline-planning-agent.js";
 import type { ProjectRegistryGatewayV2 } from "./types-v2.js";
-import type { ProjectWorkflowDispatcherV2 } from "./workflow-dispatcher-v2.js";
+import type { WorkflowJobKindV2 } from "./types-v2.js";
+
+type CoordinatorOptions = {
+  pollIntervalMs?: number;
+  maxWorkflowJobsPerRun?: number;
+  startupRetryDelayMs?: number;
+};
 
 export type ProjectRunnerTick = {
   recoveredWorkflowJobs: number;
@@ -9,21 +14,26 @@ export type ProjectRunnerTick = {
   errors: unknown[];
 };
 
+/** The only seam the coordinator needs for the recover-and-dispatch loop. */
+export interface WorkflowQueueRunnerV2 {
+  recoverStaleJobs(): Promise<number>;
+  runNextDetailed(): Promise<WorkflowJobKindV2 | null>;
+}
+
 export class ProjectCoordinatorV2 {
   private pollTimer: NodeJS.Timeout | null = null;
   private tickInProgress = false;
+  private readonly workflowDispatcher: WorkflowQueueRunnerV2;
+  private readonly options: CoordinatorOptions;
 
   constructor(
     private readonly registry: Pick<ProjectRegistryGatewayV2, "assertConfiguredWallets">,
-    private readonly outlinePlanner: OutlinePlanningAgent,
-    private readonly workflowDispatcher: ProjectWorkflowDispatcherV2,
-    private readonly options: {
-      pollIntervalMs?: number;
-      maxOutlinePlansPerRun?: number;
-      maxWorkflowJobsPerRun?: number;
-      startupRetryDelayMs?: number;
-    } = {},
-  ) {}
+    workflowDispatcher: WorkflowQueueRunnerV2,
+    options?: CoordinatorOptions,
+  ) {
+    this.workflowDispatcher = workflowDispatcher;
+    this.options = options ?? {};
+  }
 
   async start(): Promise<void> {
     await this.assertConfiguredWallets();
@@ -48,18 +58,12 @@ export class ProjectCoordinatorV2 {
     } catch (error) {
       tick.errors.push(error);
     }
-    for (let index = 0; index < (this.options.maxOutlinePlansPerRun ?? 4); index += 1) {
-      try {
-        if (!(await this.outlinePlanner.runNext())) break;
-        tick.plannedOutlines += 1;
-      } catch (error) {
-        tick.errors.push(error);
-        break;
-      }
-    }
+    // All Workflow Jobs, including PLAN_OUTLINE, use the same claim/complete/retry path.
     for (let index = 0; index < (this.options.maxWorkflowJobsPerRun ?? 64); index += 1) {
       try {
-        if (!(await this.workflowDispatcher.runNext())) break;
+        const kind: WorkflowJobKindV2 | null = await this.workflowDispatcher.runNextDetailed();
+        if (!kind) break;
+        if (kind === "PLAN_OUTLINE") tick.plannedOutlines += 1;
         tick.processedWorkflowJobs += 1;
       } catch (error) {
         tick.errors.push(error);

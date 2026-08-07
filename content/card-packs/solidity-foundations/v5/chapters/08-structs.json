@@ -1,0 +1,295 @@
+{
+  "chapterId": 7,
+  "position": 7,
+  "slug": "structs",
+  "title": "08 结构体：把一章变成可读记录",
+  "summary": "使用 struct 和 struct array 表达一条完整学习记录。",
+  "estimatedMinutes": 28,
+  "learningObjectives": [
+    "能定义包含多个字段的 struct",
+    "能创建、读取和修改 struct",
+    "能避免 storage 引用的意外原地修改"
+  ],
+  "prerequisiteChapterIds": [
+    6
+  ],
+  "stageId": 1,
+  "stageTitle": "阶段二：组织数据",
+  "newConcepts": [
+    "struct",
+    "struct 初始化",
+    "storage struct 引用",
+    "结构体数组"
+  ],
+  "prerequisiteConcepts": [
+    "fixed array",
+    "dynamic array",
+    "storage",
+    "函数写入"
+  ],
+  "practiceFocus": "LearningRegistry 的每个 chapter 使用一个 struct，暂不按地址分组。",
+  "projectMilestone": "Registry 从只存 ID 升级为保存 id、title、active 的完整章节记录。",
+  "cards": [
+    {
+      "packCardId": "v5-v4-structs-concept",
+      "position": 0,
+      "type": "concept",
+      "question": "什么时候应该用 struct 而不是多个平行数组？",
+      "answer": "当多个字段共同描述一个实体且需要一起创建、读取或修改时，struct 能把不变量放在同一条记录中，避免索引错位。",
+      "keyPoint": "结构体让领域对象的边界直接出现在类型里。",
+      "tags": [
+        "struct",
+        "数据建模",
+        "数组"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html#structs",
+        "locator": "Structs"
+      },
+      "readingBlockId": "structs-concept-text"
+    },
+    {
+      "packCardId": "v5-v4-structs-check",
+      "position": 1,
+      "type": "qa",
+      "question": "memory struct 和 storage struct 修改时最大的区别是什么？",
+      "answer": "memory struct 是当前调用的副本；storage struct 是持久记录，引用它并修改字段会直接改变链上状态。",
+      "keyPoint": "复制和引用的区别会影响每个字段是否真正保存。",
+      "tags": [
+        "struct",
+        "storage",
+        "memory"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html#structs",
+        "locator": "Structs"
+      },
+      "readingBlockId": "structs-concept-text"
+    },
+    {
+      "packCardId": "v5-v4-structs-read",
+      "position": 2,
+      "type": "code_read",
+      "question": "阅读 addChapter，说明新记录的字段值和数组长度。",
+      "answer": "push 创建一个新的 Chapter 记录，id、title、active 按参数写入，chapters.length 增加 1。",
+      "keyPoint": "struct push 可以把创建和集合追加放在一个明确动作里。",
+      "tags": [
+        "structs",
+        "code_read"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html#structs",
+        "locator": "Structs"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "struct Chapter { uint256 id; string title; bool active; }\nChapter[] public chapters;\nfunction addChapter(uint256 id, string calldata title) external { chapters.push(Chapter(id, title, true)); }",
+        "solutionCode": "调用 addChapter(1, \"Types\") 后，chapters[0] = { id:1, title:\"Types\", active:true }。",
+        "testInput": "添加一个 Types 章节。",
+        "expectedResult": "长度为 1，字段按参数和 true 保存。",
+        "hints": [
+          "按 struct 字段顺序初始化。",
+          "push 会增加数组长度。"
+        ]
+      },
+      "readingBlockId": "structs-code-1"
+    },
+    {
+      "packCardId": "v5-v4-structs-complete",
+      "position": 3,
+      "type": "code_complete",
+      "question": "补全 deactivate，让指定章节的 active 变为 false。",
+      "answer": "先检查 index < chapters.length，再执行 chapters[index].active = false。",
+      "keyPoint": "直接修改 storage struct 字段前要保护索引边界。",
+      "tags": [
+        "structs",
+        "code_complete"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html#structs",
+        "locator": "Structs"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "struct Chapter { uint256 id; string title; bool active; }\nChapter[] public chapters;\nfunction deactivate(uint256 index) external {\n    // TODO\n}",
+        "solutionCode": "function deactivate(uint256 index) external {\n    require(index < chapters.length, \"missing chapter\");\n    chapters[index].active = false;\n}",
+        "testInput": "deactivate(0) 和 deactivate(1)。",
+        "expectedResult": "存在的章节变 false，越界回滚。",
+        "hints": [
+          "章节是 storage 数组。",
+          "修改 active 字段。"
+        ]
+      },
+      "readingBlockId": "structs-code-2"
+    },
+    {
+      "packCardId": "v5-v4-structs-write",
+      "position": 4,
+      "type": "code_write",
+      "question": "写一个 ChapterRegistry，支持 addChapter、chapterTitle 和 archive。",
+      "answer": "定义 Chapter struct 和动态数组；add 创建 active=true 的记录；读取函数返回 title；archive 把 active 改为 false。",
+      "keyPoint": "一个实体的创建、读取和状态变化应围绕同一个 struct。",
+      "tags": [
+        "structs",
+        "code_write"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html#structs",
+        "locator": "Structs"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "// 完成 ChapterRegistry，记录章节 id/title/active",
+        "solutionCode": "pragma solidity ^0.8.20;\ncontract ChapterRegistry {\n    struct Chapter { uint256 id; string title; bool active; }\n    Chapter[] public chapters;\n    function addChapter(string calldata title) external { chapters.push(Chapter(chapters.length, title, true)); }\n    function chapterTitle(uint256 index) external view returns (string memory) { require(index < chapters.length); return chapters[index].title; }\n    function archive(uint256 index) external { require(index < chapters.length); chapters[index].active = false; }\n}",
+        "testInput": "添加 Types，读取标题，再 archive。",
+        "expectedResult": "标题为 Types，archive 后 active=false。",
+        "hints": [
+          "id 可以使用当前 length。",
+          "storage struct 字段可直接写。"
+        ]
+      },
+      "readingBlockId": "structs-code-3"
+    },
+    {
+      "packCardId": "v5-v4-structs-application",
+      "position": 5,
+      "type": "application",
+      "question": "为什么 struct 比多个数组更适合 LearningRegistry？",
+      "answer": "章节的 id、标题和 active 是一个业务对象，struct 能避免 chaptersIds、titles、flags 三个数组出现长度或索引错位。",
+      "keyPoint": "数据模型应该保护实体的完整性。",
+      "tags": [
+        "struct",
+        "一致性",
+        "应用"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html#structs",
+        "locator": "Structs"
+      },
+      "readingBlockId": "structs-practice-text"
+    },
+    {
+      "packCardId": "v5-v4-structs-misconception",
+      "position": 6,
+      "type": "misconception",
+      "question": "误区：struct 中的 string 只要标记 private 就不会占用 storage，为什么错？",
+      "answer": "private 不改变数据存储；string 仍会占用 storage，且链上数据并非私密。",
+      "keyPoint": "存储成本和可见性是独立问题。",
+      "tags": [
+        "struct",
+        "storage",
+        "误区"
+      ],
+      "importance": 4,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html#structs",
+        "locator": "Structs"
+      },
+      "readingBlockId": "structs-practice-text"
+    }
+  ],
+  "readingBlocks": [
+    {
+      "blockId": "structs-title",
+      "position": 0,
+      "kind": "heading",
+      "text": "08 结构体：把一章变成可读记录"
+    },
+    {
+      "blockId": "structs-overview",
+      "position": 1,
+      "kind": "paragraph",
+      "text": "使用 struct 和 struct array 表达一条完整学习记录。"
+    },
+    {
+      "blockId": "structs-stage",
+      "position": 2,
+      "kind": "callout",
+      "text": "阶段二：组织数据。练习重点：LearningRegistry 的每个 chapter 使用一个 struct，暂不按地址分组。"
+    },
+    {
+      "blockId": "structs-objectives",
+      "position": 3,
+      "kind": "heading",
+      "text": "本章学习目标"
+    },
+    {
+      "blockId": "structs-objective-text",
+      "position": 4,
+      "kind": "paragraph",
+      "text": "1. 能定义包含多个字段的 struct\n2. 能创建、读取和修改 struct\n3. 能避免 storage 引用的意外原地修改"
+    },
+    {
+      "blockId": "structs-concepts",
+      "position": 5,
+      "kind": "heading",
+      "text": "关键概念"
+    },
+    {
+      "blockId": "structs-concept-text",
+      "position": 6,
+      "kind": "paragraph",
+      "text": "本章引入：struct、struct 初始化、storage struct 引用、结构体数组。Registry 从只存 ID 升级为保存 id、title、active 的完整章节记录。"
+    },
+    {
+      "blockId": "structs-code-1",
+      "position": 7,
+      "kind": "code",
+      "text": "struct Chapter { uint256 id; string title; bool active; }\nChapter[] public chapters;\nfunction addChapter(uint256 id, string calldata title) external { chapters.push(Chapter(id, title, true)); }",
+      "language": "solidity"
+    },
+    {
+      "blockId": "structs-code-2",
+      "position": 8,
+      "kind": "code",
+      "text": "struct Chapter { uint256 id; string title; bool active; }\nChapter[] public chapters;\nfunction deactivate(uint256 index) external {\n    // TODO\n}",
+      "language": "solidity"
+    },
+    {
+      "blockId": "structs-code-3",
+      "position": 9,
+      "kind": "code",
+      "text": "// 完成 ChapterRegistry，记录章节 id/title/active",
+      "language": "solidity"
+    },
+    {
+      "blockId": "structs-practice",
+      "position": 10,
+      "kind": "heading",
+      "text": "迁移练习"
+    },
+    {
+      "blockId": "structs-practice-text",
+      "position": 11,
+      "kind": "paragraph",
+      "text": "LearningRegistry 的每个 chapter 使用一个 struct，暂不按地址分组。\n项目里程碑：Registry 从只存 ID 升级为保存 id、title、active 的完整章节记录。"
+    }
+  ]
+}

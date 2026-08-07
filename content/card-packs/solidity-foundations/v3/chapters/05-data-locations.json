@@ -1,0 +1,198 @@
+{
+  "chapterId": 4,
+  "position": 4,
+  "slug": "data-locations",
+  "title": "数据位置与作用域：storage、memory、calldata",
+  "summary": "理解引用类型的复制与引用语义，避免把内存副本误当成链上状态。",
+  "estimatedMinutes": 26,
+  "learningObjectives": [
+    "能为数组、string、struct 选择数据位置",
+    "能区分 storage 引用和 memory 副本",
+    "能识别状态、局部和全局变量的作用域"
+  ],
+  "prerequisiteChapterIds": [
+    3
+  ],
+  "cards": [
+    {
+      "packCardId": "v3-data-locations-concept",
+      "position": 0,
+      "type": "concept",
+      "question": "storage、memory 和 calldata 的生命周期及可写性有什么区别？",
+      "answer": "storage 是跨交易持久化状态且可写；memory 是本次调用中的临时可写数据；calldata 是外部输入的只读区域。动态外部参数通常优先 calldata。",
+      "keyPoint": "数据位置同时决定生命周期、复制行为和可写性。",
+      "tags": [
+        "storage",
+        "memory",
+        "calldata"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html#data-location",
+        "locator": "Data location and assignment behavior"
+      }
+    },
+    {
+      "packCardId": "v3-data-locations-check",
+      "position": 1,
+      "type": "qa",
+      "question": "User memory copy = users[id] 后修改 copy.score，为什么 users[id] 不变？",
+      "answer": "storage 到 memory 产生副本，copy 与原状态不共享后续写入。若要直接修改原状态，应使用 User storage ref = users[id]。",
+      "keyPoint": "看到 memory 赋值，先问这是复制还是临时构造。",
+      "tags": [
+        "struct",
+        "复制",
+        "作用域"
+      ],
+      "importance": 4,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html#data-location",
+        "locator": "Data location and assignment behavior"
+      }
+    },
+    {
+      "packCardId": "v3-data-locations-read",
+      "position": 2,
+      "type": "code_debug",
+      "question": "找出这段 profile 函数中导致状态没有更新的关键字，并给出最小修复。",
+      "answer": "局部变量声明成 User memory user，修改它只改内存副本。改成 User storage user 后，user.score += 1 会写回 users[id]。",
+      "keyPoint": "storage 局部引用不是普通副本，修改它会直接影响状态。",
+      "tags": [
+        "修错",
+        "storage 引用",
+        "memory 副本"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html#data-location",
+        "locator": "Data location and assignment behavior"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "struct User { string name; uint256 score; }\nmapping(address => User) public users;\n\nfunction addScore(address id) external {\n    User memory user = users[id];\n    user.score += 1;\n}",
+        "solutionCode": "struct User { string name; uint256 score; }\nmapping(address => User) public users;\n\nfunction addScore(address id) external {\n    User storage user = users[id];\n    user.score += 1;\n}",
+        "testInput": "users[A].score 初始为 0，调用 addScore(A)。",
+        "expectedResult": "修复后 users[A].score 为 1。",
+        "hints": [
+          "比较 memory 与 storage。",
+          "不要只在最后写回，直接使用 storage 引用。"
+        ]
+      }
+    },
+    {
+      "packCardId": "v3-data-locations-complete",
+      "position": 3,
+      "type": "code_complete",
+      "question": "补全外部函数参数的数据位置，并把数组求和函数保持为 view。",
+      "answer": "外部只读数组使用 uint256[] calldata values；函数读取状态或参数但不写状态，因此可声明 view。",
+      "keyPoint": "calldata 适合只读外部输入，不能在函数体里 push。",
+      "tags": [
+        "calldata",
+        "数组",
+        "补全"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html#data-location",
+        "locator": "Data location and assignment behavior"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "uint256[] public checkpoints;\n\nfunction sum(uint256[] /* TODO */ values)\n    external /* TODO */ returns (uint256 total)\n{\n    for (uint256 i = 0; i < values.length; i++) {\n        total += values[i];\n    }\n}",
+        "solutionCode": "uint256[] public checkpoints;\n\nfunction sum(uint256[] calldata values)\n    external pure returns (uint256 total)\n{\n    for (uint256 i = 0; i < values.length; i++) {\n        total += values[i];\n    }\n}",
+        "testInput": "sum([2, 3, 5])。",
+        "expectedResult": "返回 10。",
+        "hints": [
+          "只读外部数组用 calldata。",
+          "只依赖参数时用 pure。"
+        ]
+      }
+    },
+    {
+      "packCardId": "v3-data-locations-write",
+      "position": 4,
+      "type": "code_write",
+      "question": "写一个 rename 函数：把 users[msg.sender] 的 name 更新为外部传入的 string。",
+      "answer": "参数使用 string calldata，取得 User storage 引用，再更新 name 字段。",
+      "keyPoint": "这一步把数据位置和 struct 字段写入结合起来，是后续数组与 mapping 的前置能力。",
+      "tags": [
+        "string",
+        "struct",
+        "写代码"
+      ],
+      "importance": 5,
+      "initialDifficulty": 4,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html#data-location",
+        "locator": "Data location and assignment behavior"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "struct User { string name; }\nmapping(address => User) public users;\n\n// 写出 rename(string calldata next)",
+        "solutionCode": "struct User { string name; }\nmapping(address => User) public users;\n\nfunction rename(string calldata next) external {\n    users[msg.sender].name = next;\n}",
+        "testInput": "A 调用 rename(\"Alice\")。",
+        "expectedResult": "users[A].name 为 Alice。",
+        "hints": [
+          "mapping 下标返回 storage 位置。",
+          "calldata 字符串可直接赋给 storage 字段。"
+        ]
+      }
+    },
+    {
+      "packCardId": "v3-data-locations-application",
+      "position": 5,
+      "type": "application",
+      "question": "为什么数据位置应该在 code review 中单独检查？",
+      "answer": "错误的数据位置会造成状态不写回、无意复制大数组、或试图修改只读 calldata。它可能同时带来功能 bug 和不必要的 gas 成本。",
+      "keyPoint": "引用类型的类型名相同，不代表运行语义相同。",
+      "tags": [
+        "code review",
+        "gas",
+        "应用"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html#data-location",
+        "locator": "Data location and assignment behavior"
+      }
+    },
+    {
+      "packCardId": "v3-data-locations-misconception",
+      "position": 6,
+      "type": "misconception",
+      "question": "误区：所有引用类型参数都写 memory 最通用，所以更好，为什么错误？",
+      "answer": "memory 会复制外部输入且允许写入；只读外部输入通常用 calldata 更省复制，状态修改则需要 storage。所谓通用可能只是隐藏了真实成本和意图。",
+      "keyPoint": "用最准确的数据位置表达意图，不要用 memory 掩盖设计。",
+      "tags": [
+        "memory",
+        "calldata",
+        "误区"
+      ],
+      "importance": 4,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html#data-location",
+        "locator": "Data location and assignment behavior"
+      }
+    }
+  ]
+}

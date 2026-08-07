@@ -1,0 +1,198 @@
+{
+  "chapterId": 2,
+  "position": 2,
+  "slug": "functions",
+  "title": "函数：可见性、状态可变性与 payable",
+  "summary": "先学会写能被外部正确调用的函数，再进入返回值和复杂参数。",
+  "estimatedMinutes": 24,
+  "learningObjectives": [
+    "能区分 public、external、internal、private",
+    "能正确使用 view、pure 和 payable",
+    "能把入口权限与可见性分开设计"
+  ],
+  "prerequisiteChapterIds": [
+    1
+  ],
+  "cards": [
+    {
+      "packCardId": "v3-functions-concept",
+      "position": 0,
+      "type": "concept",
+      "question": "函数可见性和业务权限为什么必须分开考虑？",
+      "answer": "可见性决定函数能从外部还是内部被调用；业务权限决定哪些地址有资格执行。external 函数仍可能被所有地址调用，必须额外检查 msg.sender。",
+      "keyPoint": "看到 external/public 时，下一问永远是：谁有权调用？",
+      "tags": [
+        "函数",
+        "可见性",
+        "msg.sender"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html",
+        "locator": "Function Visibility and State Mutability"
+      }
+    },
+    {
+      "packCardId": "v3-functions-check",
+      "position": 1,
+      "type": "qa",
+      "question": "view、pure、payable 三个修饰符分别向调用者承诺什么？",
+      "answer": "view 不修改但可以读取状态，pure 不读取也不修改状态，payable 允许调用携带 Ether。payable 不代表函数自动安全或自动记账。",
+      "keyPoint": "修饰符是状态读写和价值转移的契约，不是装饰。",
+      "tags": [
+        "view",
+        "pure",
+        "payable"
+      ],
+      "importance": 4,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html",
+        "locator": "Function Visibility and State Mutability"
+      }
+    },
+    {
+      "packCardId": "v3-functions-read",
+      "position": 2,
+      "type": "code_read",
+      "question": "阅读四个函数，判断哪些能通过 eth_call 读取，哪些会产生状态变化。",
+      "answer": "getCount 是 view 读取；add 是写状态；addWithValue 是写状态且可接收 Ether；double 是 pure，只依赖参数。",
+      "keyPoint": "先根据修饰符和函数体判断执行影响，再决定前端调用方式。",
+      "tags": [
+        "读代码",
+        "eth_call",
+        "payable"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html",
+        "locator": "Function Visibility and State Mutability"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "uint256 public count;\nfunction getCount() external view returns (uint256) { return count; }\nfunction add() external { count += 1; }\nfunction addWithValue() external payable { count += msg.value; }\nfunction double(uint256 x) external pure returns (uint256) { return x * 2; }",
+        "solutionCode": "getCount -> 读状态，不产生交易\nadd -> 写状态，需要交易\naddWithValue -> 写状态并接收 Ether，需要交易\ndouble -> 只计算参数，可 eth_call",
+        "testInput": "从 Remix 分别点击四个函数。",
+        "expectedResult": "只有 add 和 addWithValue 改变 count；addWithValue 还读取 msg.value。",
+        "hints": [
+          "看 view/pure/payable。",
+          "函数体里的赋值优先级最高。"
+        ]
+      }
+    },
+    {
+      "packCardId": "v3-functions-complete",
+      "position": 3,
+      "type": "code_complete",
+      "question": "补全 getScore 和 setScore：前者 view 返回状态，后者 external 写入状态。",
+      "answer": "getScore 声明 view returns，setScore 不声明 view 并给 score 赋值。",
+      "keyPoint": "读写函数的修饰符和返回值要与函数体一致。",
+      "tags": [
+        "view",
+        "returns",
+        "补全"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html",
+        "locator": "Function Visibility and State Mutability"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "uint256 private score;\n\nfunction getScore() external /* TODO */ returns (uint256) {\n    // TODO\n}\n\nfunction setScore(uint256 next) external {\n    // TODO\n}",
+        "solutionCode": "uint256 private score;\n\nfunction getScore() external view returns (uint256) {\n    return score;\n}\n\nfunction setScore(uint256 next) external {\n    score = next;\n}",
+        "testInput": "setScore(7) 后调用 getScore。",
+        "expectedResult": "返回 7。",
+        "hints": [
+          "getScore 需要 view 和 returns。",
+          "setScore 写 score。"
+        ]
+      }
+    },
+    {
+      "packCardId": "v3-functions-write",
+      "position": 4,
+      "type": "code_write",
+      "question": "写一个 payable deposit：要求 msg.value 大于 0，按 msg.sender 累加 deposits。",
+      "answer": "声明 external payable，检查 msg.value > 0，再执行 deposits[msg.sender] += msg.value。",
+      "keyPoint": "payable 只允许接收价值，记账逻辑仍必须由函数明确写出。",
+      "tags": [
+        "payable",
+        "msg.value",
+        "写代码"
+      ],
+      "importance": 5,
+      "initialDifficulty": 4,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html",
+        "locator": "Function Visibility and State Mutability"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "mapping(address => uint256) public deposits;\n\n// 写出 deposit()",
+        "solutionCode": "mapping(address => uint256) public deposits;\n\nfunction deposit() external payable {\n    require(msg.value > 0, \"zero value\");\n    deposits[msg.sender] += msg.value;\n}",
+        "testInput": "A 携带 2 ether 调用，再无 value 调用。",
+        "expectedResult": "第一次记账 2 ether，第二次回滚。",
+        "hints": [
+          "函数需要 payable。",
+          "使用 msg.sender 作为用户 key。"
+        ]
+      }
+    },
+    {
+      "packCardId": "v3-functions-application",
+      "position": 5,
+      "type": "application",
+      "question": "为什么不应该把所有函数都写成 public？",
+      "answer": "public 可能生成不必要的外部入口和内部调用路径；external 能表达只希望消息调用的边界。更重要的是，权限和状态可变性需要被明确审查。",
+      "keyPoint": "选择最窄但满足需求的可见性，减少误用路径。",
+      "tags": [
+        "public",
+        "external",
+        "设计"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html",
+        "locator": "Function Visibility and State Mutability"
+      }
+    },
+    {
+      "packCardId": "v3-functions-misconception",
+      "position": 6,
+      "type": "misconception",
+      "question": "误区：view 函数不消耗 gas，所以可以在链上交易里无限循环，为什么错误？",
+      "answer": "通过 eth_call 读取通常不由链上交易支付 gas，但 view 被其他合约调用或包含在交易路径中仍受执行 gas 限制。view 也可能因复杂循环造成资源问题。",
+      "keyPoint": "调用方式决定费用，但执行始终受资源上限约束。",
+      "tags": [
+        "view",
+        "gas",
+        "误区"
+      ],
+      "importance": 4,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html",
+        "locator": "Function Visibility and State Mutability"
+      }
+    }
+  ]
+}

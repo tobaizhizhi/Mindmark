@@ -8,9 +8,7 @@
     "lib": ["dom", "dom.iterable", "esnext"],
     "noEmit": true,
     "paths": {
-      "@/*": ["./*"],
-      "@mindmark/shared": ["../../packages/shared/src/index.ts"],
-      "@mindmark/shared/schemas": ["../../packages/shared/src/schemas.ts"]
+      "@/*": ["./*"]
     },
     "plugins": [{ "name": "next" }]
   },

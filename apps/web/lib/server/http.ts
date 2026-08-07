@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
+import {
+  DeploymentSchemaOutdatedError,
+  deploymentSchemaOutdatedMessage,
+  isDeploymentSchemaError,
+} from "@mindmark/shared";
 
 export class ApiError extends Error {
   constructor(
@@ -19,6 +24,12 @@ export function jsonError(error: unknown, requestId = randomUUID()): NextRespons
   );
   if (error instanceof ApiError) {
     return response(error.status, error.code, error.message);
+  }
+  if (error instanceof DeploymentSchemaOutdatedError) {
+    return response(503, error.code, error.message);
+  }
+  if (isDeploymentSchemaError(error)) {
+    return response(503, "deployment_schema_outdated", deploymentSchemaOutdatedMessage());
   }
   if (error instanceof ZodError) {
     return response(400, "invalid_request", error.issues[0]?.message ?? "Request validation failed");

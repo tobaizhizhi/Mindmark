@@ -1,5 +1,5 @@
-import type { KnowledgeCardContent } from "@mindmark/shared";
-import type { Hex, TransactionSerialized } from "viem";
+import type { WorkUnitRewardQuote } from "@mindmark/shared";
+import type { Address, Hex, TransactionSerialized } from "viem";
 
 export const DEFAULT_AI_TOOL_TIMEOUT_MS = 120_000;
 
@@ -20,6 +20,8 @@ export type MossRewardStage =
   | "SIMULATED";
 
 export type PreparedWorkerReward = {
+  projectId: Hex;
+  workUnitId: number;
   treasuryAddress: `0x${string}`;
   recipientAddress: `0x${string}`;
   amountWei: bigint;
@@ -43,13 +45,45 @@ export type ChainReceipt = WorkerRewardReceipt;
 export interface WorkerRewardGateway {
   treasuryAddress(): `0x${string}`;
   prepare(
-    input: { recipientAddress: `0x${string}`; amountWei: bigint },
+    input: {
+      projectId: Hex;
+      workUnitId: number;
+      recipientAddress: `0x${string}`;
+      amountWei: bigint;
+    },
     onStage?: (stage: Exclude<MossRewardStage, "PENDING" | "SIMULATED">) => Promise<void>,
   ): Promise<PreparedWorkerReward>;
   settlePrepared(
     input: PreparedWorkerReward,
     onSubmitted?: (txHash: Hex) => Promise<void>,
   ): Promise<WorkerRewardReceipt>;
+}
+
+export type ProjectEscrowFunding = {
+  projectId: Hex;
+  escrowAddress: Address;
+  sponsorAddress: Address;
+  pricingMode: "DYNAMIC" | "LEGACY_FIXED";
+  pricingRoot: Hex | null;
+  rewardPerWorkUnitWei: bigint | null;
+  quotes: WorkUnitRewardQuote[];
+  totalBudgetWei: bigint;
+  remainingBudgetWei: bigint;
+  workUnitCount: number;
+  settledWorkUnitCount: number;
+  fundingTxHash: Hex;
+  fundedBlock: bigint;
+};
+
+export interface ProjectSponsorGateway {
+  escrowAddress(): Address;
+  sponsorAddress(): Address;
+  assertConfiguredEscrow(registryAddress: Address): Promise<void>;
+  ensureProjectFunded(input: {
+    projectId: Hex;
+    quotes: WorkUnitRewardQuote[];
+    legacyRewardPerWorkUnitWei: bigint;
+  }): Promise<ProjectEscrowFunding>;
 }
 
 export type AgentToolDefinition = {
@@ -69,7 +103,6 @@ export interface ToolCallingModel {
     tools: AgentToolDefinition[];
     transcript: AgentTranscriptEntry[];
     signal: AbortSignal;
+    maxCompletionTokens?: number;
   }): Promise<AgentToolCall>;
 }
-
-export type WorkerDraft = KnowledgeCardContent[];

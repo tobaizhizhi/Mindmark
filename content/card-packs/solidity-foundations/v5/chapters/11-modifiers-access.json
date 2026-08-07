@@ -1,0 +1,295 @@
+{
+  "chapterId": 10,
+  "position": 10,
+  "slug": "modifiers-access",
+  "title": "11 modifier：把 owner 规则复用起来",
+  "summary": "在身份建立后抽取 onlyOwner，并学习检查顺序和状态转换。",
+  "estimatedMinutes": 28,
+  "learningObjectives": [
+    "能编写检查 msg.sender 的 onlyOwner",
+    "能解释下划线的执行位置",
+    "能把权限和业务边界检查分开"
+  ],
+  "prerequisiteChapterIds": [
+    9
+  ],
+  "stageId": 3,
+  "stageTitle": "阶段四：建立权限",
+  "newConcepts": [
+    "modifier",
+    "onlyOwner",
+    "权限前置条件",
+    "状态转换"
+  ],
+  "prerequisiteConcepts": [
+    "constructor",
+    "immutable",
+    "msg.sender",
+    "require"
+  ],
+  "practiceFocus": "只有 owner 能修改 Registry 的 title、active 和规则配置。",
+  "projectMilestone": "Registry 具备可复用的管理员边界。",
+  "cards": [
+    {
+      "packCardId": "v5-v4-modifiers-access-concept",
+      "position": 0,
+      "type": "concept",
+      "question": "modifier 为什么适合 onlyOwner，而不适合塞进所有业务规则？",
+      "answer": "modifier 适合重复的横切条件，如角色和暂停状态；金额上限、数组边界和状态机顺序仍属于具体函数。",
+      "keyPoint": "抽象重复检查，但保留业务规则的局部可读性。",
+      "tags": [
+        "modifier",
+        "onlyOwner",
+        "抽象"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#function-modifiers",
+        "locator": "Function Modifiers"
+      },
+      "readingBlockId": "modifiers-access-concept-text"
+    },
+    {
+      "packCardId": "v5-v4-modifiers-access-check",
+      "position": 1,
+      "type": "qa",
+      "question": "onlyOwner 中 _ 放在 require 前后有什么差别？",
+      "answer": "放在检查后会先验证再执行函数主体；放在检查前会让主体先执行，可能导致未授权状态写入。",
+      "keyPoint": "_ 是函数主体插入点，位置就是安全顺序。",
+      "tags": [
+        "modifier",
+        "执行顺序",
+        "安全"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#function-modifiers",
+        "locator": "Function Modifiers"
+      },
+      "readingBlockId": "modifiers-access-concept-text"
+    },
+    {
+      "packCardId": "v5-v4-modifiers-access-read",
+      "position": 2,
+      "type": "code_read",
+      "question": "审查 setTitle 和 publish，哪些调用者能成功？",
+      "answer": "两个函数都有 onlyOwner，只有 owner 能执行；publish 还要求当前状态未发布。",
+      "keyPoint": "权限检查与业务状态检查可以叠加但职责不同。",
+      "tags": [
+        "modifiers-access",
+        "code_read"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#function-modifiers",
+        "locator": "Function Modifiers"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "address public immutable owner;\nbool public published;\nmodifier onlyOwner() { require(msg.sender == owner, \"not owner\"); _; }\nfunction setTitle(string calldata next) external onlyOwner { title = next; }\nfunction publish() external onlyOwner { require(!published, \"already published\"); published = true; }",
+        "solutionCode": "非 owner -> onlyOwner 回滚；owner 首次 publish 成功；owner 再次 publish 被业务检查回滚。",
+        "testInput": "A 部署，B/A 调用 setTitle 和 publish。",
+        "expectedResult": "B 均回滚；A 首次成功，重复发布回滚。",
+        "hints": [
+          "先看 modifier。",
+          "再看函数内部的 published 检查。"
+        ]
+      },
+      "readingBlockId": "modifiers-access-code-1"
+    },
+    {
+      "packCardId": "v5-v4-modifiers-access-complete",
+      "position": 3,
+      "type": "code_complete",
+      "question": "补全 onlyOwner，并把 setTitle 标记为 onlyOwner。",
+      "answer": "modifier require(msg.sender == owner); _;，函数签名写 external onlyOwner。",
+      "keyPoint": "所有敏感写入口都要逐个检查是否带权限。",
+      "tags": [
+        "modifiers-access",
+        "code_complete"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#function-modifiers",
+        "locator": "Function Modifiers"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "address public immutable owner;\nmodifier onlyOwner() {\n    // TODO\n}\nfunction setTitle(string calldata next) external /* TODO */ { title = next; }",
+        "solutionCode": "modifier onlyOwner() {\n    require(msg.sender == owner, \"not owner\");\n    _;\n}\nfunction setTitle(string calldata next) external onlyOwner { title = next; }",
+        "testInput": "owner 和普通地址调用 setTitle。",
+        "expectedResult": "只有 owner 成功。",
+        "hints": [
+          "下划线保留函数主体。",
+          "modifier 写在可见性之后。"
+        ]
+      },
+      "readingBlockId": "modifiers-access-code-2"
+    },
+    {
+      "packCardId": "v5-v4-modifiers-access-write",
+      "position": 4,
+      "type": "code_write",
+      "question": "写一个 AccessRegistry，只有 owner 能 pause/unpause 和 setTitle。",
+      "answer": "constructor 设置 owner，onlyOwner 检查调用者，三个状态函数分别更新 paused 和 title。",
+      "keyPoint": "权限是每条敏感状态转换的入口条件。",
+      "tags": [
+        "modifiers-access",
+        "code_write"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#function-modifiers",
+        "locator": "Function Modifiers"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "// 完成 owner、onlyOwner、paused、pause、unpause、setTitle",
+        "solutionCode": "pragma solidity ^0.8.20;\ncontract AccessRegistry {\n    address public immutable owner;\n    bool public paused;\n    string public title;\n    constructor() { owner = msg.sender; }\n    modifier onlyOwner() { require(msg.sender == owner, \"not owner\"); _; }\n    function pause() external onlyOwner { paused = true; }\n    function unpause() external onlyOwner { paused = false; }\n    function setTitle(string calldata next) external onlyOwner { title = next; }\n}",
+        "testInput": "B 调用 pause，A 调用 pause、setTitle、unpause。",
+        "expectedResult": "B 回滚；A 可完成全部转换。",
+        "hints": [
+          "owner 来自 constructor。",
+          "三个写函数都带 onlyOwner。"
+        ]
+      },
+      "readingBlockId": "modifiers-access-code-3"
+    },
+    {
+      "packCardId": "v5-v4-modifiers-access-application",
+      "position": 5,
+      "type": "application",
+      "question": "为什么权限检查通常应该在状态写入之前？",
+      "answer": "先验证能让未授权调用在任何副作用前回滚，减少审计时对部分执行路径的推理。",
+      "keyPoint": "检查、效果和外部交互的顺序会在后续安全章节再次出现。",
+      "tags": [
+        "权限",
+        "检查",
+        "顺序"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#function-modifiers",
+        "locator": "Function Modifiers"
+      },
+      "readingBlockId": "modifiers-access-practice-text"
+    },
+    {
+      "packCardId": "v5-v4-modifiers-access-misconception",
+      "position": 6,
+      "type": "misconception",
+      "question": "误区：只要 owner 是 immutable，函数就自动受保护，为什么错？",
+      "answer": "immutable 只保存一个不可变地址；每个敏感函数仍必须明确比较 msg.sender 或使用 modifier。",
+      "keyPoint": "保存身份不等于执行授权。",
+      "tags": [
+        "immutable",
+        "授权",
+        "误区"
+      ],
+      "importance": 4,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#function-modifiers",
+        "locator": "Function Modifiers"
+      },
+      "readingBlockId": "modifiers-access-practice-text"
+    }
+  ],
+  "readingBlocks": [
+    {
+      "blockId": "modifiers-access-title",
+      "position": 0,
+      "kind": "heading",
+      "text": "11 modifier：把 owner 规则复用起来"
+    },
+    {
+      "blockId": "modifiers-access-overview",
+      "position": 1,
+      "kind": "paragraph",
+      "text": "在身份建立后抽取 onlyOwner，并学习检查顺序和状态转换。"
+    },
+    {
+      "blockId": "modifiers-access-stage",
+      "position": 2,
+      "kind": "callout",
+      "text": "阶段四：建立权限。练习重点：只有 owner 能修改 Registry 的 title、active 和规则配置。"
+    },
+    {
+      "blockId": "modifiers-access-objectives",
+      "position": 3,
+      "kind": "heading",
+      "text": "本章学习目标"
+    },
+    {
+      "blockId": "modifiers-access-objective-text",
+      "position": 4,
+      "kind": "paragraph",
+      "text": "1. 能编写检查 msg.sender 的 onlyOwner\n2. 能解释下划线的执行位置\n3. 能把权限和业务边界检查分开"
+    },
+    {
+      "blockId": "modifiers-access-concepts",
+      "position": 5,
+      "kind": "heading",
+      "text": "关键概念"
+    },
+    {
+      "blockId": "modifiers-access-concept-text",
+      "position": 6,
+      "kind": "paragraph",
+      "text": "本章引入：modifier、onlyOwner、权限前置条件、状态转换。Registry 具备可复用的管理员边界。"
+    },
+    {
+      "blockId": "modifiers-access-code-1",
+      "position": 7,
+      "kind": "code",
+      "text": "address public immutable owner;\nbool public published;\nmodifier onlyOwner() { require(msg.sender == owner, \"not owner\"); _; }\nfunction setTitle(string calldata next) external onlyOwner { title = next; }\nfunction publish() external onlyOwner { require(!published, \"already published\"); published = true; }",
+      "language": "solidity"
+    },
+    {
+      "blockId": "modifiers-access-code-2",
+      "position": 8,
+      "kind": "code",
+      "text": "address public immutable owner;\nmodifier onlyOwner() {\n    // TODO\n}\nfunction setTitle(string calldata next) external /* TODO */ { title = next; }",
+      "language": "solidity"
+    },
+    {
+      "blockId": "modifiers-access-code-3",
+      "position": 9,
+      "kind": "code",
+      "text": "// 完成 owner、onlyOwner、paused、pause、unpause、setTitle",
+      "language": "solidity"
+    },
+    {
+      "blockId": "modifiers-access-practice",
+      "position": 10,
+      "kind": "heading",
+      "text": "迁移练习"
+    },
+    {
+      "blockId": "modifiers-access-practice-text",
+      "position": 11,
+      "kind": "paragraph",
+      "text": "只有 owner 能修改 Registry 的 title、active 和规则配置。\n项目里程碑：Registry 具备可复用的管理员边界。"
+    }
+  ]
+}

@@ -1,5 +1,5 @@
 import { getAddress } from "viem";
-import { WorkerRewardVerificationError } from "./reward.js";
+import { WorkerRewardVerificationError } from "./reward-error.js";
 import type { PreparedWorkerReward, WorkerRewardGateway } from "./runtime-types.js";
 import type {
   ProjectRegistryGatewayV2,
@@ -14,6 +14,8 @@ function preparedFromReward(reward: WorkUnitRewardV2): PreparedWorkerReward {
     throw new WorkerRewardVerificationError("Prepared Work Unit reward is missing transaction data");
   }
   return {
+    projectId: reward.projectId,
+    workUnitId: reward.workUnitId,
     treasuryAddress: reward.treasuryAddress,
     recipientAddress: reward.recipientAddress,
     amountWei: reward.amountWei,
@@ -49,7 +51,12 @@ export class WorkUnitSettlementAgentV2 {
           throw new WorkerRewardVerificationError("Work Unit reward targets another Treasury");
         }
         prepared = await this.rewardGateway.prepare(
-          { recipientAddress: reward.recipientAddress, amountWei: reward.amountWei },
+          {
+            projectId: reward.projectId,
+            workUnitId: reward.workUnitId,
+            recipientAddress: reward.recipientAddress,
+            amountWei: reward.amountWei,
+          },
           (stage) => this.repository.markWorkUnitRewardStage(
             reward.projectId,
             reward.workUnitId,

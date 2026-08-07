@@ -1,0 +1,198 @@
+{
+  "chapterId": 9,
+  "position": 9,
+  "slug": "control-flow-insertion-sort",
+  "title": "控制流与插入排序：用循环建立边界意识",
+  "summary": "先掌握 if、for、while 和数组边界，再用插入排序练习内存数组的修改。",
+  "estimatedMinutes": 30,
+  "learningObjectives": [
+    "能写 if/else、for、while 和 break/continue",
+    "能在循环中维护索引边界",
+    "能识别插入排序的 underflow 和越界风险"
+  ],
+  "prerequisiteChapterIds": [
+    8
+  ],
+  "cards": [
+    {
+      "packCardId": "v3-control-flow-insertion-sort-concept",
+      "position": 0,
+      "type": "concept",
+      "question": "Solidity 的循环为什么必须优先考虑输入规模？",
+      "answer": "循环每次迭代都消耗 gas；用户可控的无界数组可能让交易超出 gas limit。写循环时要明确上限、终止条件和索引类型。",
+      "keyPoint": "控制流正确不仅是结果正确，还包括对最坏输入可终止。",
+      "tags": [
+        "控制流",
+        "循环",
+        "gas"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/control-structures.html",
+        "locator": "Control Structures"
+      }
+    },
+    {
+      "packCardId": "v3-control-flow-insertion-sort-check",
+      "position": 1,
+      "type": "qa",
+      "question": "插入排序中 while 的两个终止条件分别防止什么？",
+      "answer": "j > 0 防止向左移动时下溢或访问负索引；arr[j - 1] > key 决定是否继续移动更大的元素。",
+      "keyPoint": "循环条件要同时保护数组边界和算法不变量。",
+      "tags": [
+        "插入排序",
+        "边界",
+        "不变量"
+      ],
+      "importance": 4,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/control-structures.html",
+        "locator": "Control Structures"
+      }
+    },
+    {
+      "packCardId": "v3-control-flow-insertion-sort-read",
+      "position": 2,
+      "type": "code_debug",
+      "question": "修复这个排序循环：它在 i=0 时会访问 i-1，并可能让 uint 下溢。",
+      "answer": "外层从 i=1 开始，内层使用 j > 0 作为短路边界，再访问 arr[j-1]。",
+      "keyPoint": "Solidity 0.8.x 的整数下溢会回滚，但正确代码应让非法路径根本不发生。",
+      "tags": [
+        "修错",
+        "uint",
+        "排序"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/control-structures.html",
+        "locator": "Control Structures"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "function sort(uint256[] memory arr) public pure returns (uint256[] memory) {\n    for (uint256 i = 0; i < arr.length; i++) {\n        uint256 key = arr[i];\n        uint256 j = i - 1;\n        while (j >= 0 && arr[j] > key) {\n            arr[j + 1] = arr[j];\n            j--;\n        }\n        arr[j + 1] = key;\n    }\n    return arr;\n}",
+        "solutionCode": "function sort(uint256[] memory arr) public pure returns (uint256[] memory) {\n    for (uint256 i = 1; i < arr.length; i++) {\n        uint256 key = arr[i];\n        uint256 j = i;\n        while (j > 0 && arr[j - 1] > key) {\n            arr[j] = arr[j - 1];\n            j--;\n        }\n        arr[j] = key;\n    }\n    return arr;\n}",
+        "testInput": "sort([3, 1, 2])。",
+        "expectedResult": "返回 [1, 2, 3]，且不会在 i=0 时下溢。",
+        "hints": [
+          "uint 没有真正的负数。",
+          "让 j 从 i 开始，比较 j-1。"
+        ]
+      }
+    },
+    {
+      "packCardId": "v3-control-flow-insertion-sort-complete",
+      "position": 3,
+      "type": "code_complete",
+      "question": "补全循环，让函数统计数组中大于等于 threshold 的元素数量。",
+      "answer": "遍历 values，满足条件时 count += 1；函数只读参数，所以可以 pure。",
+      "keyPoint": "先把循环不变量说清楚：count 始终是已扫描前缀的符合数量。",
+      "tags": [
+        "for",
+        "计数",
+        "补全"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/control-structures.html",
+        "locator": "Control Structures"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "function countAtLeast(uint256[] calldata values, uint256 threshold)\n    external pure returns (uint256 count)\n{\n    for (uint256 i = 0; i < values.length; i++) {\n        // TODO\n    }\n}",
+        "solutionCode": "function countAtLeast(uint256[] calldata values, uint256 threshold)\n    external pure returns (uint256 count)\n{\n    for (uint256 i = 0; i < values.length; i++) {\n        if (values[i] >= threshold) count += 1;\n    }\n}",
+        "testInput": "countAtLeast([50, 60, 90], 60)。",
+        "expectedResult": "返回 2。",
+        "hints": [
+          "先判断当前元素。",
+          "符合条件才增加 count。"
+        ]
+      }
+    },
+    {
+      "packCardId": "v3-control-flow-insertion-sort-write",
+      "position": 4,
+      "type": "code_write",
+      "question": "独立写一个 pure insertionSort，复制输入到 memory 后返回升序数组。",
+      "answer": "函数接受 calldata，先复制到 memory，外层 i 从 1 开始，内层 while j > 0 且前一项更大时右移。",
+      "keyPoint": "把算法写在 memory 副本上，避免修改调用者输入并保持 pure。",
+      "tags": [
+        "插入排序",
+        "memory",
+        "写代码"
+      ],
+      "importance": 5,
+      "initialDifficulty": 4,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/control-structures.html",
+        "locator": "Control Structures"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "// 写出 insertionSort(uint256[] calldata values)\n// 要求：不改变 calldata，返回升序 memory 数组\n",
+        "solutionCode": "function insertionSort(uint256[] calldata values)\n    external pure returns (uint256[] memory result)\n{\n    result = values;\n    for (uint256 i = 1; i < result.length; i++) {\n        uint256 key = result[i];\n        uint256 j = i;\n        while (j > 0 && result[j - 1] > key) {\n            result[j] = result[j - 1];\n            j--;\n        }\n        result[j] = key;\n    }\n}",
+        "testInput": "insertionSort([4, 1, 3, 2])。",
+        "expectedResult": "返回 [1, 2, 3, 4]。",
+        "hints": [
+          "先让 calldata 复制到 memory。",
+          "j > 0 时才能访问 j-1。"
+        ]
+      }
+    },
+    {
+      "packCardId": "v3-control-flow-insertion-sort-application",
+      "position": 5,
+      "type": "application",
+      "question": "为什么在链上实现排序通常只适合小数组或教学，而不是任意用户列表？",
+      "answer": "插入排序是 O(n²)，且每次存储/内存操作都有执行成本。生产系统更常用链下排序、分页查询或只维护必要的聚合结果。",
+      "keyPoint": "算法复杂度会直接转化成链上 gas 和可用性。",
+      "tags": [
+        "复杂度",
+        "gas",
+        "应用"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/control-structures.html",
+        "locator": "Control Structures"
+      }
+    },
+    {
+      "packCardId": "v3-control-flow-insertion-sort-misconception",
+      "position": 6,
+      "type": "misconception",
+      "question": "误区：Solidity 的 uint256 变量可以在 while 循环里变成 -1，为什么错误？",
+      "answer": "uint256 是无符号整数，没有负数；从 0 减 1 在 0.8.x 默认会回滚。循环应使用 j > 0 保护，再访问 j - 1。",
+      "keyPoint": "数组算法从其他语言移植时，必须重新检查无符号索引语义。",
+      "tags": [
+        "uint",
+        "下溢",
+        "误区"
+      ],
+      "importance": 4,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/control-structures.html",
+        "locator": "Control Structures"
+      }
+    }
+  ]
+}

@@ -1,0 +1,214 @@
+{
+  "chapterId": 8,
+  "position": 8,
+  "slug": "mapping",
+  "title": "09 Mapping：按地址索引学习进度",
+  "summary": "在已有 struct 和数组之后，引入 mapping 的键值访问和存在性标记。",
+  "estimatedMinutes": 30,
+  "learningObjectives": [
+    "能定义 mapping(address => T)",
+    "能按 msg.sender 读写个人记录",
+    "能解释 mapping 无法枚举 key 和默认值歧义"
+  ],
+  "prerequisiteChapterIds": [
+    7
+  ],
+  "stageId": 2,
+  "stageTitle": "阶段三：按用户建模",
+  "newConcepts": [
+    "mapping",
+    "address key",
+    "mapping 默认值",
+    "exists 标记",
+    "delete 重置"
+  ],
+  "prerequisiteConcepts": [
+    "struct",
+    "address",
+    "数组",
+    "函数写入"
+  ],
+  "practiceFocus": "只按用户地址保存完成章节数，不提前加入 owner 或权限。",
+  "projectMilestone": "Registry 能为每个学习者记录 completedCount。",
+  "cards": [
+    {
+      "packCardId": "v4-mapping-concept",
+      "position": 0,
+      "type": "concept",
+      "question": "mapping 和数组的访问模型有什么不同，delete 又解决什么问题？",
+      "answer": "mapping 通过 key 直接定位 value，适合地址到账户记录；它不保存可遍历的 key 列表。delete 可以把某个 key 的 value 重置为零值，但不会删除或提供 key 列表。",
+      "keyPoint": "快速按 key 读取不等于可查询全集，delete 也不等于删除对象。",
+      "tags": [
+        "mapping",
+        "address",
+        "索引",
+        "delete"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html#mapping-types",
+        "locator": "Mapping Types"
+      }
+    },
+    {
+      "packCardId": "v4-mapping-check",
+      "position": 1,
+      "type": "qa",
+      "question": "为什么 mapping 的零值会造成‘未登记’和‘登记为 0’的歧义，什么时候用 delete？",
+      "answer": "不存在 key 和主动 delete 都会返回 value 默认值；如果需要区分生命周期要增加 exists 字段。delete 适合用户清除自己的记录或重置数组。",
+      "keyPoint": "默认值不是存在性证明，重置要有明确业务语义。",
+      "tags": [
+        "默认值",
+        "exists",
+        "mapping",
+        "delete"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html#mapping-types",
+        "locator": "Mapping Types"
+      }
+    },
+    {
+      "packCardId": "v4-mapping-read",
+      "position": 2,
+      "type": "code_read",
+      "question": "阅读 progress，说明新地址读取、mark 和 resetSelf 的效果。",
+      "answer": "新地址是 (0,false)；mark 把 count 写入并设置 exists=true；delete 后 count 回到 0，但 exists 也要显式重置，否则会留下生命周期歧义。",
+      "keyPoint": "mapping 默认值和 delete 都需要配合存在性字段。",
+      "tags": [
+        "mapping",
+        "code_read"
+      ],
+      "code": {
+        "language": "solidity",
+        "starterCode": "mapping(address => uint256) public completedCount;\nmapping(address => bool) public hasProgress;\nfunction mark(uint256 count) external { completedCount[msg.sender] = count; hasProgress[msg.sender] = true; }\nfunction resetSelf() external { delete completedCount[msg.sender]; delete hasProgress[msg.sender]; }",
+        "solutionCode": "新地址 -> (0,false)；mark(3) -> (3,true)；resetSelf -> (0,false)。",
+        "testInput": "A 读取、mark(3)、resetSelf、再次读取。",
+        "expectedResult": "状态依次为 (0,false)、(3,true)、(0,false)。",
+        "hints": [
+          "delete 两个 mapping 元素。",
+          "exists 也要恢复 false。"
+        ]
+      },
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html#mapping-types",
+        "locator": "Mapping Types"
+      }
+    },
+    {
+      "packCardId": "v4-mapping-complete",
+      "position": 3,
+      "type": "code_complete",
+      "question": "补全 complete 和 resetSelf，按 msg.sender 更新并清除自己的记录。",
+      "answer": "complete 增加 completedCount 并标记存在；resetSelf 用 delete 清除两个 mapping 元素。",
+      "keyPoint": "用户 key 来自调用上下文，清除范围也必须绑定调用者。",
+      "tags": [
+        "mapping",
+        "code_complete"
+      ],
+      "code": {
+        "language": "solidity",
+        "starterCode": "mapping(address => uint256) public completedCount;\nmapping(address => bool) public hasProgress;\nfunction complete() external {\n    // TODO\n}\nfunction resetSelf() external {\n    // TODO\n}",
+        "solutionCode": "function complete() external {\n    completedCount[msg.sender] += 1;\n    hasProgress[msg.sender] = true;\n}\nfunction resetSelf() external {\n    delete completedCount[msg.sender];\n    delete hasProgress[msg.sender];\n}",
+        "testInput": "A 调用两次，再 resetSelf；B 调用一次。",
+        "expectedResult": "A 回到 (0,false)，B 保持 (1,true)。",
+        "hints": [
+          "delete mapping 元素。",
+          "不要清除其他地址。"
+        ]
+      },
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html#mapping-types",
+        "locator": "Mapping Types"
+      }
+    },
+    {
+      "packCardId": "v4-mapping-write",
+      "position": 4,
+      "type": "code_write",
+      "question": "写一个 LearnerProgress，提供 complete、progressOf、hasProgress 和 resetSelf。",
+      "answer": "使用两个 mapping；complete 增加计数并标记；progressOf/hasProgress 读取；resetSelf delete 调用者自己的两个元素。",
+      "keyPoint": "mapping、存在性和 delete 组合成一个完整的个人生命周期。",
+      "tags": [
+        "mapping",
+        "code_write"
+      ],
+      "code": {
+        "language": "solidity",
+        "starterCode": "// 完成 LearnerProgress 的个人进度接口，区分未开始和已清除\n",
+        "solutionCode": "pragma solidity ^0.8.20;\ncontract LearnerProgress {\n    mapping(address => uint256) public completed;\n    mapping(address => bool) public hasProgress;\n    function complete() external { completed[msg.sender] += 1; hasProgress[msg.sender] = true; }\n    function progressOf(address learner) external view returns (uint256) { return completed[learner]; }\n    function resetSelf() external { delete completed[msg.sender]; delete hasProgress[msg.sender]; }\n}",
+        "testInput": "A 完成两次，B 读取 A，再由 A resetSelf。",
+        "expectedResult": "A 的计数和存在标记都回到零值，B 的读取不会改变 A。",
+        "hints": [
+          "存在标记与计数一起维护。",
+          "delete 只影响 msg.sender。"
+        ]
+      },
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html#mapping-types",
+        "locator": "Mapping Types"
+      }
+    },
+    {
+      "packCardId": "v4-mapping-application",
+      "position": 5,
+      "type": "application",
+      "question": "为什么 mapping 适合按用户查进度，却不适合直接展示‘所有学习者排行榜’？",
+      "answer": "mapping 没有可枚举 key；排行榜需要额外数组、事件索引器或链下数据库来维护用户列表。",
+      "keyPoint": "数据结构的读取能力必须匹配产品查询。",
+      "tags": [
+        "mapping",
+        "查询",
+        "应用"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html#mapping-types",
+        "locator": "Mapping Types"
+      }
+    },
+    {
+      "packCardId": "v4-mapping-misconception",
+      "position": 6,
+      "type": "misconception",
+      "question": "误区：mapping 的 key 可以被 for 循环自动遍历，为什么不对？",
+      "answer": "mapping 只提供按 key 访问，没有内置 key 列表；要遍历必须自己维护地址数组并处理删除和重复。",
+      "keyPoint": "mapping 是索引，不是集合枚举器。",
+      "tags": [
+        "mapping",
+        "遍历",
+        "误区"
+      ],
+      "importance": 4,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html#mapping-types",
+        "locator": "Mapping Types"
+      }
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import {
   hashSessionToken,
+  invalidateWalletSessionCache,
   SESSION_COOKIE,
   SupabaseAuthStore,
 } from "@/lib/server/auth";
@@ -12,9 +13,9 @@ export async function POST() {
     const cookieStore = await cookies();
     const token = cookieStore.get(SESSION_COOKIE)?.value;
     if (token) {
-      await new SupabaseAuthStore().revokeSession(
-        hashSessionToken(token, getServerEnvironment().SESSION_SECRET),
-      );
+      const tokenHash = hashSessionToken(token, getServerEnvironment().SESSION_SECRET);
+      await new SupabaseAuthStore().revokeSession(tokenHash);
+      invalidateWalletSessionCache(tokenHash);
     }
     cookieStore.delete(SESSION_COOKIE);
     return Response.json({ signedOut: true });
@@ -22,4 +23,3 @@ export async function POST() {
     return jsonError(error);
   }
 }
-

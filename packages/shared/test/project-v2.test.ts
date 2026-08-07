@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   chapterLeafV2,
   deriveCardIdV2,
+  hashChapterSourceV2,
   hashTitleV2,
   outlineLeafV2,
   workUnitLeafV2,
@@ -18,6 +19,8 @@ import {
 } from "../src/project-v2.js";
 import { intakeSource } from "../src/source-intake.js";
 import {
+  analyzeChapterStructure,
+  materializeChapterOutline,
   planChaptersDeterministically,
   validateChapterOutline,
 } from "../src/chapter-planning.js";
@@ -116,8 +119,8 @@ describe("V2 Source Intake and Chapter Planning", () => {
 
     expect(outline.chapters).toHaveLength(2);
     expect(outline.chapters.map((chapter) => chapter.title)).toEqual([
-      "第1章 基础概念",
-      "第2章 防御模式",
+      "基础概念",
+      "防御模式",
     ]);
     expect(outline.chapters[0]?.startBlock).toBe(0);
     expect(outline.chapters.at(-1)?.endBlock).toBe(source.blocks.length - 1);
@@ -145,11 +148,187 @@ describe("V2 Source Intake and Chapter Planning", () => {
     const outline = planChaptersDeterministically(projectId, source.blocks);
 
     expect(outline.chapters.map((chapter) => chapter.title)).toEqual([
-      "第一章 原理",
-      "第二章 防御",
+      "原理",
+      "防御",
     ]);
     expect(outline.chapters[0]?.endBlock).toBe(5);
     expect(outline.chapters[1]?.startBlock).toBe(6);
+  });
+
+  it("excludes an implicit contents page and groups numbered topic sequences", () => {
+    const detail = "这是需要理解的知识内容，包含概念、机制、约束与应用条件。".repeat(80);
+    const topics = [
+      "1. 公平原则的调度算法",
+      "2. 实时调度算法",
+      "1. 多处理机操作系统",
+      "2. 多处理机操作系统的进程调度",
+      "1. 伙伴算法",
+      "2. 页框回收算法",
+      "1. 信号",
+      "2. 进程间通信",
+    ];
+    const source = intakeSource([
+      { pageNumber: 1, text: topics.join("\n\n") },
+      ...topics.map((topic, index) => ({
+        pageNumber: index + 2,
+        text: `${topic}\n\n${detail}`,
+      })),
+    ]);
+
+    const outline = planChaptersDeterministically(projectId, source.blocks);
+    const analysis = analyzeChapterStructure(source.blocks, outline.excludedRanges);
+
+    expect(outline.excludedRanges).toEqual([
+      expect.objectContaining({
+        startBlock: 0,
+        endBlock: topics.length - 1,
+        category: "TABLE_OF_CONTENTS",
+      }),
+    ]);
+    expect(analysis.naturalGroups.map((group) => group.headingTitles)).toEqual([
+      ["公平原则的调度算法", "实时调度算法"],
+      ["多处理机操作系统", "多处理机操作系统的进程调度"],
+      ["伙伴算法", "页框回收算法"],
+      ["信号", "进程间通信"],
+    ]);
+    expect(outline.chapters.map((chapter) => chapter.title)).toEqual([
+      "公平原则与实时调度算法",
+      "多处理机操作系统与进程调度",
+      "伙伴与页框回收算法",
+      "信号与进程间通信",
+    ]);
+
+    const excluded = new Set(
+      outline.excludedRanges.flatMap((range) =>
+        Array.from({ length: range.endBlock - range.startBlock + 1 }, (_, offset) => range.startBlock + offset),
+      ),
+    );
+    const covered = new Map<number, number>();
+    for (const chapter of outline.chapters) {
+      for (let blockIndex = chapter.startBlock; blockIndex <= chapter.endBlock; blockIndex += 1) {
+        covered.set(blockIndex, (covered.get(blockIndex) ?? 0) + 1);
+      }
+    }
+    expect(source.blocks.every((block) =>
+      excluded.has(block.blockIndex) || covered.get(block.blockIndex) === 1,
+    )).toBe(true);
+  });
+
+  it("infers parenthesized numbered headings as subsections", () => {
+    const source = intakeSource([{
+      pageNumber: 1,
+      text: [
+        "1. 调度算法",
+        "",
+        "调度算法决定处理器分配顺序。",
+        "",
+        "1）评价指标",
+        "",
+        "评价指标包括公平性、响应时间和吞吐量。",
+        "",
+        "2. 实时调度",
+        "",
+        "实时调度需要满足任务截止时间。",
+      ].join("\n"),
+    }]);
+
+    const analysis = analyzeChapterStructure(source.blocks, []);
+
+    expect(analysis.headings.map((heading) => ({
+      title: heading.title,
+      inferredLevel: heading.inferredLevel,
+    }))).toEqual([
+      { title: "调度算法", inferredLevel: 1 },
+      { title: "评价指标", inferredLevel: 2 },
+      { title: "实时调度", inferredLevel: 1 },
+    ]);
+    expect(analysis.naturalGroups).toHaveLength(1);
+    expect(analysis.naturalGroups[0]?.headingTitles).toEqual(["调度算法", "实时调度"]);
+  });
+
+  it("keeps numbered worked-example branches inside their learning topic", () => {
+    const source = intakeSource([{
+      pageNumber: 1,
+      text: [
+        "1. 实时调度算法",
+        "",
+        "实时调度需要满足任务截止时间。",
+        "",
+        "1. 假定任务 A 具有较高的优先级",
+        "",
+        "任务 B 会错过截止时间。",
+        "",
+        "2. 假定任务 B 具有较高的优先级",
+        "",
+        "任务 A 会错过截止时间。",
+        "",
+        "3. 采用 EDF 算法",
+        "",
+        "按照截止时间排序可以满足约束。",
+        "",
+        "1. 多处理机操作系统",
+        "",
+        "多处理机操作系统协调多个处理器。",
+      ].join("\n"),
+    }]);
+
+    const analysis = analyzeChapterStructure(source.blocks, []);
+
+    expect(analysis.headings.filter((heading) => /假定|采用/u.test(heading.title)))
+      .toEqual(expect.arrayContaining([
+        expect.objectContaining({ title: "假定任务 A 具有较高的优先级", inferredLevel: 2 }),
+        expect.objectContaining({ title: "采用 EDF 算法", inferredLevel: 2 }),
+      ]));
+    expect(analysis.naturalGroups.map((group) => group.headingTitles)).toEqual([
+      ["实时调度算法"],
+      ["多处理机操作系统"],
+    ]);
+  });
+
+  it("does not turn a wrapped arithmetic example into a Chapter title", () => {
+    const source = intakeSource([{
+      pageNumber: 1,
+      text: [
+        "3 ）最低松弛度优先算法",
+        "",
+        "松弛度用于衡量实时任务距离截止时间还剩多少缓冲。",
+        "",
+        "50 − 5 − 30 ）。 此 时应抢占处理机给 A 运行。",
+        "",
+        "1. 多处理机操作系统",
+        "",
+        "多处理机操作系统负责协调多个处理器。",
+      ].join("\n"),
+    }]);
+
+    const arithmeticExample = source.blocks.find((block) => block.text.startsWith("50 − 5"));
+    expect(arithmeticExample?.kind).toBe("paragraph");
+    const bareNumberedHeading = intakeSource([{
+      pageNumber: 1,
+      text: "1 多处理机操作系统\n\n多处理机操作系统负责协调多个处理器。",
+    }]);
+    expect(bareNumberedHeading.blocks[0]?.kind).toBe("heading");
+
+    const outline = planChaptersDeterministically(projectId, source.blocks);
+    expect(outline.chapters.map((chapter) => chapter.title)).toEqual([
+      "最低松弛度优先算法",
+      "多处理机操作系统",
+    ]);
+  });
+
+  it("rejects sentence-like arithmetic titles proposed by AI", () => {
+    const source = intakeSource([{
+      pageNumber: 1,
+      text: "# 最低松弛度优先算法\n\n松弛度越低，实时任务的调度优先级越高。",
+    }]);
+
+    expect(() => materializeChapterOutline(projectId, source.blocks, [{
+      title: "50 − 5 − 30 ）。 此 时应抢占处理机给 A 运行。",
+      summary: "说明最低松弛度优先算法。",
+      startBlock: 0,
+      endBlock: source.blocks.length - 1,
+      importance: 4,
+    }])).toThrow(/Chapter title/u);
   });
 
   it("merges many shallow headings when the learning material is short", () => {
@@ -202,8 +381,8 @@ describe("V2 Source Intake and Chapter Planning", () => {
     expect(outline.excludedRanges.map((range) => range.category)).toContain("REPEATED_HEADER_FOOTER");
     expect(outline.excludedRanges.map((range) => range.category)).toContain("VERSION_NOTICE");
     expect(outline.chapters.map((chapter) => chapter.title)).toEqual([
-      "第一章 调度原理",
-      "第二章 内存管理",
+      "调度原理",
+      "内存管理",
     ]);
     expect(learningBlocks.map((block) => block.text).join("\n")).not.toContain("一大颗牛奶糖");
     expect(learningBlocks.map((block) => block.text).join("\n")).not.toContain("10 月底上线");
@@ -239,11 +418,51 @@ describe("V2 Source Intake and Chapter Planning", () => {
     expect(outline.excludedRanges.map((range) => range.category)).toContain("EXAM_UPDATE");
     expect(outline.excludedRanges.map((range) => range.category)).toContain("SCHEDULE_NOTICE");
     expect(outline.chapters.map((chapter) => chapter.title)).toEqual([
-      "第一章 代理合约",
-      "第二章 重入防御",
+      "代理合约",
+      "重入防御",
     ]);
     expect(learningText).not.toContain("考纲变化");
     expect(learningText).not.toContain("考试日期");
+  });
+
+  it("keeps exam change notices using 改动 out of learning Chapters", () => {
+    const source = intakeSource([
+      {
+        pageNumber: 1,
+        text: "# 2026 年考纲改动\n\n新增知识点：外部调用。",
+      },
+      {
+        pageNumber: 2,
+        text: "# 外部调用\n\n外部调用会转移执行控制权，调用者需要考虑重入风险。",
+      },
+    ]);
+
+    const outline = planChaptersDeterministically(projectId, source.blocks);
+    expect(outline.excludedRanges).toEqual([
+      expect.objectContaining({ startBlock: 0, endBlock: 1, category: "EXAM_UPDATE" }),
+    ]);
+    expect(outline.chapters.map((chapter) => chapter.title)).toEqual(["外部调用"]);
+  });
+
+  it("rejects an AI Chapter that wraps learning content in an exam-update boundary", () => {
+    const source = intakeSource([
+      { pageNumber: 1, text: "# 2026 年考纲改动\n\n新增知识点：外部调用。" },
+      { pageNumber: 2, text: "# 外部调用\n\n外部调用会转移执行控制权。" },
+    ]);
+    const exclusions = planChaptersDeterministically(projectId, source.blocks).excludedRanges;
+
+    expect(() => validateChapterOutline([{
+      chapterId: 0,
+      position: 0,
+      title: "2026 年考纲改动",
+      summary: "本章介绍考纲改动和外部调用。",
+      startBlock: 0,
+      endBlock: source.blocks.length - 1,
+      pageStart: 1,
+      pageEnd: 2,
+      sourceHash: hashChapterSourceV2(source.blocks),
+      importance: 3,
+    }], source.blocks, exclusions)).toThrow(/learning Source Block boundaries/u);
   });
 
   it("separates a metadata notice line from the learning paragraph that follows it", () => {

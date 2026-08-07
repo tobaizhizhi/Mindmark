@@ -4,7 +4,7 @@ import {
   type SourcePage,
 } from "@mindmark/shared";
 
-export const MAX_PDF_BYTES = 15 * 1024 * 1024;
+const MAX_PDF_BYTES = 15 * 1024 * 1024;
 
 type PdfTextItem = {
   str: string;

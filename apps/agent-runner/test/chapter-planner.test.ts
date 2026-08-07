@@ -38,6 +38,57 @@ describe("Chapter Planner adapters", () => {
     expect(JSON.stringify(proposal)).not.toContain("hash");
   });
 
+  it("shows inferred hierarchy and natural topic groups to the AI planner", async () => {
+    const source = intakeSource([{
+      pageNumber: 1,
+      text: [
+        "1. 调度算法",
+        "",
+        "调度算法决定处理器分配顺序。",
+        "",
+        "1）评价指标",
+        "",
+        "评价指标包括公平性和响应时间。",
+        "",
+        "2. 实时调度",
+        "",
+        "实时调度需要满足截止时间。",
+      ].join("\n"),
+    }]);
+    const model = new ScriptedModel([
+      { id: "read", name: "read_source_outline", arguments: {} },
+      {
+        id: "propose",
+        name: "propose_chapters",
+        arguments: {
+          chapters: [{
+            title: "调度算法与实时调度",
+            summary: "理解调度评价指标和实时约束。",
+            startBlock: 0,
+            endBlock: source.blocks.length - 1,
+            importance: 4,
+          }],
+          excludedRanges: [],
+        },
+      },
+    ]);
+
+    await new AiChapterPlanner(model).plan({ projectId, blocks: source.blocks });
+
+    const readResult = model.inputs[1]?.transcript[0]?.result as {
+      structuralHints?: {
+        headings: Array<{ title: string; inferredLevel: number }>;
+        naturalGroups: Array<{ headingTitles: string[] }>;
+      };
+    };
+    expect(readResult.structuralHints?.headings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ title: "评价指标", inferredLevel: 2 }),
+    ]));
+    expect(readResult.structuralHints?.naturalGroups).toEqual([
+      expect.objectContaining({ headingTitles: ["调度算法", "实时调度"] }),
+    ]);
+  });
+
   it("rejects an over-segmented AI outline and accepts a budgeted retry", async () => {
     const text = Array.from(
       { length: 12 },

@@ -1,0 +1,290 @@
+{
+  "chapterId": 0,
+  "position": 0,
+  "slug": "contract-shell",
+  "title": "01 合约外壳：从源码到链上实例",
+  "summary": "只学习 pragma、contract、状态变量和 Remix 的编译部署闭环。",
+  "estimatedMinutes": 18,
+  "learningObjectives": [
+    "能解释源码、ABI、bytecode 和实例地址的关系",
+    "能在 Remix 编译并部署 LearningRegistry",
+    "能读取一个 public 状态变量"
+  ],
+  "prerequisiteChapterIds": [],
+  "stageId": 0,
+  "stageTitle": "阶段一：看见合约",
+  "newConcepts": [
+    "pragma",
+    "contract",
+    "状态变量",
+    "string",
+    "public getter",
+    "编译与部署"
+  ],
+  "prerequisiteConcepts": [],
+  "practiceFocus": "只观察部署和读取，不引入函数、权限或 Ether。",
+  "projectMilestone": "创建 LearningRegistry 外壳，保存 registryName = Mindmark。",
+  "cards": [
+    {
+      "packCardId": "v5-v4-contract-shell-concept",
+      "position": 0,
+      "type": "concept",
+      "question": "Solidity 源码、ABI、bytecode 和已部署合约分别是什么？",
+      "answer": "源码是人写的文本；编译器把它变成 bytecode 和描述调用形状的 ABI；部署交易把 bytecode 写成链上实例，实例由地址定位。",
+      "keyPoint": "编译成功不代表实例已经部署，四个对象要分开排查。",
+      "tags": [
+        "pragma",
+        "contract",
+        "Remix"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/structure-of-a-contract.html",
+        "locator": "Structure of a Contract"
+      },
+      "readingBlockId": "contract-shell-concept-text"
+    },
+    {
+      "packCardId": "v5-v4-contract-shell-check",
+      "position": 1,
+      "type": "qa",
+      "question": "为什么第一次练习只读 public 状态变量，不马上写函数？",
+      "answer": "public 状态变量会自动生成 getter，能让学习者先观察部署结果和链上读取，减少同时理解参数、可见性和状态修改的负担。",
+      "keyPoint": "先建立可观察闭环，再逐层增加语法。",
+      "tags": [
+        "学习路径",
+        "getter",
+        "部署"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/structure-of-a-contract.html",
+        "locator": "Structure of a Contract"
+      },
+      "readingBlockId": "contract-shell-concept-text"
+    },
+    {
+      "packCardId": "v5-v4-contract-shell-read",
+      "position": 2,
+      "type": "code_read",
+      "question": "阅读 RegistryShell，部署后 getter 会返回什么？",
+      "answer": "registryName 的初值是 Mindmark；public 变量会生成同名 getter，读取不改变状态。",
+      "keyPoint": "状态变量初始化发生在部署实例创建时。",
+      "tags": [
+        "contract-shell",
+        "code_read"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/structure-of-a-contract.html",
+        "locator": "Structure of a Contract"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "pragma solidity ^0.8.20;\ncontract RegistryShell {\n    string public registryName = \"Mindmark\";\n}",
+        "solutionCode": "部署 RegistryShell 后调用 registryName()，返回 Mindmark。",
+        "testInput": "部署合约并调用 registryName()。",
+        "expectedResult": "返回 Mindmark。",
+        "hints": [
+          "先找状态变量的初值。",
+          "public 会生成 getter。"
+        ]
+      },
+      "readingBlockId": "contract-shell-code-1"
+    },
+    {
+      "packCardId": "v5-v4-contract-shell-complete",
+      "position": 3,
+      "type": "code_complete",
+      "question": "补全 LearningRegistry 的 public name 和 version 初值。",
+      "answer": "声明 string public name = \"LearningRegistry\"，uint256 public version = 1。",
+      "keyPoint": "先用最少的状态表达项目名称和版本。",
+      "tags": [
+        "contract-shell",
+        "code_complete"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/structure-of-a-contract.html",
+        "locator": "Structure of a Contract"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "pragma solidity ^0.8.20;\ncontract LearningRegistry {\n    // TODO: name 和 version\n}",
+        "solutionCode": "pragma solidity ^0.8.20;\ncontract LearningRegistry {\n    string public name = \"LearningRegistry\";\n    uint256 public version = 1;\n}",
+        "testInput": "部署并读取 name() 与 version()。",
+        "expectedResult": "LearningRegistry 和 1。",
+        "hints": [
+          "先写类型，再写 public。",
+          "初始化值写在声明右侧。"
+        ]
+      },
+      "readingBlockId": "contract-shell-code-2"
+    },
+    {
+      "packCardId": "v5-v4-contract-shell-write",
+      "position": 4,
+      "type": "code_write",
+      "question": "独立写一个 RegistryShell，包含 public title 和 active 两个状态变量。",
+      "answer": "title 使用 string，active 使用 bool，并在声明处分别设为 Solidity Learning 与 true。",
+      "keyPoint": "能独立写出可部署的最小合约，才进入函数层。",
+      "tags": [
+        "contract-shell",
+        "code_write"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/structure-of-a-contract.html",
+        "locator": "Structure of a Contract"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "// 写出一个只包含 title 和 active 的最小合约",
+        "solutionCode": "pragma solidity ^0.8.20;\ncontract RegistryShell {\n    string public title = \"Solidity Learning\";\n    bool public active = true;\n}",
+        "testInput": "部署后读取 title 和 active。",
+        "expectedResult": "Solidity Learning、true。",
+        "hints": [
+          "合约前写 pragma。",
+          "两个状态变量都标记 public。"
+        ]
+      },
+      "readingBlockId": "contract-shell-code-3"
+    },
+    {
+      "packCardId": "v5-v4-contract-shell-application",
+      "position": 5,
+      "type": "application",
+      "question": "为什么把部署和读取分成两个操作有助于理解区块链？",
+      "answer": "部署是创建实例的交易，读取是对实例的 eth_call；把两者分开，能准确知道哪一步产生地址、哪一步只读取状态。",
+      "keyPoint": "执行模型清楚后，后面学习写入和 gas 才有基准。",
+      "tags": [
+        "执行模型",
+        "eth_call",
+        "应用"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/structure-of-a-contract.html",
+        "locator": "Structure of a Contract"
+      },
+      "readingBlockId": "contract-shell-practice-text"
+    },
+    {
+      "packCardId": "v5-v4-contract-shell-misconception",
+      "position": 6,
+      "type": "misconception",
+      "question": "误区：Solidity 文件名就是链上合约名，为什么不对？",
+      "answer": "链上识别合约依靠 bytecode 和地址，contract 声明名参与编译和 ABI，文件名本身不是运行时身份。",
+      "keyPoint": "文件、合约声明和地址是不同层次。",
+      "tags": [
+        "文件名",
+        "地址",
+        "误区"
+      ],
+      "importance": 4,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/structure-of-a-contract.html",
+        "locator": "Structure of a Contract"
+      },
+      "readingBlockId": "contract-shell-practice-text"
+    }
+  ],
+  "readingBlocks": [
+    {
+      "blockId": "contract-shell-title",
+      "position": 0,
+      "kind": "heading",
+      "text": "01 合约外壳：从源码到链上实例"
+    },
+    {
+      "blockId": "contract-shell-overview",
+      "position": 1,
+      "kind": "paragraph",
+      "text": "只学习 pragma、contract、状态变量和 Remix 的编译部署闭环。"
+    },
+    {
+      "blockId": "contract-shell-stage",
+      "position": 2,
+      "kind": "callout",
+      "text": "阶段一：看见合约。练习重点：只观察部署和读取，不引入函数、权限或 Ether。"
+    },
+    {
+      "blockId": "contract-shell-objectives",
+      "position": 3,
+      "kind": "heading",
+      "text": "本章学习目标"
+    },
+    {
+      "blockId": "contract-shell-objective-text",
+      "position": 4,
+      "kind": "paragraph",
+      "text": "1. 能解释源码、ABI、bytecode 和实例地址的关系\n2. 能在 Remix 编译并部署 LearningRegistry\n3. 能读取一个 public 状态变量"
+    },
+    {
+      "blockId": "contract-shell-concepts",
+      "position": 5,
+      "kind": "heading",
+      "text": "关键概念"
+    },
+    {
+      "blockId": "contract-shell-concept-text",
+      "position": 6,
+      "kind": "paragraph",
+      "text": "本章引入：pragma、contract、状态变量、string、public getter、编译与部署。创建 LearningRegistry 外壳，保存 registryName = Mindmark。"
+    },
+    {
+      "blockId": "contract-shell-code-1",
+      "position": 7,
+      "kind": "code",
+      "text": "pragma solidity ^0.8.20;\ncontract RegistryShell {\n    string public registryName = \"Mindmark\";\n}",
+      "language": "solidity"
+    },
+    {
+      "blockId": "contract-shell-code-2",
+      "position": 8,
+      "kind": "code",
+      "text": "pragma solidity ^0.8.20;\ncontract LearningRegistry {\n    // TODO: name 和 version\n}",
+      "language": "solidity"
+    },
+    {
+      "blockId": "contract-shell-code-3",
+      "position": 9,
+      "kind": "code",
+      "text": "// 写出一个只包含 title 和 active 的最小合约",
+      "language": "solidity"
+    },
+    {
+      "blockId": "contract-shell-practice",
+      "position": 10,
+      "kind": "heading",
+      "text": "迁移练习"
+    },
+    {
+      "blockId": "contract-shell-practice-text",
+      "position": 11,
+      "kind": "paragraph",
+      "text": "只观察部署和读取，不引入函数、权限或 Ether。\n项目里程碑：创建 LearningRegistry 外壳，保存 registryName = Mindmark。"
+    }
+  ]
+}

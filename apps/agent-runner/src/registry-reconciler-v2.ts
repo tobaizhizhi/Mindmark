@@ -1,20 +1,27 @@
+import { quoteWorkUnitRewards } from "@mindmark/shared";
 import { getAddress } from "viem";
-import type { ProjectRegistryGatewayV2, ProjectRunnerRepositoryV2 } from "./types-v2.js";
+import type { ProjectSponsorGateway } from "./runtime-types.js";
+import type {
+  ProjectRegistryGatewayV2,
+  RegistryProjectIntentV2,
+  RegistryReconciliationRepositoryV2,
+} from "./types-v2.js";
 
 export class RegistryReconcilerV2 {
   constructor(
-    private readonly repository: ProjectRunnerRepositoryV2,
+    private readonly repository: RegistryReconciliationRepositoryV2,
     private readonly registry: ProjectRegistryGatewayV2,
+    private readonly sponsor: ProjectSponsorGateway,
+    private readonly baseRewardWei: bigint,
   ) {}
 
   async reconcileProject(projectId: `0x${string}`): Promise<"RECONCILED" | "PENDING" | "OBSOLETE"> {
-    const intent = (await this.repository.listPendingRegistryProjects(64))
-      .find((candidate) => candidate.projectId === projectId);
+    const intent = await this.repository.getPendingRegistryProject(projectId);
     if (!intent) return "OBSOLETE";
     return (await this.reconcileIntent(intent)) ? "RECONCILED" : "PENDING";
   }
 
-  private async reconcileIntent(intent: Awaited<ReturnType<ProjectRunnerRepositoryV2["listPendingRegistryProjects"]>>[number]): Promise<boolean> {
+  private async reconcileIntent(intent: RegistryProjectIntentV2): Promise<boolean> {
     const chain = await this.registry.readProject(intent.projectId);
     if (!chain) return false;
     if (
@@ -29,7 +36,13 @@ export class RegistryReconcilerV2 {
     ) {
       throw new Error(`Monad Project ${intent.projectId} does not match its persisted creation intent`);
     }
-    await this.repository.markProjectRegistryReconciled(intent.projectId);
+    const quotes = quoteWorkUnitRewards(intent.pricingInputs, this.baseRewardWei);
+    const funding = await this.sponsor.ensureProjectFunded({
+      projectId: intent.projectId,
+      quotes,
+      legacyRewardPerWorkUnitWei: this.baseRewardWei,
+    });
+    await this.repository.markProjectRegistryReconciled(intent.projectId, funding);
     return true;
   }
 }

@@ -15,6 +15,14 @@ export type WalletSession = {
   expiresAt: string;
 };
 
+const SESSION_CACHE_TTL_MS = 60_000;
+const SESSION_CACHE_LIMIT = 128;
+type SessionCacheEntry = {
+  expiresAt: number;
+  value: Promise<WalletSession | null>;
+};
+const sessionCache = new Map<string, SessionCacheEntry>();
+
 export interface AuthStore {
   saveNonce(address: `0x${string}`, nonce: string, expiresAt: string): Promise<void>;
   consumeNonce(address: `0x${string}`, nonce: string): Promise<boolean>;
@@ -92,6 +100,31 @@ export function hashSessionToken(token: string, secret: string): string {
   return createHmac("sha256", secret).update(token).digest("hex");
 }
 
+function cachedSession(tokenHash: string): Promise<WalletSession | null> {
+  const now = Date.now();
+  const existing = sessionCache.get(tokenHash);
+  if (existing && existing.expiresAt > now) return existing.value;
+  if (existing) sessionCache.delete(tokenHash);
+  if (sessionCache.size >= SESSION_CACHE_LIMIT) {
+    sessionCache.delete(sessionCache.keys().next().value as string);
+  }
+  const value = new SupabaseAuthStore().findSession(tokenHash);
+  const entry = { expiresAt: now + SESSION_CACHE_TTL_MS, value };
+  sessionCache.set(tokenHash, entry);
+  void value.then((session) => {
+    if (session && sessionCache.get(tokenHash) === entry) {
+      entry.expiresAt = Math.min(entry.expiresAt, Date.parse(session.expiresAt));
+    }
+  }).catch(() => {
+    if (sessionCache.get(tokenHash) === entry) sessionCache.delete(tokenHash);
+  });
+  return value;
+}
+
+export function invalidateWalletSessionCache(tokenHash: string): void {
+  sessionCache.delete(tokenHash);
+}
+
 export async function verifySiweCredentials(
   request: AuthVerifyRequest,
   expected: { domain: string; uri: string; chainId: number },
@@ -120,12 +153,13 @@ export async function verifySiweCredentials(
 }
 
 export async function readWalletSession(
-  store: AuthStore = new SupabaseAuthStore(),
+  store?: AuthStore,
 ): Promise<WalletSession | null> {
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return null;
   const environment = getServerEnvironment();
-  return store.findSession(hashSessionToken(token, environment.SESSION_SECRET));
+  const tokenHash = hashSessionToken(token, environment.SESSION_SECRET);
+  return store ? store.findSession(tokenHash) : cachedSession(tokenHash);
 }
 
 export async function requireWalletSession(): Promise<WalletSession> {

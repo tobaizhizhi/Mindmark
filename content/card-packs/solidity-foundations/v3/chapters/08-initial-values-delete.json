@@ -1,0 +1,198 @@
+{
+  "chapterId": 7,
+  "position": 7,
+  "slug": "initial-values-delete",
+  "title": "初始值与 delete：重置状态而不是销毁合约",
+  "summary": "系统理解各种变量的零值，并用 delete 明确恢复到默认状态。",
+  "estimatedMinutes": 21,
+  "learningObjectives": [
+    "能列出常见值类型和引用类型的初始值",
+    "能解释 delete 对变量和 mapping 元素的效果",
+    "能区分重置状态与销毁合约"
+  ],
+  "prerequisiteChapterIds": [
+    6
+  ],
+  "cards": [
+    {
+      "packCardId": "v3-initial-values-delete-concept",
+      "position": 0,
+      "type": "concept",
+      "question": "Solidity 为什么给状态变量提供确定的初始值？",
+      "answer": "EVM storage 对未写入 slot 读取为零值，Solidity 将它映射成各类型的默认状态：bool=false、整数=0、address=零地址、动态数组为空。",
+      "keyPoint": "默认值是底层语义，不是业务初始化流程；业务有效性仍需显式建立。",
+      "tags": [
+        "初始值",
+        "零值",
+        "状态"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html",
+        "locator": "Default Values and the delete Operator"
+      }
+    },
+    {
+      "packCardId": "v3-initial-values-delete-check",
+      "position": 1,
+      "type": "qa",
+      "question": "delete users[A] 对 mapping(address => User) 做了什么？",
+      "answer": "它把 users[A] 的 struct 各字段恢复到默认值；不会删除 mapping 的可枚举 key，因为 mapping 本来就不保存 key 列表。",
+      "keyPoint": "delete 重置存储值，不是释放一个可遍历的对象。",
+      "tags": [
+        "delete",
+        "mapping",
+        "struct"
+      ],
+      "importance": 4,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html",
+        "locator": "Default Values and the delete Operator"
+      }
+    },
+    {
+      "packCardId": "v3-initial-values-delete-read",
+      "position": 2,
+      "type": "output_trace",
+      "question": "推断 reset 前后数组、mapping 和 enum 的值。",
+      "answer": "delete score 把 score 变 0，delete profile 把字段变默认值，delete learners 把动态数组清空，delete status 回到 enum 第一个成员。",
+      "keyPoint": "delete 的目标类型决定重置结果，不能把它理解成 JavaScript 的 undefined。",
+      "tags": [
+        "运行推理",
+        "delete",
+        "数组"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html",
+        "locator": "Default Values and the delete Operator"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "uint256 public score = 88;\nstring public name = \"Alice\";\nuint256[] public scores = [80, 90];\nenum Status { Active, Archived }\nStatus public status = Status.Archived;\n\nfunction reset() external {\n    delete score;\n    delete name;\n    delete scores;\n    delete status;\n}",
+        "solutionCode": "reset() 后：\nscore == 0\nname == \"\"\nscores.length == 0\nstatus == Status.Active",
+        "testInput": "部署后调用 reset。",
+        "expectedResult": "所有值回到各自默认值。",
+        "hints": [
+          "enum 默认第一个成员。",
+          "动态数组 delete 后 length 为 0。"
+        ]
+      }
+    },
+    {
+      "packCardId": "v3-initial-values-delete-complete",
+      "position": 3,
+      "type": "code_complete",
+      "question": "补全 clearProfile，只清除调用者自己的 profile。",
+      "answer": "使用 delete profiles[msg.sender]，不会影响其他地址的 profile。",
+      "keyPoint": "对 mapping 元素 delete 时，key 是操作边界。",
+      "tags": [
+        "delete",
+        "mapping",
+        "补全"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html",
+        "locator": "Default Values and the delete Operator"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "struct Profile { string name; uint256 score; }\nmapping(address => Profile) public profiles;\n\nfunction clearProfile() external {\n    // TODO\n}",
+        "solutionCode": "struct Profile { string name; uint256 score; }\nmapping(address => Profile) public profiles;\n\nfunction clearProfile() external {\n    delete profiles[msg.sender];\n}",
+        "testInput": "A 和 B 都有 profile，A 调用 clearProfile。",
+        "expectedResult": "A 回到默认值，B 的数据保持不变。",
+        "hints": [
+          "delete 后面接完整的 mapping 元素。",
+          "key 使用 msg.sender。"
+        ]
+      }
+    },
+    {
+      "packCardId": "v3-initial-values-delete-write",
+      "position": 4,
+      "type": "code_write",
+      "question": "写一个 resetScores，把动态数组 scores 清空，并提供一个 newScoresLength 读取函数。",
+      "answer": "delete scores 会清空数组；newScoresLength 用 view returns 返回 scores.length。",
+      "keyPoint": "把状态重置和读取接口分开，方便测试重置后的边界。",
+      "tags": [
+        "delete",
+        "dynamic array",
+        "写代码"
+      ],
+      "importance": 5,
+      "initialDifficulty": 4,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html",
+        "locator": "Default Values and the delete Operator"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "uint256[] public scores;\n\n// 写出 resetScores() 和 newScoresLength()",
+        "solutionCode": "uint256[] public scores;\n\nfunction resetScores() external {\n    delete scores;\n}\n\nfunction newScoresLength() external view returns (uint256) {\n    return scores.length;\n}",
+        "testInput": "先 push 两个分数，再 resetScores。",
+        "expectedResult": "newScoresLength 返回 0。",
+        "hints": [
+          "delete scores。",
+          "读取函数用 view。"
+        ]
+      }
+    },
+    {
+      "packCardId": "v3-initial-values-delete-application",
+      "position": 5,
+      "type": "application",
+      "question": "什么时候应该使用显式 reset 函数，而不是在每次读取时把默认值当成未初始化？",
+      "answer": "当业务允许用户撤销、清除或重新开始时，应提供明确的状态转换和事件；隐式依赖默认值会让前端和审计者无法区分从未设置与主动清除。",
+      "keyPoint": "可观察的状态转换比隐藏的默认值更容易测试和审计。",
+      "tags": [
+        "状态机",
+        "重置",
+        "应用"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html",
+        "locator": "Default Values and the delete Operator"
+      }
+    },
+    {
+      "packCardId": "v3-initial-values-delete-misconception",
+      "position": 6,
+      "type": "misconception",
+      "question": "误区：delete contractVariable 会把合约从链上销毁，为什么错误？",
+      "answer": "delete 只把变量恢复为默认值；合约销毁需要专门的机制，且现代 Solidity/EVM 对 selfdestruct 的语义和使用边界也有变化。",
+      "keyPoint": "重置 storage 和销毁代码是完全不同的操作。",
+      "tags": [
+        "delete",
+        "selfdestruct",
+        "误区"
+      ],
+      "importance": 4,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html",
+        "locator": "Default Values and the delete Operator"
+      }
+    }
+  ]
+}

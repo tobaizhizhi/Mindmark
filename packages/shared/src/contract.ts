@@ -17,3 +17,24 @@ export const learningProjectRegistryV2Abi = parseAbi([
   "event ProjectFinalized(bytes32 indexed projectId, bytes32 projectDeckRoot, bytes32 initialPlanHash, uint16 totalCardCount)",
   "event ProjectCancelled(bytes32 indexed projectId, address indexed learner)",
 ]);
+
+export const learningCompletionRegistryAbi = parseAbi([
+  "function sourceRegistry() view returns (address)",
+  "function attestor() view returns (address)",
+  "function completions(bytes32 projectId) view returns (address learner, bytes32 projectDeckRoot, bytes32 progressHash, uint64 completedBlock)",
+  "function claimCompletion(bytes32 projectId, bytes32 progressHash, uint64 deadline, bytes signature)",
+  "event LearningCompletionClaimed(bytes32 indexed projectId, address indexed learner, bytes32 indexed projectDeckRoot, bytes32 progressHash, uint64 completedBlock)",
+]);
+
+export const learningProjectEscrowAbi = parseAbi([
+  "function registry() view returns (address)",
+  "function fundProject(bytes32 projectId, uint128[] rewardAmounts) payable",
+  "function releaseReward(bytes32 projectId, uint16 workUnitId)",
+  "function refundCancelledProject(bytes32 projectId)",
+  "function projectEscrows(bytes32 projectId) view returns (address sponsor, bytes32 pricingRoot, uint128 totalBudget, uint128 remainingBudget, uint16 workUnitCount, uint16 settledWorkUnitCount, uint64 fundedBlock, bool refunded)",
+  "function workUnitRewardAmounts(bytes32 projectId, uint16 workUnitId) view returns (uint128)",
+  "function rewardReleased(bytes32 projectId, uint16 workUnitId) view returns (bool)",
+  "event ProjectFunded(bytes32 indexed projectId, address indexed sponsor, bytes32 pricingRoot, uint16 workUnitCount, uint256 totalBudget)",
+  "event RewardReleased(bytes32 indexed projectId, uint16 indexed workUnitId, address indexed worker, uint256 amount)",
+  "event ProjectRefunded(bytes32 indexed projectId, address indexed sponsor, uint256 amount)",
+]);

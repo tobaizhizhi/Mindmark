@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ApiError, jsonError } from "@/lib/server/http";
+import { DeploymentSchemaOutdatedError } from "@mindmark/shared";
 import {
   getLearningQualityOperations,
   getWorkflowOperations,
@@ -124,6 +125,18 @@ describe("HTTP errors", () => {
     expect(response.headers.get("x-request-id")).toBe(requestId);
     await expect(response.json()).resolves.toEqual({
       error: { code: "operator_access_required", message: "Access denied", requestId },
+    });
+  });
+
+  it("maps schema capability failures to an actionable 503 response", async () => {
+    const response = jsonError(new DeploymentSchemaOutdatedError(["originalPdfStorage"]));
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "deployment_schema_outdated",
+        message: expect.stringContaining("20260807000200_generation_failure_recovery.sql"),
+      },
     });
   });
 });

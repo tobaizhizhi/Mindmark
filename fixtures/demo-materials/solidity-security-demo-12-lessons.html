@@ -1,0 +1,870 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Solidity 智能合约安全：12 个循序渐进的核心主题</title>
+  <style>
+    @page { size: A4; margin: 0; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: #dce3e8; color: #17202a; }
+    body {
+      font-family: "Microsoft YaHei", "Noto Sans CJK SC", "PingFang SC", Arial, sans-serif;
+      font-size: 9.6pt;
+      line-height: 1.48;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    .page {
+      position: relative;
+      width: 210mm;
+      height: 297mm;
+      margin: 0 auto 8mm;
+      padding: 13mm 15mm 12mm;
+      overflow: hidden;
+      background: #fff;
+      break-after: page;
+      page-break-after: always;
+      display: flex;
+      flex-direction: column;
+    }
+    .page:last-child { break-after: auto; page-break-after: auto; }
+    .topline {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-bottom: 3mm;
+      border-bottom: 1px solid #cbd5df;
+      color: #52606d;
+      font-size: 7.5pt;
+      font-weight: 700;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+    }
+    .brand { color: #0f766e; }
+    .lesson-tag {
+      display: inline-block;
+      margin-top: 5mm;
+      color: #d9482b;
+      font-size: 8pt;
+      font-weight: 800;
+      letter-spacing: .08em;
+    }
+    h1 {
+      margin: 1.6mm 0 2.2mm;
+      color: #0d2438;
+      font-size: 23pt;
+      line-height: 1.16;
+      letter-spacing: 0;
+    }
+    .lead {
+      margin: 0 0 4mm;
+      color: #425466;
+      font-size: 10.5pt;
+      line-height: 1.55;
+    }
+    h2 {
+      margin: 3.2mm 0 1.4mm;
+      color: #0f5f5a;
+      font-size: 11.5pt;
+      line-height: 1.25;
+      letter-spacing: 0;
+    }
+    h3 {
+      margin: 0 0 1mm;
+      color: #20384d;
+      font-size: 9.5pt;
+    }
+    p { margin: 0 0 1.7mm; }
+    ul, ol { margin: 1mm 0 2mm 4.5mm; padding-left: 3.5mm; }
+    li { margin: .65mm 0; }
+    strong { color: #0d2438; }
+    code { font-family: "Cascadia Mono", "Consolas", monospace; }
+    .objectives {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 2mm;
+      margin-bottom: 2.2mm;
+    }
+    .objective {
+      min-height: 14mm;
+      padding: 2.3mm 2.6mm;
+      border-top: 2px solid #2b7a78;
+      background: #edf7f5;
+      color: #29434e;
+      font-size: 8.3pt;
+    }
+    .objective b { display: block; margin-bottom: .5mm; color: #0f5f5a; }
+    .principle {
+      margin: 2mm 0 2.5mm;
+      padding: 2.6mm 3mm;
+      border-left: 3px solid #d9482b;
+      background: #fff5f1;
+      color: #4b2f28;
+    }
+    .principle b { color: #b73520; }
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4mm;
+      align-items: start;
+    }
+    .wide-left { grid-template-columns: 1.12fr .88fr; }
+    .panel {
+      padding: 2.6mm 3mm;
+      border: 1px solid #d8e0e7;
+      border-radius: 2mm;
+      background: #f8fafc;
+    }
+    .panel.warning { border-color: #efc2b8; background: #fff8f6; }
+    .panel.success { border-color: #a9d5cf; background: #f1faf8; }
+    pre {
+      margin: 1.2mm 0 2mm;
+      padding: 2.5mm 2.8mm;
+      border-radius: 2mm;
+      background: #12212f;
+      color: #edf6fa;
+      font-family: "Cascadia Mono", "Consolas", monospace;
+      font-size: 7.35pt;
+      line-height: 1.42;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .kw { color: #76d7c4; }
+    .fn { color: #f7c873; }
+    .cm { color: #9eb0bd; }
+    .risk-flow {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1.5mm;
+      margin: 2mm 0;
+    }
+    .risk-flow div {
+      position: relative;
+      padding: 2mm 1.5mm;
+      border: 1px solid #b9c8d3;
+      border-radius: 1.5mm;
+      text-align: center;
+      color: #29434e;
+      background: #f3f7f9;
+      font-size: 7.8pt;
+      font-weight: 700;
+    }
+    .risk-flow div:not(:last-child)::after {
+      content: "→";
+      position: absolute;
+      right: -2.1mm;
+      top: 50%;
+      z-index: 2;
+      transform: translateY(-50%);
+      color: #d9482b;
+    }
+    .compare {
+      width: 100%;
+      margin: 1.2mm 0 2mm;
+      border-collapse: collapse;
+      font-size: 8pt;
+    }
+    .compare th, .compare td {
+      padding: 1.5mm 1.8mm;
+      border: 1px solid #cfdae2;
+      vertical-align: top;
+      text-align: left;
+    }
+    .compare th { background: #eaf1f5; color: #193247; }
+    .misconception {
+      margin-top: 2.5mm;
+      padding: 2.2mm 2.8mm;
+      border: 1px solid #efc2b8;
+      border-radius: 2mm;
+      background: #fff8f6;
+      font-size: 8.4pt;
+    }
+    .misconception b { color: #c13d25; }
+    .check {
+      margin-top: auto;
+      padding-top: 2.5mm;
+      border-top: 1px solid #cbd5df;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 5mm;
+      align-items: end;
+      color: #34495e;
+      font-size: 8.2pt;
+    }
+    .check b { color: #0f766e; }
+    .page-no {
+      min-width: 9mm;
+      color: #d9482b;
+      font-size: 12pt;
+      font-weight: 800;
+      text-align: right;
+    }
+    @media print {
+      html, body { background: #fff; }
+      .page { margin: 0; }
+    }
+  </style>
+</head>
+<body>
+  <section class="page">
+    <div class="topline"><span class="brand">Mindmark Demo Material</span><span>Solidity Smart Contract Security</span></div>
+    <span class="lesson-tag">LESSON 01 · 执行基础</span>
+    <h1>EVM、交易与状态变化</h1>
+    <p class="lead">理解智能合约安全的第一步，是把合约看成一个由交易驱动的确定性状态机，而不是一段长期驻留、持续运行的服务器程序。</p>
+    <div class="objectives">
+      <div class="objective"><b>状态</b>认识链上持久状态与一次调用中的临时数据。</div>
+      <div class="objective"><b>执行</b>解释交易、消息调用、Gas 与回滚之间的关系。</div>
+      <div class="objective"><b>安全</b>从“谁能触发什么状态变化”开始审计。</div>
+    </div>
+    <div class="principle"><b>核心原理：</b>一笔交易要么把全部有效状态变化提交到链上，要么在异常时整体回滚；但它已经消耗的 Gas 不会退回。</div>
+    <div class="two-col wide-left">
+      <div>
+        <h2>确定性状态机</h2>
+        <p>EVM 节点以相同的前置状态、交易输入和区块上下文执行同一份字节码，得到相同结果。合约不能直接请求互联网，也不能依赖本地随机数，否则不同节点无法达成共识。</p>
+        <div class="risk-flow"><div>交易输入</div><div>读取状态</div><div>执行字节码</div><div>提交新状态</div></div>
+        <h2>调用上下文中的关键值</h2>
+        <ul>
+          <li><strong>msg.sender</strong>：当前这一次调用的直接发起者，可能是用户，也可能是另一个合约。</li>
+          <li><strong>msg.value</strong>：随当前调用发送的原生代币数量。</li>
+          <li><strong>block.timestamp</strong>：出块时间，可用于宽松截止时间，不适合高价值随机性。</li>
+          <li><strong>tx.origin</strong>：整条调用链最初的外部账户，不能用于授权。</li>
+        </ul>
+      </div>
+      <div>
+        <h2>一个最小状态转换</h2>
+        <pre><span class="kw">contract</span> Counter {
+    <span class="kw">uint256 public</span> count;
+
+    <span class="kw">function</span> <span class="fn">increment</span>() external {
+        count += 1;
+    }
+
+    <span class="kw">function</span> <span class="fn">add</span>(uint256 n) external {
+        <span class="kw">require</span>(n &lt;= 10, "too large");
+        count += n;
+    }
+}</pre>
+        <div class="panel">
+          <h3>审计时先问三件事</h3>
+          <ol>
+            <li>状态变量代表什么业务事实？</li>
+            <li>哪些入口能修改它？</li>
+            <li>入口的身份、数值和时序约束是否充分？</li>
+          </ol>
+        </div>
+      </div>
+    </div>
+    <div class="misconception"><b>常见误区：</b>“合约执行失败就没有成本。” 实际上状态会回滚，但矿工或验证者已经完成计算，消耗的 Gas 仍由发送者承担。</div>
+    <div class="check"><span><b>快速自测：</b>合约 A 调用合约 B 时，在 B 内部读取到的 <code>msg.sender</code> 是用户还是合约 A？为什么授权逻辑不能改用 <code>tx.origin</code>？</span><span class="page-no">01</span></div>
+  </section>
+
+  <section class="page">
+    <div class="topline"><span class="brand">Mindmark Demo Material</span><span>Solidity Smart Contract Security</span></div>
+    <span class="lesson-tag">LESSON 02 · 数据位置</span>
+    <h1>Storage、Memory 与 Calldata</h1>
+    <p class="lead">数据位置决定变量的生命周期、是否可修改、复制成本以及别名行为。很多“看起来修改了”的代码，实际只修改了内存副本。</p>
+    <div class="objectives">
+      <div class="objective"><b>Storage</b>持久保存于链上，写操作昂贵。</div>
+      <div class="objective"><b>Memory</b>仅在当前调用中存在，可修改。</div>
+      <div class="objective"><b>Calldata</b>只读外部输入，通常避免额外复制。</div>
+    </div>
+    <table class="compare">
+      <thead><tr><th>数据位置</th><th>生命周期</th><th>可修改性</th><th>典型用途</th></tr></thead>
+      <tbody>
+        <tr><td><code>storage</code></td><td>跨交易持久化</td><td>可修改</td><td>状态变量、状态引用</td></tr>
+        <tr><td><code>memory</code></td><td>一次消息调用</td><td>可修改</td><td>临时数组、计算结果</td></tr>
+        <tr><td><code>calldata</code></td><td>一次外部调用</td><td>只读</td><td>外部函数的动态参数</td></tr>
+      </tbody>
+    </table>
+    <div class="two-col">
+      <div>
+        <h2>引用与副本的差异</h2>
+        <pre><span class="kw">struct</span> Profile {
+    uint128 score;
+    bool active;
+}
+mapping(address =&gt; Profile) profiles;
+
+<span class="kw">function</span> <span class="fn">activate</span>() external {
+    Profile <span class="kw">storage</span> p = profiles[msg.sender];
+    p.active = true; <span class="cm">// 写入链上状态</span>
+}
+
+<span class="kw">function</span> <span class="fn">preview</span>() external view
+    returns (Profile memory)
+{
+    Profile <span class="kw">memory</span> p = profiles[msg.sender];
+    p.score += 1; <span class="cm">// 仅改内存副本</span>
+    return p;
+}</pre>
+      </div>
+      <div>
+        <h2>存储布局为何影响安全</h2>
+        <p>EVM 以 32 字节槽位组织 storage。较小的相邻值可能被打包进一个槽位，但动态数组和 mapping 的元素位置通过哈希计算。代理升级时，如果变量顺序或类型发生不兼容变化，旧数据会被新逻辑错误解释。</p>
+        <div class="panel warning">
+          <h3>边界与拒绝服务</h3>
+          <p>不要在会增长的 storage 数组上执行无界循环。数组足够大时，单笔交易可能永远无法在区块 Gas 限制内完成。</p>
+        </div>
+        <h2>Gas 的直觉</h2>
+        <ul>
+          <li>读取 calldata 通常比先复制到 memory 更节省。</li>
+          <li>storage 写入远比内存运算昂贵。</li>
+          <li>删除 storage 可能产生退款，但退款受协议上限约束。</li>
+        </ul>
+      </div>
+    </div>
+    <div class="principle"><b>核心原理：</b>先判断数据应该“持久存在、临时可改还是只读输入”，再选择数据位置；不要为了语法方便而隐式复制大型动态数据。</div>
+    <div class="misconception"><b>常见误区：</b>“从 mapping 读取出的 struct 默认就是原状态引用。” 是否为引用取决于显式数据位置；复制到 memory 后再修改不会更新 storage。</div>
+    <div class="check"><span><b>快速自测：</b>为什么只读的外部函数参数适合使用 <code>calldata</code>？代理合约升级时，为什么不能随意把第一个状态变量从 <code>address</code> 改为 <code>uint256</code>？</span><span class="page-no">02</span></div>
+  </section>
+
+  <section class="page">
+    <div class="topline"><span class="brand">Mindmark Demo Material</span><span>Solidity Smart Contract Security</span></div>
+    <span class="lesson-tag">LESSON 03 · 权限边界</span>
+    <h1>访问控制与最小权限</h1>
+    <p class="lead">访问控制不是添加一个 <code>onlyOwner</code> 就结束了。安全设计要明确角色、能力、授权周期、撤销路径和高风险操作的延迟。</p>
+    <div class="objectives">
+      <div class="objective"><b>身份</b>区分直接调用者、签名者与被委托角色。</div>
+      <div class="objective"><b>能力</b>每个角色只获得完成任务所需的最小权限。</div>
+      <div class="objective"><b>治理</b>为密钥丢失、轮换与紧急暂停设计路径。</div>
+    </div>
+    <div class="principle"><b>核心原理：</b>权限应附着在具体能力上，而不是笼统地把所有管理操作交给一个永久超级管理员。</div>
+    <div class="two-col wide-left">
+      <div>
+        <h2>两步所有权转移</h2>
+        <pre><span class="kw">contract</span> TwoStepAdmin {
+    address <span class="kw">public</span> owner;
+    address <span class="kw">public</span> pendingOwner;
+
+    <span class="kw">modifier</span> onlyOwner() {
+        <span class="kw">require</span>(msg.sender == owner, "not owner"); _;
+    }
+
+    <span class="kw">function</span> <span class="fn">proposeOwner</span>(address next)
+        external onlyOwner
+    {
+        <span class="kw">require</span>(next != address(0), "zero address");
+        pendingOwner = next;
+    }
+
+    <span class="kw">function</span> <span class="fn">acceptOwnership</span>() external {
+        <span class="kw">require</span>(msg.sender == pendingOwner, "not pending");
+        owner = msg.sender;
+        pendingOwner = address(0);
+    }
+}</pre>
+        <p>两步流程防止管理员因输入错误地址而永久失去权限。新地址必须主动证明自己能发起交易。</p>
+      </div>
+      <div>
+        <h2>角色拆分示例</h2>
+        <ul>
+          <li><strong>PAUSER</strong>：只能暂停危险入口，不能转移资金。</li>
+          <li><strong>OPERATOR</strong>：执行日常参数更新，受上下限约束。</li>
+          <li><strong>UPGRADER</strong>：发起升级，但需时间锁后才能执行。</li>
+          <li><strong>TREASURY</strong>：管理资金，最好由多签控制。</li>
+        </ul>
+        <div class="panel warning">
+          <h3>危险模式</h3>
+          <p>用 <code>tx.origin</code> 鉴权时，恶意合约可以诱导管理员调用自己，再以管理员的 <code>tx.origin</code> 调用目标合约。目标看到的最初账户仍是管理员，从而错误放行。</p>
+        </div>
+        <h2>权限审计清单</h2>
+        <ol>
+          <li>列出所有修改状态或转移资产的外部入口。</li>
+          <li>为每个入口标明允许角色与参数边界。</li>
+          <li>检查初始化函数能否被重复或抢先调用。</li>
+          <li>检查角色能否撤销、轮换和恢复。</li>
+        </ol>
+      </div>
+    </div>
+    <div class="misconception"><b>常见误区：</b>“管理员操作可以不做输入校验。” 管理密钥也会误操作或被攻破；权限检查与参数约束解决的是不同风险，二者都需要。</div>
+    <div class="check"><span><b>快速自测：</b>为什么暂停权和资金提取权应交给不同角色？两步所有权转移比直接赋值多防住了哪一类事故？</span><span class="page-no">03</span></div>
+  </section>
+
+  <section class="page">
+    <div class="topline"><span class="brand">Mindmark Demo Material</span><span>Solidity Smart Contract Security</span></div>
+    <span class="lesson-tag">LESSON 04 · 外部交互</span>
+    <h1>重入与 Checks-Effects-Interactions</h1>
+    <p class="lead">外部调用会把执行控制权交给未知代码。只要关键状态尚未更新，对方就可能在第一次调用结束前重新进入原函数。</p>
+    <div class="objectives">
+      <div class="objective"><b>条件</b>识别外部调用、未结算状态和可重入入口的组合。</div>
+      <div class="objective"><b>顺序</b>先检查、再更新内部状态、最后与外部交互。</div>
+      <div class="objective"><b>纵深</b>结合重入锁、拉取支付与跨函数分析。</div>
+    </div>
+    <div class="risk-flow"><div>检查余额</div><div>向用户转账</div><div>攻击者回调</div><div>重复提取</div></div>
+    <div class="two-col">
+      <div>
+        <h2>有漏洞：先交互后更新</h2>
+        <pre><span class="kw">function</span> <span class="fn">withdraw</span>() external {
+    uint256 amount = balances[msg.sender];
+    <span class="kw">require</span>(amount &gt; 0, "empty");
+
+    (bool ok, ) = msg.sender.call{value: amount}("");
+    <span class="kw">require</span>(ok, "transfer failed");
+
+    balances[msg.sender] = 0; <span class="cm">// 更新得太晚</span>
+}</pre>
+        <p>接收者的 <code>receive</code> 或 <code>fallback</code> 可再次调用 <code>withdraw</code>。第二次检查时余额仍未清零，于是相同资金被重复提取。</p>
+      </div>
+      <div>
+        <h2>修复：先更新后交互</h2>
+        <pre><span class="kw">function</span> <span class="fn">withdraw</span>() external nonReentrant {
+    uint256 amount = balances[msg.sender];
+    <span class="kw">require</span>(amount &gt; 0, "empty");
+
+    balances[msg.sender] = 0; <span class="cm">// Effects</span>
+
+    (bool ok, ) = msg.sender.call{value: amount}("");
+    <span class="kw">require</span>(ok, "transfer failed");
+}</pre>
+        <p>如果转账失败，<code>require</code> 会让整笔调用回滚，余额清零也会撤销。因此先更新状态不会让用户在失败时丢失余额。</p>
+      </div>
+    </div>
+    <h2>不止是同一个函数</h2>
+    <div class="panel">
+      <p><strong>跨函数重入：</strong>函数 A 外部调用前保留了中间状态，攻击者回调函数 B，B 读取或利用了这个不一致状态。审计必须按共享状态变量梳理所有入口，不能只检查原函数是否有锁。</p>
+      <p><strong>只读重入：</strong>某个 view 函数在中间状态暴露错误价格，其他协议在回调期间读取该价格并作出资产决策。即使 view 不写状态，也可能放大组合风险。</p>
+    </div>
+    <div class="misconception"><b>常见误区：</b>“使用 <code>transfer</code> 限制 2300 Gas 就能永久防重入。” Gas 成本会随协议升级变化，而且依赖固定 stipend 会破坏兼容性；应以状态顺序和显式防护为主。</div>
+    <div class="check"><span><b>快速自测：</b>为什么修复代码里的转账失败不会永久清空用户余额？重入锁能否替代 Checks-Effects-Interactions 的状态设计？</span><span class="page-no">04</span></div>
+  </section>
+
+  <section class="page">
+    <div class="topline"><span class="brand">Mindmark Demo Material</span><span>Solidity Smart Contract Security</span></div>
+    <span class="lesson-tag">LESSON 05 · 调用语义</span>
+    <h1>call、staticcall 与 delegatecall</h1>
+    <p class="lead">低级调用提供灵活性，也绕过了许多类型系统保护。尤其是 <code>delegatecall</code>，执行的是对方代码，修改的却是调用方状态。</p>
+    <div class="objectives">
+      <div class="objective"><b>call</b>在目标合约上下文执行，可发送原生代币。</div>
+      <div class="objective"><b>staticcall</b>只读执行，禁止最终状态写入。</div>
+      <div class="objective"><b>delegatecall</b>保留调用方存储、地址和调用上下文。</div>
+    </div>
+    <table class="compare">
+      <thead><tr><th>方式</th><th>执行代码</th><th>使用的 Storage</th><th>常见场景</th></tr></thead>
+      <tbody>
+        <tr><td><code>call</code></td><td>目标地址</td><td>目标合约</td><td>通用外部调用、发送 ETH</td></tr>
+        <tr><td><code>staticcall</code></td><td>目标地址</td><td>不可写入</td><td>只读查询、接口兼容探测</td></tr>
+        <tr><td><code>delegatecall</code></td><td>实现地址</td><td>调用方合约</td><td>代理升级、代码复用</td></tr>
+      </tbody>
+    </table>
+    <div class="two-col wide-left">
+      <div>
+        <h2>检查成功标志与返回数据</h2>
+        <pre><span class="kw">function</span> <span class="fn">safeInvoke</span>(address target, bytes calldata data)
+    external returns (bytes memory result)
+{
+    <span class="kw">require</span>(target.code.length &gt; 0, "not contract");
+    (bool ok, bytes memory out) = target.call(data);
+    <span class="kw">if</span> (!ok) {
+        assembly {
+            revert(add(out, 32), mload(out))
+        }
+    }
+    return out;
+}</pre>
+        <p>低级调用失败不会自动让当前函数 revert，而是返回 <code>false</code>。忽略成功标志可能让本地状态记录“操作成功”，实际外部动作却没有发生。</p>
+      </div>
+      <div>
+        <h2>delegatecall 的信任边界</h2>
+        <div class="panel warning">
+          <p>实现合约可以改写代理的任意存储槽，也能代表代理继续外部调用。因此实现地址本质上拥有代理资产和权限，升级权限必须视为最高风险能力。</p>
+        </div>
+        <ul>
+          <li>调用者与实现必须采用兼容存储布局。</li>
+          <li>初始化逻辑必须防止重复调用。</li>
+          <li>实现地址必须是合约并通过代码审查。</li>
+          <li>升级应经过多签、时间锁和链上事件。</li>
+        </ul>
+        <h2>接口调用优先</h2>
+        <p>目标接口已知时优先使用类型化接口。编译器会编码参数、解码返回值，并在不匹配时失败；低级调用应集中封装在明确的边界模块中。</p>
+      </div>
+    </div>
+    <div class="principle"><b>核心原理：</b>每次低级调用都要回答：执行谁的代码、修改谁的状态、失败如何传播、返回数据如何验证、对方能否回调。</div>
+    <div class="misconception"><b>常见误区：</b>“目标地址有代码就一定安全。” <code>code.length</code> 只能排除部分错误地址，不能证明代码语义、升级状态或返回数据可信。</div>
+    <div class="check"><span><b>快速自测：</b><code>delegatecall</code> 到实现合约时，<code>address(this)</code> 指向谁？为什么忽略 <code>call</code> 返回的布尔值会造成会计状态不一致？</span><span class="page-no">05</span></div>
+  </section>
+
+  <section class="page">
+    <div class="topline"><span class="brand">Mindmark Demo Material</span><span>Solidity Smart Contract Security</span></div>
+    <span class="lesson-tag">LESSON 06 · 资产流转</span>
+    <h1>原生代币转账与 Pull Payment</h1>
+    <p class="lead">把资金主动推送给一组接收者，会把系统可用性绑定到每个接收者的行为。拉取支付把失败隔离到单个用户自己的领取操作。</p>
+    <div class="objectives">
+      <div class="objective"><b>会计</b>用负债映射记录每个接收者可领取金额。</div>
+      <div class="objective"><b>隔离</b>单个接收者失败不能阻塞所有参与者。</div>
+      <div class="objective"><b>守恒</b>总负债不得无依据地超过合约可用资产。</div>
+    </div>
+    <div class="two-col">
+      <div>
+        <h2>危险：循环推送</h2>
+        <pre><span class="kw">function</span> <span class="fn">payAll</span>() external {
+    <span class="kw">for</span> (uint256 i; i &lt; users.length; ++i) {
+        (bool ok, ) = users[i].call{
+            value: rewards[users[i]]
+        }("");
+        <span class="kw">require</span>(ok, "one user blocked all");
+    }
+}</pre>
+        <ul>
+          <li>用户数量增长后可能超过区块 Gas 限制。</li>
+          <li>一个拒收资金的合约能让整批支付回滚。</li>
+          <li>循环中的外部调用扩大重入攻击面。</li>
+        </ul>
+      </div>
+      <div>
+        <h2>推荐：按需领取</h2>
+        <pre>mapping(address =&gt; uint256) <span class="kw">public</span> claimable;
+
+<span class="kw">function</span> <span class="fn">claim</span>() external nonReentrant {
+    uint256 amount = claimable[msg.sender];
+    <span class="kw">require</span>(amount != 0, "nothing to claim");
+
+    claimable[msg.sender] = 0;
+    (bool ok, ) = msg.sender.call{value: amount}("");
+    <span class="kw">require</span>(ok, "payment failed");
+}</pre>
+        <p>状态先清零，失败则整体回滚。每个用户独立领取，其他人的领取不会被恶意接收者阻塞。</p>
+      </div>
+    </div>
+    <h2>建立可检查的资金不变量</h2>
+    <div class="panel success">
+      <p><strong>负债守恒：</strong><code>sum(claimable[user]) ≤ address(this).balance</code>。如果合约还有不可领取的准备金，应进一步拆分“用户负债”和“协议储备”。</p>
+      <p><strong>状态守恒：</strong>一次领取成功后，用户负债减少量必须等于实际转出量；失败时二者都不能变化。</p>
+    </div>
+    <h2>强制转入的例外</h2>
+    <p>合约不能假设自身余额只会通过 <code>receive</code> 增加。其他机制可能把原生代币强制送入，因此业务会计应依赖明确记录的存款与负债，不应把 <code>address(this).balance</code> 直接当作全部用户存款之和。</p>
+    <div class="misconception"><b>常见误区：</b>“把 <code>require(ok)</code> 去掉就不会阻塞。” 这样虽然继续循环，却可能在未支付的情况下错误清除负债；失败隔离需要重新设计支付模型，而不是忽略错误。</div>
+    <div class="check"><span><b>快速自测：</b>Pull Payment 如何同时降低拒绝服务与重入风险？为什么合约实际余额可能大于内部会计记录的总存款？</span><span class="page-no">06</span></div>
+  </section>
+
+  <section class="page">
+    <div class="topline"><span class="brand">Mindmark Demo Material</span><span>Solidity Smart Contract Security</span></div>
+    <span class="lesson-tag">LESSON 07 · 数值安全</span>
+    <h1>整数、精度、单位与舍入</h1>
+    <p class="lead">Solidity 没有浮点数。金融计算通常使用放大的整数表示小数，运算顺序和舍入方向会直接决定谁承担误差。</p>
+    <div class="objectives">
+      <div class="objective"><b>边界</b>理解 Solidity 0.8+ 的溢出检查与 unchecked。</div>
+      <div class="objective"><b>精度</b>先乘后除以减少整数截断造成的信息损失。</div>
+      <div class="objective"><b>单位</b>在变量名和接口边界显式区分 wei、token 与 share。</div>
+    </div>
+    <div class="two-col wide-left">
+      <div>
+        <h2>先除后乘会丢失精度</h2>
+        <pre><span class="cm">// 错误：amount / total 可能先变成 0</span>
+uint256 payout = amount / total * pool;
+
+<span class="cm">// 更合理：保留更多有效位</span>
+uint256 payout = amount * pool / total;</pre>
+        <p>即便先乘后除，也要考虑乘法中间值是否溢出。高价值协议常使用经过审计的 <code>mulDiv</code> 实现，以 512 位中间精度完成乘除。</p>
+        <h2>舍入方向是一项业务规则</h2>
+        <ul>
+          <li>铸造用户份额时向下舍入，避免用户获得超额份额。</li>
+          <li>计算用户偿债金额时可能需要向上舍入，避免留下微小坏账。</li>
+          <li>任何有利于重复调用者的舍入误差都可能被批量放大。</li>
+        </ul>
+      </div>
+      <div>
+        <h2>单位标注与类型收窄</h2>
+        <pre><span class="kw">uint256 constant</span> WAD = 1e18;
+
+<span class="kw">function</span> <span class="fn">feeWei</span>(uint256 amountWei)
+    internal pure returns (uint256)
+{
+    return amountWei * 30 / 10_000; <span class="cm">// 0.30%</span>
+}</pre>
+        <div class="panel warning">
+          <h3>收窄转换</h3>
+          <p>从 <code>uint256</code> 显式转换为 <code>uint64</code> 不会自动证明值可容纳。转换前必须检查 <code>value &lt;= type(uint64).max</code>，否则高位被截断。</p>
+        </div>
+        <h2>何时使用 unchecked</h2>
+        <p>只有在边界已由逻辑证明、并且节省 Gas 确有意义时才使用。例如循环计数器在循环条件下不可能达到上限。应把 <code>unchecked</code> 区域缩到最小并写出不变量。</p>
+      </div>
+    </div>
+    <table class="compare">
+      <thead><tr><th>风险</th><th>表现</th><th>防护</th></tr></thead>
+      <tbody>
+        <tr><td>精度截断</td><td>小额结果变为 0</td><td>先乘后除、固定精度、mulDiv</td></tr>
+        <tr><td>单位混淆</td><td>把 6 decimals 当作 18 decimals</td><td>边界归一化、变量名携带单位</td></tr>
+        <tr><td>舍入套利</td><td>拆分交易反复获取误差</td><td>定义一致的保守舍入方向</td></tr>
+      </tbody>
+    </table>
+    <div class="misconception"><b>常见误区：</b>“Solidity 0.8 已检查溢出，所以数值逻辑天然安全。” 编译器不会替你检查精度损失、单位混淆、经济不变量或显式类型收窄。</div>
+    <div class="check"><span><b>快速自测：</b>为什么铸造份额通常向下舍入？把 6 位精度稳定币数量直接代入 18 位精度公式会产生多大数量级偏差？</span><span class="page-no">07</span></div>
+  </section>
+
+  <section class="page">
+    <div class="topline"><span class="brand">Mindmark Demo Material</span><span>Solidity Smart Contract Security</span></div>
+    <span class="lesson-tag">LESSON 08 · 失败语义</span>
+    <h1>require、revert、assert 与自定义错误</h1>
+    <p class="lead">失败处理既是安全边界，也是对调用者的可观察接口。错误类型应准确表达“输入不合法、权限不足、外部条件不满足还是内部不变量被破坏”。</p>
+    <div class="objectives">
+      <div class="objective"><b>require/revert</b>拒绝可预期的无效请求或业务状态。</div>
+      <div class="objective"><b>assert</b>声明内部永远应成立的不变量。</div>
+      <div class="objective"><b>Custom Error</b>以结构化参数降低部署和运行成本。</div>
+    </div>
+    <div class="two-col">
+      <div>
+        <h2>结构化错误</h2>
+        <pre><span class="kw">error</span> Unauthorized(address caller);
+<span class="kw">error</span> InsufficientBalance(
+    uint256 available,
+    uint256 requested
+);
+
+<span class="kw">function</span> <span class="fn">withdraw</span>(uint256 amount) external {
+    <span class="kw">if</span> (msg.sender != owner) {
+        revert Unauthorized(msg.sender);
+    }
+    uint256 available = balances[msg.sender];
+    <span class="kw">if</span> (amount &gt; available) {
+        revert InsufficientBalance(available, amount);
+    }
+    balances[msg.sender] = available - amount;
+}</pre>
+      </div>
+      <div>
+        <h2>错误选择</h2>
+        <table class="compare">
+          <thead><tr><th>机制</th><th>适合表达</th></tr></thead>
+          <tbody>
+            <tr><td><code>revert</code></td><td>权限、参数、余额、状态机前置条件</td></tr>
+            <tr><td><code>assert</code></td><td>理论上不可被外部输入破坏的内部不变量</td></tr>
+            <tr><td><code>try/catch</code></td><td>隔离外部合约调用或合约创建失败</td></tr>
+          </tbody>
+        </table>
+        <div class="panel warning">
+          <h3>不要吞掉关键失败</h3>
+          <p><code>try/catch</code> 只说明你处理了异常，不代表业务已经完成。捕获后必须明确选择重试、记录待处理负债、降级，或让本次操作整体失败。</p>
+        </div>
+      </div>
+    </div>
+    <h2>不变量比单点条件更强</h2>
+    <p>单个 <code>require</code> 检查一次入口，而不变量描述所有可达状态必须满足的关系。例如资金池可以声明：“总份额为零时总资产也应为零”或“所有账户负债之和不得超过受托管资产”。测试工具可通过模糊输入反复调用不同入口，寻找破坏这些关系的序列。</p>
+    <div class="principle"><b>核心原理：</b>可由用户触发的无效情况使用可解释的 revert；只有真正代表程序内部错误的条件才使用 assert。不要依靠错误消息本身承担访问控制。</div>
+    <h2>错误传播</h2>
+    <p>高层接口调用在失败时会自动向上传播 revert。低级 <code>call</code> 只返回成功标志和原始返回数据，调用方必须检查并决定是否原样冒泡错误。错误传播策略应与事务原子性需求一致。</p>
+    <div class="misconception"><b>常见误区：</b>“catch 住外部错误后继续执行更健壮。” 如果后续代码把未完成的外部动作当作成功，系统只是把显式失败变成了隐蔽的状态不一致。</div>
+    <div class="check"><span><b>快速自测：</b>余额不足应该用 <code>assert</code> 还是自定义错误？低级调用返回 <code>false</code> 后，什么时候适合记录待重试状态，什么时候必须整体 revert？</span><span class="page-no">08</span></div>
+  </section>
+
+  <section class="page">
+    <div class="topline"><span class="brand">Mindmark Demo Material</span><span>Solidity Smart Contract Security</span></div>
+    <span class="lesson-tag">LESSON 09 · 外部数据</span>
+    <h1>预言机、价格操纵与时间窗口</h1>
+    <p class="lead">链上合约无法自行判断“真实市场价格”。预言机提供的是带来源、更新时间和聚合规则的数据，使用者必须验证这些假设是否匹配业务风险。</p>
+    <div class="objectives">
+      <div class="objective"><b>新鲜度</b>拒绝超过业务容忍窗口的旧价格。</div>
+      <div class="objective"><b>完整性</b>验证轮次、符号、精度与合理范围。</div>
+      <div class="objective"><b>抗操纵</b>避免把单区块、低流动性现货价直接用于借贷。</div>
+    </div>
+    <div class="two-col wide-left">
+      <div>
+        <h2>验证价格，而不是只读取</h2>
+        <pre><span class="kw">function</span> <span class="fn">readPrice</span>() internal view
+    returns (uint256 price)
+{
+    (, int256 answer, , uint256 updatedAt, ) =
+        feed.latestRoundData();
+
+    <span class="kw">require</span>(answer &gt; 0, "invalid price");
+    <span class="kw">require</span>(block.timestamp - updatedAt &lt;= 1 hours,
+        "stale price");
+
+    return uint256(answer); <span class="cm">// 还需统一 decimals</span>
+}</pre>
+        <p>安全窗口不是固定答案。清算系统可能需要分钟级新鲜度，低风险报表可以接受更长延迟。窗口应来自业务最大可承受损失，而不是复制其他协议的常量。</p>
+      </div>
+      <div>
+        <h2>闪电贷如何放大现货操纵</h2>
+        <div class="risk-flow"><div>临时借入巨资</div><div>推高池内价格</div><div>按假价借款</div><div>归还闪电贷</div></div>
+        <p>如果协议使用单个低流动性 AMM 的当前储备计算抵押品价格，攻击者只需在同一交易内短暂改变储备。交易结束后市场恢复，但协议已发放无法覆盖的债务。</p>
+        <div class="panel success">
+          <h3>缓解策略</h3>
+          <ul>
+            <li>使用多来源聚合或可信数据网络。</li>
+            <li>采用时间加权平均价格并验证窗口流动性。</li>
+            <li>设置价格偏离、借款规模和速率上限。</li>
+            <li>异常时暂停新增风险，而非强制错误清算。</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <h2>精度归一化</h2>
+    <p>不同价格源与代币可能分别使用 8、6 或 18 位小数。所有数值进入核心公式前应转换到约定精度，并在变量名中表达单位，例如 <code>priceUsd1e18</code>。转换顺序同样要检查溢出和舍入方向。</p>
+    <div class="misconception"><b>常见误区：</b>“使用知名预言机就无需检查。” 数据源本身可能正常，但目标市场暂停更新、轮次过旧、精度理解错误，或者该数据源根本不适合当前资产。</div>
+    <div class="check"><span><b>快速自测：</b>为什么单区块 AMM 现货价不适合直接决定抵押借款额度？价格为正数为何仍不足以证明它可用？</span><span class="page-no">09</span></div>
+  </section>
+
+  <section class="page">
+    <div class="topline"><span class="brand">Mindmark Demo Material</span><span>Solidity Smart Contract Security</span></div>
+    <span class="lesson-tag">LESSON 10 · 链下授权</span>
+    <h1>签名验证与重放保护</h1>
+    <p class="lead">签名证明某个私钥同意了一段消息，但它不会自动限定这份同意在哪条链、哪个合约、哪个时间段、以什么顺序使用。</p>
+    <div class="objectives">
+      <div class="objective"><b>域隔离</b>把 chainId 和 verifyingContract 纳入签名域。</div>
+      <div class="objective"><b>唯一性</b>使用 nonce 保证每份授权只执行一次。</div>
+      <div class="objective"><b>时效</b>使用 deadline 限制签名长期暴露的风险。</div>
+    </div>
+    <div class="principle"><b>核心原理：</b>安全签名应绑定“谁授权、授权什么、给谁、在哪使用、何时过期、这是第几次授权”。缺少任何维度都可能产生重放或语义歧义。</div>
+    <div class="two-col wide-left">
+      <div>
+        <h2>一个简化的结构化授权</h2>
+        <pre><span class="kw">bytes32 constant</span> ACTION_TYPEHASH = keccak256(
+    "Action(address user,address target,uint256 value,uint256 nonce,uint256 deadline)"
+);
+
+<span class="kw">function</span> <span class="fn">execute</span>(Action calldata a, bytes calldata sig)
+    external
+{
+    <span class="kw">require</span>(block.timestamp &lt;= a.deadline, "expired");
+    <span class="kw">require</span>(a.nonce == nonces[a.user]++, "bad nonce");
+
+    bytes32 structHash = keccak256(abi.encode(
+        ACTION_TYPEHASH, a.user, a.target,
+        a.value, a.nonce, a.deadline
+    ));
+    address signer = recover(_hashTypedDataV4(structHash), sig);
+    <span class="kw">require</span>(signer == a.user, "bad signer");
+}</pre>
+      </div>
+      <div>
+        <h2>为什么字段必须完整</h2>
+        <ul>
+          <li>没有 <strong>nonce</strong>：相同签名可重复执行。</li>
+          <li>没有 <strong>deadline</strong>：泄露的旧签名可能永久有效。</li>
+          <li>没有 <strong>target</strong>：授权可能被用于另一个接收者。</li>
+          <li>没有 <strong>chainId</strong>：可能跨链重放。</li>
+          <li>没有 <strong>verifyingContract</strong>：可能被另一个合约复用。</li>
+        </ul>
+        <div class="panel warning">
+          <h3>顺序也重要</h3>
+          <p>示例中的 nonce 自增发生在外部动作之前。如果后续执行 revert，自增也会回滚；如果成功，旧签名立即失效。执行外部调用前应完成签名验证和 nonce 消耗。</p>
+        </div>
+      </div>
+    </div>
+    <h2>合约钱包与签名可塑性</h2>
+    <p>不能假设所有用户都是 EOA。智能合约钱包需要通过标准接口验证签名。对 ECDSA 应使用成熟库检查 <code>s</code> 值和 <code>v</code> 值，避免同一授权存在多种有效编码；不要手写未经审计的恢复逻辑。</p>
+    <div class="misconception"><b>常见误区：</b>“恢复出的地址正确，签名就绝对安全。” 地址恢复只验证签名者；若消息编码存在碰撞、域不完整或 nonce 未消耗，正确签名仍可能被错误使用。</div>
+    <div class="check"><span><b>快速自测：</b>nonce 与 deadline 分别解决什么问题？为什么只把用户地址和金额签进去，仍可能在另一个合约或另一条链上被重放？</span><span class="page-no">10</span></div>
+  </section>
+
+  <section class="page">
+    <div class="topline"><span class="brand">Mindmark Demo Material</span><span>Solidity Smart Contract Security</span></div>
+    <span class="lesson-tag">LESSON 11 · 可升级系统</span>
+    <h1>代理合约、初始化与存储布局</h1>
+    <p class="lead">代理把“状态地址”和“逻辑代码”分开：用户调用代理，代理通过 <code>delegatecall</code> 执行实现代码。升级能力提高可维护性，也引入永久管理权限。</p>
+    <div class="objectives">
+      <div class="objective"><b>结构</b>代理持有状态，实现合约提供逻辑。</div>
+      <div class="objective"><b>初始化</b>构造函数不会在代理存储中执行。</div>
+      <div class="objective"><b>兼容性</b>升级必须保持既有存储槽含义不变。</div>
+    </div>
+    <div class="risk-flow"><div>用户调用代理</div><div>读取实现地址</div><div>delegatecall</div><div>写入代理存储</div></div>
+    <div class="two-col">
+      <div>
+        <h2>初始化必须只能成功一次</h2>
+        <pre><span class="kw">contract</span> VaultV1 {
+    bool <span class="kw">private</span> initialized;
+    address <span class="kw">public</span> owner;
+    mapping(address =&gt; uint256) <span class="kw">public</span> balance;
+
+    <span class="kw">function</span> <span class="fn">initialize</span>(address initialOwner)
+        external
+    {
+        <span class="kw">require</span>(!initialized, "initialized");
+        <span class="kw">require</span>(initialOwner != address(0), "zero");
+        initialized = true;
+        owner = initialOwner;
+    }
+}</pre>
+        <p>代理部署后若没有原子初始化，攻击者可能抢先调用 <code>initialize</code> 成为 owner。实现合约本身也应禁用初始化，避免被接管后产生意外影响。</p>
+      </div>
+      <div>
+        <h2>安全的布局扩展</h2>
+        <table class="compare">
+          <thead><tr><th>V1 槽位</th><th>V2 合理变化</th></tr></thead>
+          <tbody>
+            <tr><td>slot 0: initialized + owner</td><td>保持原定义与顺序</td></tr>
+            <tr><td>slot 1: balance mapping</td><td>保持 mapping 位置</td></tr>
+            <tr><td>无</td><td>在末尾追加新变量</td></tr>
+          </tbody>
+        </table>
+        <div class="panel warning">
+          <h3>不兼容变化</h3>
+          <p>删除、重排或改变已有变量类型，会让旧槽位被按新含义读取。即使新代码能够编译，链上历史状态也可能立即损坏。</p>
+        </div>
+        <h2>升级权的治理</h2>
+        <ul>
+          <li>多签控制升级发起者。</li>
+          <li>时间锁留出监控和退出窗口。</li>
+          <li>升级前自动比较存储布局。</li>
+          <li>链上记录实现地址与升级事件。</li>
+        </ul>
+      </div>
+    </div>
+    <div class="principle"><b>核心原理：</b>代理安全不仅是代码安全，还包括升级密钥、部署顺序、初始化原子性、存储兼容性和用户对可变规则的预期。</div>
+    <div class="misconception"><b>常见误区：</b>“新实现只增加了一个变量，所以一定兼容。” 如果变量插入在旧变量之前，后续所有槽位都会错位；新变量通常只能追加到布局末尾。</div>
+    <div class="check"><span><b>快速自测：</b>为什么实现合约的构造函数不能初始化代理里的 owner？升级合约时，把新变量插在现有 mapping 前会发生什么？</span><span class="page-no">11</span></div>
+  </section>
+
+  <section class="page">
+    <div class="topline"><span class="brand">Mindmark Demo Material</span><span>Solidity Smart Contract Security</span></div>
+    <span class="lesson-tag">LESSON 12 · 安全交付</span>
+    <h1>从威胁建模到上线监控</h1>
+    <p class="lead">审计不是上线前的一次性活动。高质量安全流程从业务不变量开始，经过测试、部署验证和权限核对，最终落到持续监控与可演练的响应方案。</p>
+    <div class="objectives">
+      <div class="objective"><b>建模</b>明确资产、角色、信任边界、攻击收益和失败后果。</div>
+      <div class="objective"><b>验证</b>用单元、模糊、不变量和分叉测试覆盖不同层次。</div>
+      <div class="objective"><b>运行</b>监控关键事件、权限变化、价格异常和资金守恒。</div>
+    </div>
+    <div class="two-col wide-left">
+      <div>
+        <h2>四层测试策略</h2>
+        <ol>
+          <li><strong>单元测试：</strong>覆盖权限、边界值、失败路径和事件。</li>
+          <li><strong>模糊测试：</strong>让工具生成大量输入，寻找单函数或短序列中的异常。</li>
+          <li><strong>不变量测试：</strong>随机组合多个入口，持续检查资产与会计关系。</li>
+          <li><strong>分叉测试：</strong>在真实链状态副本上验证代币差异、预言机和协议组合。</li>
+        </ol>
+        <pre><span class="cm">// 示例不变量</span>
+<span class="kw">function</span> <span class="fn">invariant_assetsCoverLiabilities</span>() public view {
+    assert(address(vault).balance &gt;= vault.totalLiability());
+}
+
+<span class="kw">function</span> <span class="fn">invariant_noZeroAdmin</span>() public view {
+    assert(vault.owner() != address(0));
+}</pre>
+      </div>
+      <div>
+        <h2>上线前检查</h2>
+        <div class="panel success">
+          <ul>
+            <li>编译器、依赖与部署参数固定并可复现。</li>
+            <li>合约源码验证，地址与 chainId 二次核对。</li>
+            <li>管理员、多签阈值、时间锁和角色已实测。</li>
+            <li>初始化与升级脚本在测试网完整演练。</li>
+            <li>暂停、恢复和资金迁移路径有书面步骤。</li>
+          </ul>
+        </div>
+        <h2>上线后监控</h2>
+        <ul>
+          <li>异常大额转账和短时间高频调用。</li>
+          <li>角色授予、所有权转移和实现升级。</li>
+          <li>预言机过期、偏离和流动性骤降。</li>
+          <li>资产、负债、份额之间的不变量偏差。</li>
+        </ul>
+      </div>
+    </div>
+    <h2>把发现转化为可执行修复</h2>
+    <table class="compare">
+      <thead><tr><th>问题描述</th><th>不足</th><th>可执行表达</th></tr></thead>
+      <tbody>
+        <tr><td>“这里可能重入”</td><td>缺少攻击路径</td><td>指出外部调用、未更新状态、回调入口与可损失资产</td></tr>
+        <tr><td>“管理员权限太大”</td><td>缺少能力边界</td><td>列出可执行动作、最大损失，并建议多签、时间锁或角色拆分</td></tr>
+      </tbody>
+    </table>
+    <div class="principle"><b>核心原理：</b>安全结论必须连接“前置条件 → 攻击步骤 → 被破坏的不变量 → 影响 → 可验证修复”，才能被开发、测试和运营共同执行。</div>
+    <div class="misconception"><b>常见误区：</b>“通过审计就代表以后安全。” 审计基于特定代码、配置和假设；升级、权限变化、外部协议和市场环境都可能改变风险。</div>
+    <div class="check"><span><b>快速自测：</b>单元测试与不变量测试分别擅长发现什么？上线监控为什么应该围绕业务不变量，而不只是监听交易失败？</span><span class="page-no">12</span></div>
+  </section>
+</body>
+</html>

@@ -4,7 +4,7 @@ import {
   hashInitialPlan,
   type ReviewPlan,
 } from "@mindmark/shared";
-import type { ProjectRegistryGatewayV2, ProjectRunnerRepositoryV2 } from "./types-v2.js";
+import type { ProjectCommitmentRepositoryV2, ProjectRegistryGatewayV2 } from "./types-v2.js";
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : "Unknown Project Finalizer failure";
@@ -21,7 +21,7 @@ function buildInitialPlan(cardIds: `0x${string}`[], generatedAt: string): Review
 
 export class ProjectFinalizerV2 {
   constructor(
-    private readonly repository: ProjectRunnerRepositoryV2,
+    private readonly repository: ProjectCommitmentRepositoryV2,
     private readonly registry: ProjectRegistryGatewayV2,
     private readonly now: () => Date = () => new Date(),
   ) {}

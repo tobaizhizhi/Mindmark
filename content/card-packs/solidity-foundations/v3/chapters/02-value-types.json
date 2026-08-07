@@ -1,0 +1,198 @@
+{
+  "chapterId": 1,
+  "position": 1,
+  "slug": "value-types",
+  "title": "值类型：bool、整数、地址、bytes 与 enum",
+  "summary": "先把 Solidity 最常用的值类型写熟，再进入引用类型和复杂数据结构。",
+  "estimatedMinutes": 24,
+  "learningObjectives": [
+    "能选择 bool、uint、int、address、bytes 和 enum",
+    "能判断值类型赋值会复制值",
+    "能在入口处拒绝零地址和越界业务值"
+  ],
+  "prerequisiteChapterIds": [
+    0
+  ],
+  "cards": [
+    {
+      "packCardId": "v3-value-types-concept",
+      "position": 0,
+      "type": "concept",
+      "question": "uint256、int256、address、bytes4 和 enum 分别适合表示什么？",
+      "answer": "uint256 表示非负数量，int256 表示可能为负的数值，address 表示账户或合约地址，bytes4 常表示固定长度标识，enum 表示有限状态集合。",
+      "keyPoint": "类型选择表达业务含义；不要把所有东西都塞进 uint256。",
+      "tags": [
+        "uint",
+        "address",
+        "enum"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html",
+        "locator": "Value Types"
+      }
+    },
+    {
+      "packCardId": "v3-value-types-check",
+      "position": 1,
+      "type": "qa",
+      "question": "值类型赋值后修改目标变量，为什么不会改变源变量？",
+      "answer": "值类型包含自己的数据，赋值会复制该数据。引用类型是否共享或复制则要结合 storage、memory、calldata 继续判断。",
+      "keyPoint": "这是从简单变量进入数据位置规则前必须掌握的边界。",
+      "tags": [
+        "值类型",
+        "赋值",
+        "复制"
+      ],
+      "importance": 4,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html",
+        "locator": "Value Types"
+      }
+    },
+    {
+      "packCardId": "v3-value-types-read",
+      "position": 2,
+      "type": "output_trace",
+      "question": "推断下列状态变量部署后的读取结果，并说明为什么。",
+      "answer": "active 为 false，limit 为 0，admin 为 address(0)，status 为 Pending 的底层枚举值。它们是 Solidity 为状态变量提供的类型零值或首个枚举值。",
+      "keyPoint": "默认值可用来初始化，但敏感权限不能把 address(0) 当成有效管理员。",
+      "tags": [
+        "默认值",
+        "enum",
+        "运行推理"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html",
+        "locator": "Value Types"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "enum Status { Pending, Done }\nbool public active;\nuint256 public limit;\naddress public admin;\nStatus public status;",
+        "solutionCode": "active == false\nlimit == 0\nadmin == address(0)\nstatus == Status.Pending",
+        "testInput": "刚部署合约，未调用任何写函数。",
+        "expectedResult": "返回 false、0、零地址和 Pending。",
+        "hints": [
+          "值类型有确定零值。",
+          "enum 默认从第一个成员开始。"
+        ]
+      }
+    },
+    {
+      "packCardId": "v3-value-types-complete",
+      "position": 3,
+      "type": "code_complete",
+      "question": "补全 setAdmin，拒绝 address(0)，并把新地址写入 admin。",
+      "answer": "先 require(newAdmin != address(0))，再写 admin。权限检查将在后续 modifier 章节抽取。",
+      "keyPoint": "先学会值边界，再在后续章节抽象重复权限代码。",
+      "tags": [
+        "address",
+        "边界",
+        "补全"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html",
+        "locator": "Value Types"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "address public admin;\n\nfunction setAdmin(address newAdmin) external {\n    require(newAdmin != address(0), \"zero address\");\n    // TODO\n}",
+        "solutionCode": "address public admin;\n\nfunction setAdmin(address newAdmin) external {\n    require(newAdmin != address(0), \"zero address\");\n    admin = newAdmin;\n}",
+        "testInput": "传入 address(0) 和一个有效地址。",
+        "expectedResult": "零地址调用回滚，有效地址被写入。",
+        "hints": [
+          "require 是运行时条件检查。",
+          "状态写入放在检查之后。"
+        ]
+      }
+    },
+    {
+      "packCardId": "v3-value-types-write",
+      "position": 4,
+      "type": "code_write",
+      "question": "写一个 Vote 合约：用 enum 表示 Pending、Yes、No，并提供 voteYes 和 voteNo。",
+      "answer": "状态变量初值为 Pending，两个函数分别把它改成 Yes 或 No。后续会用权限和事件限制与记录这些操作。",
+      "keyPoint": "enum 让有限状态的含义直接出现在代码里，也让后续状态机讨论更清楚。",
+      "tags": [
+        "enum",
+        "状态机",
+        "写代码"
+      ],
+      "importance": 5,
+      "initialDifficulty": 4,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html",
+        "locator": "Value Types"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "// 写出 enum、状态变量和两个状态转换函数\n",
+        "solutionCode": "pragma solidity ^0.8.20;\ncontract Vote {\n    enum Result { Pending, Yes, No }\n    Result public result;\n\n    function voteYes() external { result = Result.Yes; }\n    function voteNo() external { result = Result.No; }\n}",
+        "testInput": "依次调用 voteYes，再调用 voteNo。",
+        "expectedResult": "result 依次为 Yes、No。",
+        "hints": [
+          "enum 第一个成员会作为默认值。",
+          "用 Result.Yes 赋值。"
+        ]
+      }
+    },
+    {
+      "packCardId": "v3-value-types-application",
+      "position": 5,
+      "type": "application",
+      "question": "为什么地址参数常常需要同时检查 address(0) 和调用权限？",
+      "answer": "address(0) 是类型合法值，但通常没有可用控制者；权限检查保证只有正确角色能设置地址。只做其中一个检查都会留下业务漏洞。",
+      "keyPoint": "类型合法不代表业务合法，入口校验需要覆盖两层。",
+      "tags": [
+        "零地址",
+        "权限",
+        "应用"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html",
+        "locator": "Value Types"
+      }
+    },
+    {
+      "packCardId": "v3-value-types-misconception",
+      "position": 6,
+      "type": "misconception",
+      "question": "误区：private 变量是秘密，别人无法知道它的值，为什么错误？",
+      "answer": "private 只限制 Solidity 代码中的直接访问；storage、交易 calldata 和事件都公开在链上，可以被节点和浏览器读取。",
+      "keyPoint": "访问修饰符不是加密，链上不要保存明文秘密。",
+      "tags": [
+        "private",
+        "隐私",
+        "误区"
+      ],
+      "importance": 4,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html",
+        "locator": "Value Types"
+      }
+    }
+  ]
+}

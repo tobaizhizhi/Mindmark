@@ -11,10 +11,9 @@ describe("ProjectCoordinatorV2", () => {
           if (checks < 3) throw new Error("Monad RPC request timed out");
         },
       },
-      { runNext: async () => false } as never,
       {
         recoverStaleJobs: async () => 0,
-        runNext: async () => false,
+        runNextDetailed: async () => null,
       } as never,
       { pollIntervalMs: 1_000, startupRetryDelayMs: 0 },
     );
@@ -28,10 +27,9 @@ describe("ProjectCoordinatorV2", () => {
   it("keeps polling after an empty initial queue scan", async () => {
     const coordinator = new ProjectCoordinatorV2(
       { assertConfiguredWallets: async () => undefined },
-      { runNext: async () => false } as never,
       {
         recoverStaleJobs: async () => 0,
-        runNext: async () => false,
+        runNextDetailed: async () => null,
       } as never,
       { pollIntervalMs: 1_000 },
     );

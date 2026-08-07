@@ -13,36 +13,37 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
-  Clock3,
   FilePlus2,
   FileText,
   Folder,
   FolderOpen,
   FolderPlus,
-  LayoutGrid,
   Library,
   LoaderCircle,
   LogOut,
   Menu,
   MoreHorizontal,
   Move,
-  Plus,
+  PackageOpen,
   RefreshCw,
   Search,
   Settings,
   Trash2,
   Upload,
   Wallet,
-  X,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { SiweMessage } from "siwe";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAccount, useConnect, useDisconnect, useSignMessage, useSwitchChain } from "wagmi";
 import { monadChain } from "@/lib/client/chain";
+import { parseApiResponse as parseApi } from "@/lib/client/http";
+import { createWalletSignInMessage } from "@/lib/client/wallet-auth";
+import { LearningPrimaryNavigation, type PrimaryNavigationTarget } from "@/components/learning-primary-navigation";
 
-type ApiErrorBody = { error?: { message?: string } };
-type LibraryFilter = "all" | "folders" | "pdf" | "ready" | "due";
+type WalletSessionResponse = {
+  session: { address: string; expiresAt?: string } | null;
+};
 type SortMode = "updated" | "name";
 
 const projectStatusLabels: Record<string, string> = {
@@ -56,18 +57,12 @@ const projectStatusLabels: Record<string, string> = {
   FAILED_RETRYABLE: "需要重试",
 };
 
-async function parseApi<T>(response: Response): Promise<T> {
-  const body = (await response.json().catch(() => ({}))) as T & ApiErrorBody;
-  if (!response.ok) throw new Error(body.error?.message ?? "请求失败");
-  return body;
-}
-
 function shortAddress(address: string): string {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
 }
 
 function documentName(document: LibraryDocument): string {
-  return document.sourceFilename ?? `${document.title}.pdf`;
+  return document.sourceFilename ?? document.title;
 }
 
 function formatUpdatedAt(value: string): string {
@@ -133,15 +128,11 @@ function FolderTree({
 
 export function DocumentLibraryWorkspace() {
   const router = useRouter();
-  const [sessionAddress, setSessionAddress] = useState<string | null>(null);
-  const [library, setLibrary] = useState<DocumentLibraryResponse | null>(null);
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
   const [authBusy, setAuthBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [refreshToken, setRefreshToken] = useState(0);
+  const [localError, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<LibraryFilter>("all");
+  const [dueOnly, setDueOnly] = useState(false);
   const [sort, setSort] = useState<SortMode>("updated");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [folderDialogOpen, setFolderDialogOpen] = useState(false);
@@ -150,39 +141,67 @@ export function DocumentLibraryWorkspace() {
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [moveDocument, setMoveDocument] = useState<LibraryDocument | null>(null);
   const [moveFolderId, setMoveFolderId] = useState<string>("");
+  const [deleteDocument, setDeleteDocument] = useState<LibraryDocument | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteFolderTarget, setDeleteFolderTarget] = useState<LibraryFolder | null>(null);
+  const [deleteFolderBusy, setDeleteFolderBusy] = useState(false);
+  const queryClient = useQueryClient();
   const { address, chainId, isConnected } = useAccount();
   const { connectors, connectAsync } = useConnect();
   const { disconnectAsync } = useDisconnect();
   const { signMessageAsync } = useSignMessage();
   const { switchChainAsync } = useSwitchChain();
-  const loggedIn = Boolean(address && sessionAddress && address.toLowerCase() === sessionAddress);
+  const sessionQuery = useQuery({
+    queryKey: ["wallet-session"],
+    queryFn: async () => {
+      const response = await fetch("/api/auth/session");
+      if (!response.ok) throw new Error("登录状态读取失败");
+      return response.json() as Promise<WalletSessionResponse>;
+    },
+    staleTime: 30_000,
+  });
+  const sessionAddress = sessionQuery.data?.session?.address?.toLowerCase() ?? null;
+  const loggedIn = Boolean(sessionAddress);
+  const libraryQuery = useQuery({
+    queryKey: ["document-library", currentFolderId],
+    queryFn: ({ signal }) => {
+      const suffix = currentFolderId ? `?folderId=${encodeURIComponent(currentFolderId)}` : "";
+      return fetch(`/api/library${suffix}`, { signal })
+        .then((response) => parseApi<DocumentLibraryResponse>(response));
+    },
+    retry: false,
+    staleTime: 10_000,
+  });
+  const library = libraryQuery.data ?? null;
+  const loading = libraryQuery.isPending;
+  const error = localError
+    ?? (sessionQuery.error instanceof Error ? sessionQuery.error.message : null)
+    ?? (loggedIn && libraryQuery.error instanceof Error ? libraryQuery.error.message : null);
 
   useEffect(() => {
-    fetch("/api/auth/session")
-      .then((response) => response.ok ? response.json() : null)
-      .then((body: { session?: { address?: string } } | null) => {
-        setCurrentFolderId(new URLSearchParams(window.location.search).get("folder") || null);
-        setSessionAddress(body?.session?.address ?? null);
-      })
-      .catch(() => undefined);
+    void Promise.resolve().then(() => {
+      const params = new URLSearchParams(window.location.search);
+      setCurrentFolderId(params.get("folder") || null);
+      setDueOnly(params.get("filter") === "due");
+    });
   }, []);
 
-  useEffect(() => {
-    if (!loggedIn) return;
-    let active = true;
-    const suffix = currentFolderId ? `?folderId=${encodeURIComponent(currentFolderId)}` : "";
-    void fetch(`/api/library${suffix}`)
-      .then((response) => parseApi<DocumentLibraryResponse>(response))
-      .then((response) => { if (active) setLibrary(response); })
-      .catch((caught: unknown) => { if (active) setError(caught instanceof Error ? caught.message : "资料库加载失败"); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [loggedIn, currentFolderId, refreshToken]);
+  function refreshLibrary() {
+    void queryClient.invalidateQueries({ queryKey: ["document-library"] });
+  }
 
   const currentFolder = library?.folders.find((folder) => folder.folderId === currentFolderId) ?? null;
   const childFolders = useMemo(() => (library?.folders ?? []).filter((folder) => (
     folder.parentFolderId === currentFolderId
   )), [library, currentFolderId]);
+  const deleteFolderChildCount = deleteFolderTarget
+    ? library?.folders.filter((folder) => folder.parentFolderId === deleteFolderTarget.folderId).length ?? 0
+    : 0;
+  const deleteFolderEmpty = Boolean(
+    deleteFolderTarget
+    && deleteFolderTarget.documentCount === 0
+    && deleteFolderChildCount === 0,
+  );
   const folderTrail = useMemo(() => {
     if (!library || !currentFolderId) return [];
     const result: LibraryFolder[] = [];
@@ -199,25 +218,22 @@ export function DocumentLibraryWorkspace() {
   }, [library, currentFolderId]);
 
   const visibleFolders = useMemo(() => {
-    if (filter === "pdf" || filter === "ready" || filter === "due") return [];
+    if (dueOnly) return [];
     const normalized = query.trim().toLocaleLowerCase("zh-CN");
     return childFolders.filter((folder) => !normalized || folder.name.toLocaleLowerCase("zh-CN").includes(normalized));
-  }, [childFolders, filter, query]);
+  }, [childFolders, dueOnly, query]);
 
   const visibleDocuments = useMemo(() => {
-    if (filter === "folders") return [];
     const normalized = query.trim().toLocaleLowerCase("zh-CN");
     const rows = (library?.documents ?? []).filter((document) => {
       if (normalized && !`${document.title} ${documentName(document)}`.toLocaleLowerCase("zh-CN").includes(normalized)) return false;
-      if (filter === "ready" && document.status !== "READY") return false;
-      if (filter === "due" && document.dueCount === 0) return false;
+      if (dueOnly && document.dueCount === 0) return false;
       return true;
     });
     return [...rows].sort((left, right) => sort === "name"
       ? documentName(left).localeCompare(documentName(right), "zh-CN")
       : Date.parse(right.updatedAt) - Date.parse(left.updatedAt));
-  }, [library, filter, query, sort]);
-
+  }, [library, dueOnly, query, sort]);
   async function signIn(walletAddress: string, walletChainId: number | undefined) {
     if (walletChainId !== monadChain.id) await switchChainAsync({ chainId: monadChain.id });
     const nonce = await parseApi<AuthNonceResponse>(await fetch("/api/auth/nonce", {
@@ -225,24 +241,20 @@ export function DocumentLibraryWorkspace() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ address: walletAddress }),
     }));
-    const message = new SiweMessage({
-      domain: nonce.domain,
+    const message = createWalletSignInMessage({
       address: walletAddress,
-      statement: "Sign in to Mindmark",
-      uri: nonce.uri,
-      version: "1",
-      chainId: nonce.chainId,
-      nonce: nonce.nonce,
-      issuedAt: new Date().toISOString(),
-      expirationTime: nonce.expiresAt,
-    }).prepareMessage();
+      nonce,
+    });
     const signature = await signMessageAsync({ message });
     const verified = await parseApi<AuthVerifyResponse>(await fetch("/api/auth/verify", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message, signature }),
     }));
-    setSessionAddress(verified.address.toLowerCase());
+    queryClient.setQueryData<WalletSessionResponse>(["wallet-session"], {
+      session: { address: verified.address.toLowerCase(), expiresAt: verified.expiresAt },
+    });
+    void queryClient.invalidateQueries({ queryKey: ["document-library"] });
   }
 
   async function handleAuth() {
@@ -251,8 +263,11 @@ export function DocumentLibraryWorkspace() {
     try {
       if (loggedIn) {
         await fetch("/api/auth/logout", { method: "POST" });
-        setSessionAddress(null);
-        setLibrary(null);
+        queryClient.setQueryData<WalletSessionResponse>(["wallet-session"], { session: null });
+        queryClient.removeQueries({ predicate: (query) => (
+          typeof query.queryKey[0] === "string"
+          && (query.queryKey[0].startsWith("learning-") || query.queryKey[0].startsWith("document-library"))
+        ) });
         await disconnectAsync();
         return;
       }
@@ -269,17 +284,18 @@ export function DocumentLibraryWorkspace() {
   }
 
   function openFolder(folderId: string | null) {
+    setDueOnly(false);
+    const url = folderId ? `/learn?folder=${encodeURIComponent(folderId)}` : "/learn";
     if (folderId === currentFolderId) {
       setSidebarOpen(false);
       setOpenMenuId(null);
+      window.history.pushState(null, "", url);
       return;
     }
-    setLoading(true);
     setError(null);
     setCurrentFolderId(folderId);
     setSidebarOpen(false);
     setOpenMenuId(null);
-    const url = folderId ? `/learn?folder=${encodeURIComponent(folderId)}` : "/learn";
     window.history.pushState(null, "", url);
   }
 
@@ -295,6 +311,23 @@ export function DocumentLibraryWorkspace() {
     return currentFolderId ? `/learn/projects/new?folder=${currentFolderId}` : "/learn/projects/new";
   }
 
+  function navigatePrimary(target: PrimaryNavigationTarget) {
+    if (target === "library") {
+      setDueOnly(false);
+      openFolder(null);
+      return;
+    }
+    if (target === "review") {
+      setDueOnly(true);
+      setCurrentFolderId(null);
+      setSidebarOpen(false);
+      setOpenMenuId(null);
+      window.history.pushState(null, "", "/learn?filter=due");
+      return;
+    }
+    router.push(target === "packs" ? "/learn/packs" : uploadHref());
+  }
+
   async function createFolder() {
     if (!folderName.trim()) return;
     setFolderBusy(true);
@@ -307,7 +340,7 @@ export function DocumentLibraryWorkspace() {
       }));
       setFolderName("");
       setFolderDialogOpen(false);
-      setRefreshToken((value) => value + 1);
+      refreshLibrary();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "文件夹创建失败");
     } finally {
@@ -325,21 +358,31 @@ export function DocumentLibraryWorkspace() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name }),
       }));
-      setRefreshToken((value) => value + 1);
+      refreshLibrary();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "文件夹重命名失败");
     }
   }
 
-  async function deleteFolder(folder: LibraryFolder) {
-    if (!window.confirm(`删除空文件夹“${folder.name}”？`)) return;
+  function requestFolderDeletion(folder: LibraryFolder) {
+    setError(null);
     setOpenMenuId(null);
+    setDeleteFolderTarget(folder);
+  }
+
+  async function deleteSelectedFolder() {
+    if (!deleteFolderTarget) return;
+    setDeleteFolderBusy(true);
+    setError(null);
     try {
-      const response = await fetch(`/api/folders/${folder.folderId}`, { method: "DELETE" });
+      const response = await fetch(`/api/folders/${deleteFolderTarget.folderId}`, { method: "DELETE" });
       if (!response.ok) await parseApi(response);
-      setRefreshToken((value) => value + 1);
+      setDeleteFolderTarget(null);
+      refreshLibrary();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "只能删除空文件夹");
+      setError(caught instanceof Error ? caught.message : "文件夹删除失败");
+    } finally {
+      setDeleteFolderBusy(false);
     }
   }
 
@@ -355,7 +398,7 @@ export function DocumentLibraryWorkspace() {
       }));
       setMoveDocument(null);
       setMoveFolderId("");
-      setRefreshToken((value) => value + 1);
+      refreshLibrary();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "资料移动失败");
     } finally {
@@ -363,19 +406,49 @@ export function DocumentLibraryWorkspace() {
     }
   }
 
+  function requestDocumentDeletion(document: LibraryDocument) {
+    setError(null);
+    setOpenMenuId(null);
+    setDeleteDocument(document);
+  }
+
+  async function deleteSelectedDocument() {
+    if (!deleteDocument) return;
+    const projectId = deleteDocument.projectId;
+    setDeleteBusy(true);
+    setError(null);
+    try {
+      await parseApi<{ deleted: true }>(await fetch(`/api/projects/${projectId}`, {
+        method: "DELETE",
+      }));
+      queryClient.setQueriesData<DocumentLibraryResponse>(
+        { queryKey: ["document-library"] },
+        (cached) => cached ? {
+          ...cached,
+          documents: cached.documents.filter((document) => document.projectId !== projectId),
+        } : cached,
+      );
+      queryClient.removeQueries({
+        predicate: (cachedQuery) => cachedQuery.queryKey.some((part) => part === projectId),
+      });
+      setDeleteDocument(null);
+      void queryClient.invalidateQueries({ queryKey: ["document-library"] });
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "资料删除失败");
+    } finally {
+      setDeleteBusy(false);
+    }
+  }
+
   const sidebar = (
-    <aside className="library-sidebar" data-open={sidebarOpen}>
-      <div className="library-brand">
-        <span className="library-brand-mark"><BookOpen /></span>
-        <div><strong>Mindmark</strong><small>资料学习库</small></div>
-        <button type="button" className="library-mobile-close" onClick={() => setSidebarOpen(false)} aria-label="关闭导航" title="关闭导航"><X /></button>
-      </div>
-      <nav className="library-nav" aria-label="资料库导航">
-        <button type="button" data-active={filter === "all"} onClick={() => { setFilter("all"); openFolder(null); }}><Library /><span>资料和文件夹</span></button>
-        <button type="button" data-active={filter === "due"} onClick={() => { setFilter("due"); setSidebarOpen(false); }}><Clock3 /><span>今日复习</span></button>
-        <button type="button" data-active={filter === "ready"} onClick={() => { setFilter("ready"); setSidebarOpen(false); }}><LayoutGrid /><span>可学习资料</span></button>
-        <button type="button" onClick={() => router.push(uploadHref())}><Plus /><span>新建资料</span></button>
-      </nav>
+    <LearningPrimaryNavigation
+      variant="expanded"
+      active={dueOnly ? "review" : "library"}
+      open={sidebarOpen}
+      onNavigate={navigatePrimary}
+      onClose={() => setSidebarOpen(false)}
+      footer={<><button type="button" disabled><Settings /><span>设置</span></button><button type="button" onClick={() => void handleAuth()} disabled={authBusy}>{authBusy ? <LoaderCircle className="animate-spin" /> : loggedIn ? <LogOut /> : <Wallet />}<span>{loggedIn && sessionAddress ? shortAddress(sessionAddress) : "连接钱包"}</span></button></>}
+    >
       <div className="library-folder-tree">
         <div className="library-sidebar-label"><span>文件夹</span><button type="button" onClick={() => setFolderDialogOpen(true)} aria-label="新建文件夹" title="新建文件夹"><FolderPlus /></button></div>
         <button type="button" className="library-tree-row library-tree-root" data-active={currentFolderId === null} onClick={() => openFolder(null)}>
@@ -385,14 +458,7 @@ export function DocumentLibraryWorkspace() {
         </button>
         <FolderTree folders={library?.folders ?? []} parentId={null} currentFolderId={currentFolderId} onOpen={(id) => openFolder(id)} />
       </div>
-      <div className="library-sidebar-bottom">
-        <button type="button" disabled><Settings /><span>设置</span></button>
-        <button type="button" onClick={() => void handleAuth()} disabled={authBusy}>
-          {authBusy ? <LoaderCircle className="animate-spin" /> : loggedIn ? <LogOut /> : <Wallet />}
-          <span>{loggedIn && address ? shortAddress(address) : "连接钱包"}</span>
-        </button>
-      </div>
-    </aside>
+    </LearningPrimaryNavigation>
   );
 
   return (
@@ -403,7 +469,7 @@ export function DocumentLibraryWorkspace() {
         <header className="library-mobile-header">
           <button type="button" onClick={() => setSidebarOpen(true)} aria-label="打开导航" title="打开导航"><Menu /></button>
           <strong>Mindmark</strong>
-          <button type="button" onClick={() => router.push(uploadHref())} aria-label="上传 PDF" title="上传 PDF"><Upload /></button>
+          <span className="library-mobile-header-spacer" aria-hidden="true" />
         </header>
 
         {!loggedIn ? (
@@ -418,77 +484,66 @@ export function DocumentLibraryWorkspace() {
           </div>
         ) : (
           <div className="library-content">
-            <div className="library-titlebar">
-              <div>
+            <header className="library-contextbar">
+              <div className="library-context-title">
                 <div className="library-breadcrumbs">
                   <button type="button" onClick={() => openFolder(null)}>资料库</button>
                   {folderTrail.map((folder) => <span key={folder.folderId}><ChevronRight /><button type="button" onClick={() => openFolder(folder.folderId)}>{folder.name}</button></span>)}
                 </div>
-                <h1>{currentFolder?.name ?? "资料和文件夹"}</h1>
-                <p>{currentFolder ? `${currentFolder.documentCount} 份资料` : "整理资料，然后从 PDF 进入章节学习"}</p>
+                <h1 title={currentFolder?.name ?? "资料和文件夹"}>{currentFolder?.name ?? "资料和文件夹"}</h1>
               </div>
-              <div className="library-title-actions">
-                <button type="button" className="command-button command-button-quiet" onClick={() => setFolderDialogOpen(true)}><FolderPlus />新建文件夹</button>
-                <button type="button" className="command-button command-button-accent" onClick={() => router.push(uploadHref())}><Upload />上传并学习 PDF</button>
-              </div>
-            </div>
-
-            <div className="library-toolbar">
               <label className="library-search"><Search /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索当前文件夹" /></label>
-              <div className="library-filters" role="group" aria-label="资料筛选">
-                {([ ["all", "全部"], ["folders", "文件夹"], ["pdf", "PDF"], ["ready", "可学习"], ["due", "待复习"] ] as Array<[LibraryFilter, string]>).map(([value, label]) => (
-                  <button key={value} type="button" data-active={filter === value} onClick={() => setFilter(value)}>{label}</button>
-                ))}
-              </div>
               <label className="library-sort"><span>排序</span><select value={sort} onChange={(event) => setSort(event.target.value as SortMode)}><option value="updated">最近更新</option><option value="name">名称</option></select><ChevronDown /></label>
-              <button type="button" className="icon-button" onClick={() => { setLoading(true); setError(null); setRefreshToken((value) => value + 1); }} aria-label="刷新资料库" title="刷新资料库"><RefreshCw /></button>
-            </div>
+              <div className="library-context-actions"><button type="button" className="icon-button" onClick={() => setFolderDialogOpen(true)} aria-label="新建文件夹" title="新建文件夹"><FolderPlus /></button><button type="button" className="icon-button" onClick={() => { setError(null); void libraryQuery.refetch(); }} aria-label="刷新资料库" title="刷新资料库"><RefreshCw className={libraryQuery.isFetching ? "animate-spin" : undefined} /></button><button type="button" className="command-button command-button-accent" onClick={() => router.push(uploadHref())}><Upload />上传 PDF</button></div>
+            </header>
 
-            {error ? <div className="library-error"><span>{error}</span><button type="button" onClick={() => { setLoading(true); setError(null); setRefreshToken((value) => value + 1); }}>重试</button></div> : null}
+            {error ? <div className="library-error"><span>{error}</span><button type="button" onClick={() => { setError(null); void libraryQuery.refetch(); }}>重试</button></div> : null}
 
-            <div className="library-table" aria-busy={loading}>
+            <div className="library-table" aria-busy={libraryQuery.isFetching}>
               <div className="library-table-head"><span>名称</span><span>学习进度</span><span>更新于</span><span /></div>
-              {loading ? Array.from({ length: 6 }, (_, index) => <div className="library-row library-row-loading" key={index}><span /><span /><span /></div>) : null}
+              {loading && !library ? Array.from({ length: 6 }, (_, index) => <div className="library-row library-row-loading" key={index}><span /><span /><span /></div>) : null}
 
-              {!loading && visibleFolders.map((folder) => (
+              {library && visibleFolders.map((folder) => (
                 <div className="library-row library-folder-row" key={folder.folderId}>
                   <button type="button" className="library-row-primary" onClick={() => openFolder(folder.folderId)}>
                     <span className="library-file-icon library-folder-icon"><Folder /></span>
                     <span className="library-file-copy"><strong>{folder.name}</strong><small>文件夹 · {folder.documentCount} 份资料</small></span>
+                    <ChevronRight className="library-row-open-icon" aria-hidden="true" />
                   </button>
-                  <span className="library-row-progress">{folder.documentCount ? `${folder.documentCount} 份 PDF` : "空文件夹"}</span>
+                  <span className="library-row-progress">{folder.documentCount ? `${folder.documentCount} 个学习项目` : "空文件夹"}</span>
                   <time>{formatUpdatedAt(folder.updatedAt)}</time>
                   <div className="library-row-menu">
-                    <button type="button" onClick={() => setOpenMenuId(openMenuId === folder.folderId ? null : folder.folderId)} aria-label={`${folder.name} 更多操作`} title="更多操作"><MoreHorizontal /></button>
-                    {openMenuId === folder.folderId ? <div className="library-menu"><button type="button" onClick={() => void renameFolder(folder)}>重命名</button><button type="button" className="danger" onClick={() => void deleteFolder(folder)}><Trash2 />删除空文件夹</button></div> : null}
+                    <button type="button" aria-expanded={openMenuId === folder.folderId} onClick={() => setOpenMenuId(openMenuId === folder.folderId ? null : folder.folderId)} aria-label={`${folder.name} 更多操作`} title="更多操作"><MoreHorizontal /></button>
+                    {openMenuId === folder.folderId ? <div className="library-menu"><button type="button" onClick={() => void renameFolder(folder)}>重命名</button><button type="button" className="danger" onClick={() => requestFolderDeletion(folder)}><Trash2 />删除文件夹</button></div> : null}
                   </div>
                 </div>
               ))}
 
-              {!loading && visibleDocuments.map((document) => {
+              {library && visibleDocuments.map((document) => {
                 const percent = document.chapterCount ? Math.round(document.readyChapterCount * 100 / document.chapterCount) : 0;
                 return (
                   <div className="library-row library-document-row" key={document.projectId}>
                     <button type="button" className="library-row-primary" onClick={() => openDocument(document)}>
-                      <span className="library-file-icon library-pdf-icon"><FileText /><b>PDF</b></span>
-                      <span className="library-file-copy"><strong>{documentName(document)}</strong><small>{document.title}{document.sourcePageCount ? ` · ${document.sourcePageCount} 页` : ""}</small></span>
+                      <span className={`library-file-icon ${document.projectKind === "PACK" ? "library-pack-icon" : "library-pdf-icon"}`}>{document.projectKind === "PACK" ? <PackageOpen /> : <FileText />}<b>{document.projectKind === "PACK" ? "PACK" : "PDF"}</b></span>
+                      <span className="library-file-copy"><strong>{documentName(document)}</strong><small>{document.projectKind === "PACK" ? `${document.chapterCount} 章 · ${document.cardCount} 张知识卡` : <>{document.title}{document.sourcePageCount ? ` · ${document.sourcePageCount} 页` : ""}</>}</small></span>
+                      <ChevronRight className="library-row-open-icon" aria-hidden="true" />
                     </button>
                     <button type="button" className="library-row-progress library-document-progress" onClick={() => openDocument(document)}>
                       <span><i style={{ width: `${percent}%` }} /></span>
                       <small>{document.chapterCount ? `${document.readyChapterCount}/${document.chapterCount} 章节` : projectStatusLabels[document.status]}</small>
                       {document.dueCount > 0 ? <b>{document.dueCount} 待复习</b> : null}
                     </button>
-                    <time>{formatUpdatedAt(document.updatedAt)}<small className={statusClass(document.status)}>{projectStatusLabels[document.status] ?? document.status}</small></time>
+                    <time>{formatUpdatedAt(document.updatedAt)}<small className={statusClass(document.status)}><i aria-hidden="true" />{projectStatusLabels[document.status] ?? document.status}</small></time>
                     <div className="library-row-menu">
-                      <button type="button" onClick={() => setOpenMenuId(openMenuId === document.projectId ? null : document.projectId)} aria-label={`${documentName(document)} 更多操作`} title="更多操作"><MoreHorizontal /></button>
-                      {openMenuId === document.projectId ? <div className="library-menu"><button type="button" onClick={() => openDocument(document)}><BookOpen />打开章节</button><button type="button" onClick={() => { setMoveDocument(document); setMoveFolderId(document.folderId ?? ""); setOpenMenuId(null); }}><Move />移动到</button></div> : null}
+                      <button type="button" aria-expanded={openMenuId === document.projectId} onClick={() => setOpenMenuId(openMenuId === document.projectId ? null : document.projectId)} aria-label={`${documentName(document)} 更多操作`} title="更多操作"><MoreHorizontal /></button>
+                      {openMenuId === document.projectId ? <div className="library-menu"><button type="button" onClick={() => openDocument(document)}><BookOpen />打开章节</button><button type="button" onClick={() => { setMoveDocument(document); setMoveFolderId(document.folderId ?? ""); setOpenMenuId(null); }}><Move />移动到</button><button type="button" className="danger" onClick={() => requestDocumentDeletion(document)}><Trash2 />删除资料</button></div> : null}
                     </div>
                   </div>
                 );
               })}
 
-              {!loading && visibleFolders.length === 0 && visibleDocuments.length === 0 ? (
-                <div className="library-empty"><FolderOpen /><h2>{query || filter !== "all" ? "没有匹配的资料" : "这个文件夹还是空的"}</h2><p>{query || filter !== "all" ? "换一个关键词或筛选条件。" : "上传 PDF，系统会先分析成章节，再为每章生成知识卡。"}</p>{!query && filter === "all" ? <button type="button" className="command-button command-button-accent" onClick={() => router.push(uploadHref())}><FilePlus2 />上传 PDF</button> : null}</div>
+              {!loading && library && visibleFolders.length === 0 && visibleDocuments.length === 0 ? (
+                <div className="library-empty"><FolderOpen /><h2>{query ? "没有匹配的资料" : dueOnly ? "今天没有待复习资料" : "这个文件夹还是空的"}</h2><p>{query ? "换一个关键词再试。" : dueOnly ? "有知识卡到期后会显示在这里。" : "上传 PDF，系统会先分析成章节，再为每章生成知识卡。"}</p>{!query && !dueOnly ? <button type="button" className="command-button command-button-accent" onClick={() => router.push(uploadHref())}><FilePlus2 />上传 PDF</button> : null}</div>
               ) : null}
             </div>
           </div>
@@ -513,6 +568,45 @@ export function DocumentLibraryWorkspace() {
             <div><h2>移动资料</h2><p className="truncate">{documentName(moveDocument)}</p></div>
             <label><span>目标文件夹</span><select autoFocus value={moveFolderId} onChange={(event) => setMoveFolderId(event.target.value)}><option value="">资料库根目录</option>{library?.folders.map((folder) => <option key={folder.folderId} value={folder.folderId}>{folder.name}</option>)}</select></label>
             <div className="library-dialog-actions"><button type="button" className="command-button command-button-quiet" onClick={() => setMoveDocument(null)}>取消</button><button type="submit" className="command-button command-button-accent" disabled={folderBusy}>{folderBusy ? <LoaderCircle className="animate-spin" /> : <Move />}移动</button></div>
+          </form>
+        </div>
+      ) : null}
+
+      {deleteFolderTarget ? (
+        <div className="library-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (!deleteFolderBusy && event.target === event.currentTarget) setDeleteFolderTarget(null); }}>
+          <form className="library-dialog library-delete-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-folder-title" onSubmit={(event) => { event.preventDefault(); if (deleteFolderEmpty) void deleteSelectedFolder(); }}>
+            <div className="library-dialog-icon library-dialog-icon-danger"><Trash2 /></div>
+            <div><h2 id="delete-folder-title">{deleteFolderEmpty ? "删除这个文件夹？" : "这个文件夹还不能删除"}</h2><p className="truncate">{deleteFolderTarget.name}</p></div>
+            <div className="library-delete-warning">
+              <strong>{deleteFolderEmpty ? "此操作无法撤销" : "请先清空文件夹"}</strong>
+              {deleteFolderEmpty ? <p>这里只会删除空文件夹，不会影响资料库里的其他内容。</p> : <ul>
+                {deleteFolderTarget.documentCount > 0 ? <li>包含 {deleteFolderTarget.documentCount} 份资料，请先移动或删除</li> : null}
+                {deleteFolderChildCount > 0 ? <li>包含 {deleteFolderChildCount} 个子文件夹，请先清空并删除</li> : null}
+              </ul>}
+            </div>
+            {localError ? <div className="library-delete-error">{localError}</div> : null}
+            <div className="library-dialog-actions"><button type="button" className="command-button command-button-quiet" disabled={deleteFolderBusy} onClick={() => setDeleteFolderTarget(null)}>{deleteFolderEmpty ? "取消" : "关闭"}</button>{deleteFolderEmpty ? <button type="submit" className="command-button command-button-danger" disabled={deleteFolderBusy}>{deleteFolderBusy ? <LoaderCircle className="animate-spin" /> : <Trash2 />}确认删除</button> : null}</div>
+          </form>
+        </div>
+      ) : null}
+
+      {deleteDocument ? (
+        <div className="library-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (!deleteBusy && event.target === event.currentTarget) setDeleteDocument(null); }}>
+          <form className="library-dialog library-delete-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-document-title" onSubmit={(event) => { event.preventDefault(); void deleteSelectedDocument(); }}>
+            <div className="library-dialog-icon library-dialog-icon-danger"><Trash2 /></div>
+            <div><h2 id="delete-document-title">删除这份资料？</h2><p className="truncate">{documentName(deleteDocument)}</p></div>
+            <div className="library-delete-warning">
+              <strong>此操作无法撤销</strong>
+              <ul>
+                <li>{deleteDocument.projectKind === "PACK" ? "删除已安装的卡包副本、章节和知识卡" : "删除原始 PDF、章节和知识卡"}</li>
+                <li>删除这份资料的学习记录和复习进度</li>
+                {deleteDocument.projectKind === "PACK" ? <li>公共卡包本身不会被删除，之后仍可重新添加</li> : null}
+                {["OUTLINING", "GENERATING", "FINALIZING"].includes(deleteDocument.status) ? <li>当前生成流程会停止保存后续结果</li> : null}
+                <li>Monad 上已经确认的交易记录不会被撤回</li>
+              </ul>
+            </div>
+            {localError ? <div className="library-delete-error">{localError}</div> : null}
+            <div className="library-dialog-actions"><button type="button" className="command-button command-button-quiet" disabled={deleteBusy} onClick={() => setDeleteDocument(null)}>取消</button><button type="submit" className="command-button command-button-danger" disabled={deleteBusy}>{deleteBusy ? <LoaderCircle className="animate-spin" /> : <Trash2 />}确认删除</button></div>
           </form>
         </div>
       ) : null}

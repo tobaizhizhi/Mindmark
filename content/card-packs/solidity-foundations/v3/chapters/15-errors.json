@@ -1,0 +1,198 @@
+{
+  "chapterId": 14,
+  "position": 14,
+  "slug": "errors",
+  "title": "错误处理：require、revert、assert 与自定义 error",
+  "summary": "把失败路径写成可读、可测试且节省 gas 的合约契约，并完成 MiniVault 审查。",
+  "estimatedMinutes": 32,
+  "learningObjectives": [
+    "能区分 require、revert、assert 的使用场景",
+    "能定义并触发带参数的 custom error",
+    "能为转账、权限和状态不变量设计失败测试"
+  ],
+  "prerequisiteChapterIds": [
+    13
+  ],
+  "cards": [
+    {
+      "packCardId": "v3-errors-concept",
+      "position": 0,
+      "type": "concept",
+      "question": "require、revert 和 assert 应该分别用于哪类条件？",
+      "answer": "require 用于输入、权限和外部前置条件；revert 适合在分支中主动终止并返回自定义错误；assert 只用于理论上不应失败的内部不变量。",
+      "keyPoint": "把用户可触发的失败和程序内部 bug 分开。",
+      "tags": [
+        "require",
+        "revert",
+        "assert"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/control-structures.html#error-handling-assert-require-revert-and-exceptions",
+        "locator": "Error Handling: Assert, Require, Revert and Exceptions"
+      }
+    },
+    {
+      "packCardId": "v3-errors-check",
+      "position": 1,
+      "type": "qa",
+      "question": "为什么生产合约常用 custom error 替代很长的字符串错误？",
+      "answer": "custom error 以 selector 和参数编码，通常比字符串更省部署和运行 gas，还能让前端按类型解码失败原因。",
+      "keyPoint": "错误是 ABI 的一部分，稳定命名适合工具链。",
+      "tags": [
+        "custom error",
+        "gas",
+        "ABI"
+      ],
+      "importance": 4,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/control-structures.html#error-handling-assert-require-revert-and-exceptions",
+        "locator": "Error Handling: Assert, Require, Revert and Exceptions"
+      }
+    },
+    {
+      "packCardId": "v3-errors-read",
+      "position": 2,
+      "type": "security_review",
+      "question": "审查 MiniVault 的失败路径：哪些条件应回滚，哪里可能留下错误记账？",
+      "answer": "零存款、非 owner、余额不足和转账失败都应回滚；本地 total 必须在转账成功后减少，不能在低级 call 失败时留下扣账。",
+      "keyPoint": "资产转移与内部记账要保持原子成功路径。",
+      "tags": [
+        "安全审查",
+        "call",
+        "记账"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/control-structures.html#error-handling-assert-require-revert-and-exceptions",
+        "locator": "Error Handling: Assert, Require, Revert and Exceptions"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "error NotOwner(address caller); error InsufficientBalance(uint256 requested, uint256 available); error TransferFailed(); contract MiniVault { address public immutable owner; uint256 public total; constructor() { owner = msg.sender; } function deposit() external payable { require(msg.value > 0); total += msg.value; } function withdraw(uint256 amount) external { if (msg.sender != owner) revert NotOwner(msg.sender); if (amount > total) revert InsufficientBalance(amount, total); (bool ok,) = payable(owner).call{value: amount}(\"\"); if (!ok) revert TransferFailed(); total -= amount; } }",
+        "solutionCode": "deposit(0)、非 owner、余额不足和 call 失败都回滚；只有转账成功后才执行 total -= amount。",
+        "testInput": "B 存款 1 ether；B 提取；A 提取 2 ether；A 提取 1 ether。",
+        "expectedResult": "前两次提取回滚且 total 不变；A 提取 1 ether 成功后 total 减少。",
+        "hints": [
+          "检查每个 revert 分支是否写状态。",
+          "外部转账成功后再更新 total。"
+        ]
+      }
+    },
+    {
+      "packCardId": "v3-errors-complete",
+      "position": 3,
+      "type": "code_complete",
+      "question": "补全 withdraw 的 custom error 检查，拒绝非 owner 和超额提取。",
+      "answer": "定义 NotOwner 与 InsufficientBalance，按顺序比较 msg.sender 和 amount，使用 revert 携带参数。",
+      "keyPoint": "错误参数应提供前端和审计所需的事实。",
+      "tags": [
+        "custom error",
+        "补全",
+        "revert"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/control-structures.html#error-handling-assert-require-revert-and-exceptions",
+        "locator": "Error Handling: Assert, Require, Revert and Exceptions"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "error NotOwner(address caller); error InsufficientBalance(uint256 requested, uint256 available); address public immutable owner; uint256 public total; function withdraw(uint256 amount) external { /* TODO */ }",
+        "solutionCode": "function withdraw(uint256 amount) external { if (msg.sender != owner) revert NotOwner(msg.sender); if (amount > total) revert InsufficientBalance(amount, total); total -= amount; }",
+        "testInput": "非 owner 提取 1；owner 在 total=0 时提取 1。",
+        "expectedResult": "分别得到 NotOwner 和 InsufficientBalance，total 保持不变。",
+        "hints": [
+          "custom error 用 revert ErrorName(args)。",
+          "失败检查要先于扣减。"
+        ]
+      }
+    },
+    {
+      "packCardId": "v3-errors-write",
+      "position": 4,
+      "type": "code_write",
+      "question": "独立写一个 GuardedCounter：用 custom error 拒绝非 owner 和超过上限。",
+      "answer": "定义 NotOwner 和 AboveLimit；owner 只能在 next <= 100 时更新 count，更新后用 assert(count <= 100) 保护内部不变量。",
+      "keyPoint": "可预期失败用 custom error，assert 留给内部永真条件。",
+      "tags": [
+        "assert",
+        "custom error",
+        "写代码"
+      ],
+      "importance": 5,
+      "initialDifficulty": 4,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/control-structures.html#error-handling-assert-require-revert-and-exceptions",
+        "locator": "Error Handling: Assert, Require, Revert and Exceptions"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "// 完成 GuardedCounter：owner、count、MAX=100、setCount()\\n",
+        "solutionCode": "contract GuardedCounter { error NotOwner(address caller); error AboveLimit(uint256 value); uint256 public constant MAX = 100; address public immutable owner; uint256 public count; constructor() { owner = msg.sender; } function setCount(uint256 next) external { if (msg.sender != owner) revert NotOwner(msg.sender); if (next > MAX) revert AboveLimit(next); count = next; assert(count <= MAX); } }",
+        "testInput": "B 设置 10；A 设置 100 和 101。",
+        "expectedResult": "B 回滚；A 设置 100 成功，设置 101 返回 AboveLimit。",
+        "hints": [
+          "MAX 适合 constant。",
+          "assert 只保护内部不变量。"
+        ]
+      }
+    },
+    {
+      "packCardId": "v3-errors-application",
+      "position": 5,
+      "type": "application",
+      "question": "为什么失败测试要同时检查返回错误和状态没有变化？",
+      "answer": "回滚原因能定位入口规则，状态不变则验证交易原子性；只断言错误文本可能漏掉资产记账漏洞。",
+      "keyPoint": "每个失败分支都应验证错误类型与状态快照。",
+      "tags": [
+        "测试",
+        "回滚",
+        "原子性"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/control-structures.html#error-handling-assert-require-revert-and-exceptions",
+        "locator": "Error Handling: Assert, Require, Revert and Exceptions"
+      }
+    },
+    {
+      "packCardId": "v3-errors-misconception",
+      "position": 6,
+      "type": "misconception",
+      "question": "误区：任何检查都应该用 assert，因为它更严格，为什么危险？",
+      "answer": "assert 表示内部不变量被破坏，滥用会把正常用户输入当成程序 bug。外部输入和权限应使用 require 或 custom error。",
+      "keyPoint": "正确选择错误原语能区分用户失败与代码缺陷。",
+      "tags": [
+        "assert",
+        "输入校验",
+        "误区"
+      ],
+      "importance": 4,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/control-structures.html#error-handling-assert-require-revert-and-exceptions",
+        "locator": "Error Handling: Assert, Require, Revert and Exceptions"
+      }
+    }
+  ]
+}

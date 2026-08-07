@@ -1,0 +1,198 @@
+{
+  "chapterId": 11,
+  "position": 11,
+  "slug": "events",
+  "title": "事件：让状态变化可被链下观察",
+  "summary": "为关键状态转换设计事件，并理解 indexed 主题如何服务查询。",
+  "estimatedMinutes": 24,
+  "learningObjectives": [
+    "能声明 event 并在状态变化后 emit",
+    "能选择最多三个 indexed 参数用于筛选",
+    "能区分事件日志与合约状态读取"
+  ],
+  "prerequisiteChapterIds": [
+    10
+  ],
+  "cards": [
+    {
+      "packCardId": "v3-events-concept",
+      "position": 0,
+      "type": "concept",
+      "question": "事件日志与 storage 状态分别解决什么问题？",
+      "answer": "storage 保存合约后续执行需要读取的当前状态；事件日志记录一次发生过的事实，供前端、索引器和分析工具订阅查询。事件不能被合约自身读取。",
+      "keyPoint": "当前值放状态，历史事实发事件，二者不能互相替代。",
+      "tags": [
+        "event",
+        "storage",
+        "日志"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#events",
+        "locator": "Events"
+      }
+    },
+    {
+      "packCardId": "v3-events-check",
+      "position": 1,
+      "type": "qa",
+      "question": "indexed 参数为什么最多三个，前端如何利用它？",
+      "answer": "非匿名事件最多有三个 indexed 参数进入 topics，可按地址、标识精确筛选；未 indexed 的参数进入 data，适合保存较大内容但不能按 topic 过滤。",
+      "keyPoint": "indexed 是查询索引，不是加密。",
+      "tags": [
+        "indexed",
+        "topics",
+        "查询"
+      ],
+      "importance": 4,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#events",
+        "locator": "Events"
+      }
+    },
+    {
+      "packCardId": "v3-events-read",
+      "position": 2,
+      "type": "output_trace",
+      "question": "调用 register 后，事件 topics 和 data 中分别能找到哪些内容？",
+      "answer": "topics[0] 是事件签名哈希，topics[1] 是 indexed user；data 中包含 amount。前端可按 user 筛选 Register 记录。",
+      "keyPoint": "事件签名和 indexed 参数组成 topics，普通参数编码在 data。",
+      "tags": [
+        "运行推理",
+        "事件",
+        "topics"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#events",
+        "locator": "Events"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "event Registered(address indexed user, uint256 amount);\\nmapping(address => uint256) public balances;\\nfunction register() external payable { balances[msg.sender] += msg.value; emit Registered(msg.sender, msg.value); }",
+        "solutionCode": "topics[0] -> keccak256(Registered(address,uint256))；topics[1] -> msg.sender；data -> msg.value",
+        "testInput": "地址 A 携带 3 ether 调用 register。",
+        "expectedResult": "balances[A] 增加 3 ether，并产生 user=A、amount=3 ether 的日志。",
+        "hints": [
+          "先区分 indexed 和非 indexed。",
+          "事件日志不会改变 balances 的读取方式。"
+        ]
+      }
+    },
+    {
+      "packCardId": "v3-events-complete",
+      "position": 3,
+      "type": "code_complete",
+      "question": "补全 Transfer 事件，并在 move 成功更新余额后发出事件。",
+      "answer": "声明 from 与 to 为 indexed，amount 为普通参数；状态更新完成后 emit Transfer(msg.sender, to, amount)。",
+      "keyPoint": "事件应描述已经成功发生的状态变化，通常放在写入之后。",
+      "tags": [
+        "emit",
+        "补全",
+        "Transfer"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#events",
+        "locator": "Events"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "mapping(address => uint256) public balances;\\nevent Transfer(/* TODO */);\\nfunction move(address to, uint256 amount) external {\\n require(to != address(0) && balances[msg.sender] >= amount);\\n balances[msg.sender] -= amount; balances[to] += amount;\\n // TODO\\n}",
+        "solutionCode": "event Transfer(address indexed from, address indexed to, uint256 amount);\\n...\\nemit Transfer(msg.sender, to, amount);",
+        "testInput": "A 向 B 转移 5 个单位。",
+        "expectedResult": "余额先更新，再出现 from=A、to=B、amount=5 的事件。",
+        "hints": [
+          "地址适合 indexed。",
+          "emit 放在两次余额写入之后。"
+        ]
+      }
+    },
+    {
+      "packCardId": "v3-events-write",
+      "position": 4,
+      "type": "code_write",
+      "question": "写一个 Checkpoint 合约：owner 设置 score 时更新状态并发出 ScoreUpdated 事件。",
+      "answer": "声明 owner、score 和 event；constructor 保存部署者；setScore 做权限检查，写 score，再 emit ScoreUpdated。",
+      "keyPoint": "事件参数要包含前端恢复一次状态转换所需的最小上下文。",
+      "tags": [
+        "事件",
+        "权限",
+        "写代码"
+      ],
+      "importance": 5,
+      "initialDifficulty": 4,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#events",
+        "locator": "Events"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "// 完成 Checkpoint：只有 owner 能设置 score，并发出 ScoreUpdated\\n",
+        "solutionCode": "contract Checkpoint { address public immutable owner; uint256 public score; event ScoreUpdated(address indexed actor, uint256 score); constructor() { owner = msg.sender; } function setScore(uint256 next) external { require(msg.sender == owner); score = next; emit ScoreUpdated(msg.sender, next); } }",
+        "testInput": "A 部署，B 和 A 分别设置 score=80。",
+        "expectedResult": "B 回滚；A 成功，状态为 80 且日志 actor=A。",
+        "hints": [
+          "权限检查先于写入。",
+          "日志记录真正执行写入的 actor。"
+        ]
+      }
+    },
+    {
+      "packCardId": "v3-events-application",
+      "position": 5,
+      "type": "application",
+      "question": "为什么不能只靠事件日志恢复当前余额？",
+      "answer": "事件可能被索引器延迟或过滤，合约执行也不会读取它们。当前余额必须以 storage 为准，事件只提供变更历史和查询入口。",
+      "keyPoint": "链下体验可以依赖事件加速，但业务真相仍由链上状态决定。",
+      "tags": [
+        "索引器",
+        "状态",
+        "应用"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#events",
+        "locator": "Events"
+      }
+    },
+    {
+      "packCardId": "v3-events-misconception",
+      "position": 6,
+      "type": "misconception",
+      "question": "误区：emit 成功就代表状态写入一定成功，为什么不对？",
+      "answer": "事件只会出现在成功提交的交易收据中；如果后续执行回滚，整笔交易及其日志都会回滚。日志也不替代权限和余额检查。",
+      "keyPoint": "事件与交易原子性绑定。",
+      "tags": [
+        "回滚",
+        "事件",
+        "误区"
+      ],
+      "importance": 4,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#events",
+        "locator": "Events"
+      }
+    }
+  ]
+}

@@ -4,7 +4,14 @@
     "noEmit": true,
     "baseUrl": ".",
     "paths": {
-      "@mindmark/shared": ["../../packages/shared/src/index.ts"]
+      "@mindmark/ai-gateway": ["../../packages/ai-gateway/src/index.ts"],
+      "@mindmark/shared": ["../../packages/shared/src/index.ts"],
+      "@mindmark/shared/schemas": ["../../packages/shared/src/schemas.ts"],
+      "@mindmark/shared/learning-project": ["../../packages/shared/src/learning-project/index.ts"],
+      "@mindmark/shared/chapter": ["../../packages/shared/src/chapter/index.ts"],
+      "@mindmark/shared/knowledge-card": ["../../packages/shared/src/knowledge-card/index.ts"],
+      "@mindmark/shared/study": ["../../packages/shared/src/study/index.ts"],
+      "@mindmark/shared/commitments": ["../../packages/shared/src/commitments/index.ts"]
     },
     "types": ["node", "vitest/globals"]
   },

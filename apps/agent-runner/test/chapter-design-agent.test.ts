@@ -7,8 +7,12 @@ import {
 } from "@mindmark/shared";
 import { describe, expect, it } from "vitest";
 import type { Hex } from "viem";
-import { ChapterDesignWorkflowAgent } from "../src/chapter-design-agent.js";
+import {
+  ChapterDesignWorkflowAgent,
+  buildDeterministicChapterDesign,
+} from "../src/chapter-design-agent.js";
 import { ProjectDesignFreezer } from "../src/project-design-freezer.js";
+import type { ToolCallingModel } from "../src/runtime-types.js";
 import type {
   ChapterDesignRepositoryV3,
   ChapterDesignRunV3,
@@ -159,6 +163,54 @@ class InMemoryFreezerRepository implements ProjectDesignFreezeRepositoryV3 {
 }
 
 describe("ChapterDesignWorkflowAgent", () => {
+  it("grounds deterministic fallback concepts in section content instead of a short heading alone", () => {
+    const source = intakeSource([{
+      pageNumber: 1,
+      text: [
+        "# 操作系统调度",
+        "## 实时调度算法",
+        "实时调度会依据任务的截止时间和优先级决定执行顺序。",
+        "系统必须在截止时间前完成硬实时任务，否则结果不可接受。",
+        "## 多处理机调度",
+        "多处理机调度还需要考虑负载均衡与处理器亲和性。",
+      ].join("\n\n"),
+    }]);
+    const chapter = {
+      chapterId: 0,
+      position: 0,
+      title: "操作系统调度",
+      summary: "理解实时调度与多处理机调度",
+      startBlock: 0,
+      endBlock: source.blocks.length - 1,
+      pageStart: 1,
+      pageEnd: 1,
+      sourceHash: hashChapterSourceV2(source.blocks),
+      importance: 5,
+    } satisfies ChapterOutlineItem;
+
+    const design = buildDeterministicChapterDesign({
+      projectId,
+      goal: "掌握操作系统调度",
+      outlineVersion: 1,
+      chapter,
+      cardPolicy: cardPolicy(),
+      sourceBlocks: source.blocks,
+    });
+
+    for (const concept of design.inventory.concepts) {
+      const evidence = source.blocks.filter((block) =>
+        concept.sourceBlockIndexes.includes(block.blockIndex),
+      );
+      expect(evidence.some((block) => block.kind !== "heading" && block.text.length >= 20)).toBe(true);
+    }
+    for (const slot of design.blueprint.slots) {
+      const evidence = source.blocks.filter((block) =>
+        slot.sourceBlockIndexes.includes(block.blockIndex),
+      );
+      expect(evidence.some((block) => block.kind !== "heading" && block.text.length >= 20)).toBe(true);
+    }
+  });
+
   it("persists a validated Inventory and Blueprint with server-derived IDs", async () => {
     const repository = new InMemoryDesignRepository();
     const concepts = [{
@@ -176,8 +228,7 @@ describe("ChapterDesignWorkflowAgent", () => {
       sourceHash: repository.fixture.chapter.sourceHash,
       concepts,
     }).concepts[0]!.conceptId;
-    const agent = new ChapterDesignWorkflowAgent(repository, new ScriptedModel([
-      { id: "read", name: "read_chapter_design_context", arguments: {} },
+    const model = new ScriptedModel([
       {
         id: "concepts",
         name: "propose_chapter_concepts",
@@ -207,7 +258,8 @@ describe("ChapterDesignWorkflowAgent", () => {
           ],
         },
       },
-    ]));
+    ]);
+    const agent = new ChapterDesignWorkflowAgent(repository, model);
 
     await expect(agent.runClaimed({ projectId, chapterId: 0 })).resolves.toEqual({
       state: "DESIGNED",
@@ -216,12 +268,20 @@ describe("ChapterDesignWorkflowAgent", () => {
     expect(repository.failed).toBeNull();
     expect(repository.completed).toMatchObject({
       designRunId,
-      promptVersion: "chapter-design-v3.1.0",
+      promptVersion: "chapter-design-v3.2.0",
       modelId: "configured-model",
-      metrics: { conceptCount: 1, slotCount: 2 },
+      metrics: { conceptCount: 1, slotCount: 2, strategy: "AI" },
     });
     expect(repository.completed?.inventory.concepts[0]?.conceptId).toBe(conceptId);
     expect(repository.completed?.blueprint.slots.map((slot) => slot.conceptId)).toEqual([conceptId, conceptId]);
+    expect(model.inputs.map((input) => ({
+      toolNames: input.tools.map((tool) => tool.name),
+      maxCompletionTokens: Reflect.get(input, "maxCompletionTokens"),
+    }))).toEqual([
+      { toolNames: ["propose_chapter_concepts"], maxCompletionTokens: 2048 },
+      { toolNames: ["propose_card_blueprint"], maxCompletionTokens: 2048 },
+    ]);
+    expect(model.inputs[0]?.task).toContain(repository.fixture.source.blocks[1]!.text);
   });
 
   it("repairs English Inventory and Blueprint text for a Chinese Chapter", async () => {
@@ -242,7 +302,6 @@ describe("ChapterDesignWorkflowAgent", () => {
       concepts: chineseConcepts,
     }).concepts[0]!.conceptId;
     const model = new ScriptedModel([
-      { id: "read", name: "read_chapter_design_context", arguments: {} },
       {
         id: "english-concepts",
         name: "propose_chapter_concepts",
@@ -313,9 +372,42 @@ describe("ChapterDesignWorkflowAgent", () => {
       state: "DESIGNED",
     });
 
-    expect(model.calls).toBe(5);
+    expect(model.calls).toBe(4);
     expect(repository.completed?.inventory.concepts[0]?.name).toBe("重入风险");
     expect(repository.completed?.blueprint.slots[0]?.objective).toBe("解释重入发生的条件。");
+  });
+
+  it("completes with a validated deterministic design when the model gateway is unavailable", async () => {
+    const repository = new InMemoryDesignRepository();
+    let modelCalls = 0;
+    const unavailableModel: ToolCallingModel = {
+      async nextTool() {
+        modelCalls += 1;
+        throw new Error("AI model request failed with status 503");
+      },
+    };
+    const agent = new ChapterDesignWorkflowAgent(repository, unavailableModel);
+
+    await expect(agent.runClaimed({ projectId, chapterId: 0 })).resolves.toEqual({
+      state: "DESIGNED",
+      designRunId,
+    });
+    expect(repository.failed).toBeNull();
+    expect(repository.completed).toMatchObject({
+      modelId: "deterministic-chapter-design-v1",
+      metrics: {
+        strategy: "DETERMINISTIC_FALLBACK",
+        conceptCount: expect.any(Number),
+        slotCount: cardPolicy().targetCardCount,
+      },
+    });
+
+    repository.run.status = "RUNNING";
+    repository.completed = null;
+    await expect(agent.runClaimed({ projectId, chapterId: 0 })).resolves.toMatchObject({
+      state: "DESIGNED",
+    });
+    expect(modelCalls).toBe(1);
   });
 
   it("freezes a complete Chapter design into a Blueprint-safe Monad manifest", async () => {

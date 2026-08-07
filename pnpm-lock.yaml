@@ -41,6 +41,9 @@ importers:
 
   apps/agent-runner:
     dependencies:
+      '@mindmark/ai-gateway':
+        specifier: workspace:*
+        version: link:../../packages/ai-gateway
       '@mindmark/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -48,9 +51,6 @@ importers:
         specifier: 2.110.8
         version: 2.110.8
       '@themoss/core':
-        specifier: 0.1.0
-        version: 0.1.0(typescript@5.9.3)(zod@4.4.3)
-      '@themoss/erc':
         specifier: 0.1.0
         version: 0.1.0(typescript@5.9.3)(zod@4.4.3)
       '@themoss/simulator':
@@ -65,6 +65,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@mindmark/ai-gateway':
+        specifier: workspace:*
+        version: link:../../packages/ai-gateway
       '@mindmark/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -74,6 +77,12 @@ importers:
       '@tanstack/react-query':
         specifier: 5.101.4
         version: 5.101.4(react@19.2.8)
+      '@themoss/core':
+        specifier: 0.1.0
+        version: 0.1.0(typescript@5.9.3)(zod@4.4.3)
+      '@themoss/simulator':
+        specifier: 0.1.0
+        version: 0.1.0(typescript@5.9.3)(zod@4.4.3)
       lucide-react:
         specifier: 1.25.0
         version: 1.25.0(react@19.2.8)
@@ -120,9 +129,18 @@ importers:
       eslint-config-next:
         specifier: 16.2.11
         version: 16.2.11(@typescript-eslint/parser@8.65.0(eslint@9.39.5(jiti@2.7.0))(typescript@5.9.3))(eslint@9.39.5(jiti@2.7.0))(typescript@5.9.3)
+      postcss:
+        specifier: 8.5.22
+        version: 8.5.22
       tailwindcss:
         specifier: 4.3.3
         version: 4.3.3
+
+  packages/ai-gateway:
+    dependencies:
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
 
   packages/shared:
     dependencies:
@@ -1123,9 +1141,6 @@ packages:
 
   '@themoss/core@0.1.0':
     resolution: {integrity: sha512-nG8g9raqoI7+rF9DiX30u4XyzKQU0BjlmrIJA3BjXkzm43gaUv91vLVYpgLRugjbkuEYvDZxPRTbG6TVL+KjjQ==}
-
-  '@themoss/erc@0.1.0':
-    resolution: {integrity: sha512-vyaVuCrn5nLONieKmJeGrvttDV+AJFvOg1vEv4MxCiAMtWKiasy2THOwy1mkge39vMJirH2XPEuSGOxYoXeBYQ==}
 
   '@themoss/simulator@0.1.0':
     resolution: {integrity: sha512-scCXQtyIsm4E2ZeWAqUxm7o2O7lxrHvxVoVaj5/hJlQ9KW58jaV/hKuohBfe0HIjR9dmAPwQ3+/px4PPgR70ww==}
@@ -3869,16 +3884,6 @@ snapshots:
 
   '@themoss/core@0.1.0(typescript@5.9.3)(zod@4.4.3)':
     dependencies:
-      viem: 2.55.5(typescript@5.9.3)(zod@4.4.3)
-    transitivePeerDependencies:
-      - bufferutil
-      - typescript
-      - utf-8-validate
-      - zod
-
-  '@themoss/erc@0.1.0(typescript@5.9.3)(zod@4.4.3)':
-    dependencies:
-      '@themoss/core': 0.1.0(typescript@5.9.3)(zod@4.4.3)
       viem: 2.55.5(typescript@5.9.3)(zod@4.4.3)
     transitivePeerDependencies:
       - bufferutil

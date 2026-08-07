@@ -1,0 +1,282 @@
+{
+  "schemaVersion": 1,
+  "slug": "solidity-foundations",
+  "version": "3.0.0",
+  "title": "Solidity 101 循序渐进实战",
+  "description": "参考 WTF Academy Solidity 101 的知识递进重新编写：15 个小章节从三行合约开始，逐步掌握类型、函数、存储、数据结构、控制流、继承、接口与错误处理。",
+  "subject": "Solidity",
+  "language": "zh-CN",
+  "level": "beginner",
+  "license": "CC BY 4.0",
+  "attribution": "Mindmark Hackathon Team；课程顺序参考 WTF Academy Solidity 101，内容与代码练习由 Mindmark 重新编写",
+  "chapters": [
+    {
+      "id": 0,
+      "position": 0,
+      "slug": "hello-web3",
+      "title": "Hello Web3：三行合约与 Remix",
+      "summary": "先建立合约、编译、部署、调用的完整心智模型，不急着背语法细节。",
+      "estimatedMinutes": 18,
+      "learningObjectives": [
+        "能解释 pragma、contract 和状态变量的作用",
+        "能在 Remix 编译并部署一个最小合约",
+        "能区分部署交易和之后的函数调用"
+      ],
+      "prerequisiteChapterIds": [],
+      "cardCount": 7,
+      "cardsFile": "chapters/01-hello-web3.json"
+    },
+    {
+      "id": 1,
+      "position": 1,
+      "slug": "value-types",
+      "title": "值类型：bool、整数、地址、bytes 与 enum",
+      "summary": "先把 Solidity 最常用的值类型写熟，再进入引用类型和复杂数据结构。",
+      "estimatedMinutes": 24,
+      "learningObjectives": [
+        "能选择 bool、uint、int、address、bytes 和 enum",
+        "能判断值类型赋值会复制值",
+        "能在入口处拒绝零地址和越界业务值"
+      ],
+      "prerequisiteChapterIds": [
+        0
+      ],
+      "cardCount": 7,
+      "cardsFile": "chapters/02-value-types.json"
+    },
+    {
+      "id": 2,
+      "position": 2,
+      "slug": "functions",
+      "title": "函数：可见性、状态可变性与 payable",
+      "summary": "先学会写能被外部正确调用的函数，再进入返回值和复杂参数。",
+      "estimatedMinutes": 24,
+      "learningObjectives": [
+        "能区分 public、external、internal、private",
+        "能正确使用 view、pure 和 payable",
+        "能把入口权限与可见性分开设计"
+      ],
+      "prerequisiteChapterIds": [
+        1
+      ],
+      "cardCount": 7,
+      "cardsFile": "chapters/03-functions.json"
+    },
+    {
+      "id": 3,
+      "position": 3,
+      "slug": "returns",
+      "title": "函数输出：return、returns 与解构赋值",
+      "summary": "在写复杂逻辑前学会稳定地返回单值、多值和命名结果。",
+      "estimatedMinutes": 20,
+      "learningObjectives": [
+        "能区分 returns 声明和 return 语句",
+        "能写命名返回值与多返回值",
+        "能用解构赋值接收函数结果"
+      ],
+      "prerequisiteChapterIds": [
+        2
+      ],
+      "cardCount": 7,
+      "cardsFile": "chapters/04-returns.json"
+    },
+    {
+      "id": 4,
+      "position": 4,
+      "slug": "data-locations",
+      "title": "数据位置与作用域：storage、memory、calldata",
+      "summary": "理解引用类型的复制与引用语义，避免把内存副本误当成链上状态。",
+      "estimatedMinutes": 26,
+      "learningObjectives": [
+        "能为数组、string、struct 选择数据位置",
+        "能区分 storage 引用和 memory 副本",
+        "能识别状态、局部和全局变量的作用域"
+      ],
+      "prerequisiteChapterIds": [
+        3
+      ],
+      "cardCount": 7,
+      "cardsFile": "chapters/05-data-locations.json"
+    },
+    {
+      "id": 5,
+      "position": 5,
+      "slug": "arrays-and-structs",
+      "title": "数组与 Struct：组织一组学习记录",
+      "summary": "把多个字段组合成实体，再用固定数组和动态数组保存一组实体。",
+      "estimatedMinutes": 27,
+      "learningObjectives": [
+        "能声明 fixed/dynamic array",
+        "能定义、创建和修改 struct",
+        "能处理 push、length 和边界检查"
+      ],
+      "prerequisiteChapterIds": [
+        4
+      ],
+      "cardCount": 7,
+      "cardsFile": "chapters/06-arrays-and-structs.json"
+    },
+    {
+      "id": 6,
+      "position": 6,
+      "slug": "mapping",
+      "title": "Mapping：按地址快速查找记录",
+      "summary": "从数组索引切换到 key 查询，理解 mapping 的默认值和不可遍历边界。",
+      "estimatedMinutes": 24,
+      "learningObjectives": [
+        "能声明 mapping 并按 key 读写",
+        "能解释 mapping 的默认值",
+        "能用数组维护可遍历 key 列表"
+      ],
+      "prerequisiteChapterIds": [
+        5
+      ],
+      "cardCount": 7,
+      "cardsFile": "chapters/07-mapping.json"
+    },
+    {
+      "id": 7,
+      "position": 7,
+      "slug": "initial-values-delete",
+      "title": "初始值与 delete：重置状态而不是销毁合约",
+      "summary": "系统理解各种变量的零值，并用 delete 明确恢复到默认状态。",
+      "estimatedMinutes": 21,
+      "learningObjectives": [
+        "能列出常见值类型和引用类型的初始值",
+        "能解释 delete 对变量和 mapping 元素的效果",
+        "能区分重置状态与销毁合约"
+      ],
+      "prerequisiteChapterIds": [
+        6
+      ],
+      "cardCount": 7,
+      "cardsFile": "chapters/08-initial-values-delete.json"
+    },
+    {
+      "id": 8,
+      "position": 8,
+      "slug": "constant-immutable",
+      "title": "constant 与 immutable：固定配置的两种方式",
+      "summary": "掌握编译期常量和部署期不可变配置，减少不必要的状态写入。",
+      "estimatedMinutes": 20,
+      "learningObjectives": [
+        "能区分 constant 和 immutable 的赋值时机",
+        "能在构造函数中设置 immutable",
+        "能判断哪些值适合固定配置"
+      ],
+      "prerequisiteChapterIds": [
+        7
+      ],
+      "cardCount": 7,
+      "cardsFile": "chapters/09-constant-immutable.json"
+    },
+    {
+      "id": 9,
+      "position": 9,
+      "slug": "control-flow-insertion-sort",
+      "title": "控制流与插入排序：用循环建立边界意识",
+      "summary": "先掌握 if、for、while 和数组边界，再用插入排序练习内存数组的修改。",
+      "estimatedMinutes": 30,
+      "learningObjectives": [
+        "能写 if/else、for、while 和 break/continue",
+        "能在循环中维护索引边界",
+        "能识别插入排序的 underflow 和越界风险"
+      ],
+      "prerequisiteChapterIds": [
+        8
+      ],
+      "cardCount": 7,
+      "cardsFile": "chapters/10-control-flow-insertion-sort.json"
+    },
+    {
+      "id": 10,
+      "position": 10,
+      "slug": "constructor-and-modifier",
+      "title": "构造函数与 modifier：建立权限边界",
+      "summary": "把部署时初始化和重复的前置检查抽成稳定的权限入口。",
+      "estimatedMinutes": 28,
+      "learningObjectives": [
+        "能用 constructor 初始化 owner 和不可变配置",
+        "能解释 msg.sender 在部署与调用时的含义",
+        "能编写 onlyOwner modifier 并识别检查执行位置"
+      ],
+      "prerequisiteChapterIds": [
+        9
+      ],
+      "cardCount": 7,
+      "cardsFile": "chapters/11-constructor-and-modifier.json"
+    },
+    {
+      "id": 11,
+      "position": 11,
+      "slug": "events",
+      "title": "事件：让状态变化可被链下观察",
+      "summary": "为关键状态转换设计事件，并理解 indexed 主题如何服务查询。",
+      "estimatedMinutes": 24,
+      "learningObjectives": [
+        "能声明 event 并在状态变化后 emit",
+        "能选择最多三个 indexed 参数用于筛选",
+        "能区分事件日志与合约状态读取"
+      ],
+      "prerequisiteChapterIds": [
+        10
+      ],
+      "cardCount": 7,
+      "cardsFile": "chapters/12-events.json"
+    },
+    {
+      "id": 12,
+      "position": 12,
+      "slug": "inheritance",
+      "title": "继承：复用合约行为并明确 override",
+      "summary": "从基础合约和抽象函数开始，理解 virtual、override 与构造函数参数传递。",
+      "estimatedMinutes": 28,
+      "learningObjectives": [
+        "能编写基础合约和派生合约",
+        "能正确使用 virtual 与 override",
+        "能解释多重继承下的线性化和构造顺序"
+      ],
+      "prerequisiteChapterIds": [
+        11
+      ],
+      "cardCount": 7,
+      "cardsFile": "chapters/13-inheritance.json"
+    },
+    {
+      "id": 13,
+      "position": 13,
+      "slug": "interfaces",
+      "title": "接口与外部调用：只依赖必要的 ABI",
+      "summary": "从接口声明到 IERC20 风格调用，建立跨合约交互和返回值检查习惯。",
+      "estimatedMinutes": 30,
+      "learningObjectives": [
+        "能写只包含函数签名的 interface",
+        "能通过接口调用另一个合约并处理返回值",
+        "能区分 interface、abstract contract 与具体实现"
+      ],
+      "prerequisiteChapterIds": [
+        12
+      ],
+      "cardCount": 7,
+      "cardsFile": "chapters/14-interfaces.json"
+    },
+    {
+      "id": 14,
+      "position": 14,
+      "slug": "errors",
+      "title": "错误处理：require、revert、assert 与自定义 error",
+      "summary": "把失败路径写成可读、可测试且节省 gas 的合约契约，并完成 MiniVault 审查。",
+      "estimatedMinutes": 32,
+      "learningObjectives": [
+        "能区分 require、revert、assert 的使用场景",
+        "能定义并触发带参数的 custom error",
+        "能为转账、权限和状态不变量设计失败测试"
+      ],
+      "prerequisiteChapterIds": [
+        13
+      ],
+      "cardCount": 7,
+      "cardsFile": "chapters/15-errors.json"
+    }
+  ]
+}

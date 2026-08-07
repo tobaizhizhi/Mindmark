@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "slug": "solidity-foundations",
+  "version": "2.0.0",
+  "title": "Solidity 基础与代码实战",
+  "description": "面向初学者的代码优先 Solidity 卡包：每章都有读代码、写代码、补全、修错、运行推理和安全审查练习。",
+  "subject": "Solidity",
+  "language": "zh-CN",
+  "level": "beginner",
+  "license": "CC BY 4.0",
+  "attribution": "Mindmark Hackathon Team，参考 Solidity 官方文档",
+  "chapters": [
+    { "id": 0, "position": 0, "slug": "types-and-state", "title": "类型、状态与最小合约", "summary": "从变量声明、默认值和状态写入开始，写出第一个可验证的 Solidity 合约。", "estimatedMinutes": 20, "cardCount": 6, "cardsFile": "chapters/01-types-and-state.json" },
+    { "id": 1, "position": 1, "slug": "functions-and-visibility", "title": "函数、参数与可见性", "summary": "通过实际函数签名和访问控制代码理解 public、external、view 与 pure。", "estimatedMinutes": 22, "cardCount": 6, "cardsFile": "chapters/02-functions-and-visibility.json" },
+    { "id": 2, "position": 2, "slug": "arrays-mappings-structs", "title": "数组、Mapping 与 Struct", "summary": "组合常用数据结构，练习 storage、memory 和 calldata 的真实写法。", "estimatedMinutes": 24, "cardCount": 6, "cardsFile": "chapters/03-arrays-mappings-structs.json" },
+    { "id": 3, "position": 3, "slug": "errors-events", "title": "错误、事件与可观察性", "summary": "为失败路径写 custom error，为成功状态变化写可索引事件。", "estimatedMinutes": 22, "cardCount": 6, "cardsFile": "chapters/04-errors-events.json" },
+    { "id": 4, "position": 4, "slug": "ether-entrypoints", "title": "Ether、Payable 与入口函数", "summary": "实现接收和提取 Ether 的入口，判断 receive、fallback 和 call 的行为。", "estimatedMinutes": 25, "cardCount": 6, "cardsFile": "chapters/05-ether-entrypoints.json" },
+    { "id": 5, "position": 5, "slug": "cei-reentrancy", "title": "Checks-Effects-Interactions 与重入", "summary": "从脆弱提款函数开始，逐步修复状态顺序、返回值检查和重入风险。", "estimatedMinutes": 26, "cardCount": 6, "cardsFile": "chapters/06-cei-reentrancy.json" },
+    { "id": 6, "position": 6, "slug": "modifiers-inheritance", "title": "Modifier、继承与接口", "summary": "把权限检查抽成 modifier，组合父合约和接口完成可复用设计。", "estimatedMinutes": 23, "cardCount": 6, "cardsFile": "chapters/07-modifiers-inheritance.json" },
+    { "id": 7, "position": 7, "slug": "mini-audit", "title": "小型合约实战审查", "summary": "综合读写代码、推断状态和安全审查，完成一个最小金库的修复清单。", "estimatedMinutes": 28, "cardCount": 6, "cardsFile": "chapters/08-mini-audit.json" }
+  ]
+}

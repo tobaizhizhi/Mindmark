@@ -9,6 +9,7 @@ import { learningProjectRegistryV2Abi } from "@mindmark/shared";
 import { resetServerEnvironmentForTests } from "@/lib/server/config";
 import {
   confirmCreateProjectTransaction,
+  SupabaseProjectRegistryV2Store,
   type ProjectRegistryV2Store,
 } from "@/lib/server/registry-v2";
 
@@ -26,6 +27,7 @@ beforeAll(() => {
   process.env.MONAD_RPC_URL = "http://127.0.0.1:8545";
   process.env.MONAD_CHAIN_ID = "10143";
   process.env.REGISTRY_V2_ADDRESS = registryAddress;
+  process.env.PROJECT_ESCROW_ADDRESS = "0x5555555555555555555555555555555555555555";
   process.env.SUPABASE_URL = "https://example.supabase.co";
   process.env.SUPABASE_SERVICE_ROLE_KEY = "service-role-key-for-tests-only";
   process.env.SESSION_SECRET = "session-secret-for-tests-only-32-bytes";
@@ -119,7 +121,22 @@ const client = (transactionReceipt: TransactionReceipt) => ({
 });
 
 describe("ProjectCreated V2 receipt verification", () => {
-  it("marks the Project generating only after all committed fields match", async () => {
+  it("keeps a confirmed Registry Project awaiting Sponsor Escrow funding", async () => {
+    const updates: unknown[] = [];
+    const query = {
+      from() { return this; },
+      update(values: unknown) { updates.push(values); return this; },
+      eq() { return this; },
+      in() { return this; },
+      or() { return this; },
+      async select() { return { data: [{ project_id: projectId }], error: null }; },
+    };
+    const store = new SupabaseProjectRegistryV2Store(query as never);
+    await store.markCreated(projectId, owner, txHash);
+    expect(updates).toEqual([{ create_tx_hash: txHash }]);
+  });
+
+  it("accepts the Registry receipt only after all committed fields match", async () => {
     const store = new MemoryProjectStore();
     await expect(
       confirmCreateProjectTransaction(projectId, owner, txHash, store, client(receipt())),

@@ -13,6 +13,7 @@ import type {
   SourceBlock,
   SourceExclusionRange,
   WorkerKnowledgeCardV2,
+  WorkUnitPricingInput,
   WorkUnitStatus,
 } from "@mindmark/shared";
 import type { Hex } from "viem";
@@ -20,8 +21,7 @@ import type {
   ChainReceipt,
   MossRewardStage,
   PreparedWorkerReward,
-  ToolCallingModel,
-  WorkerRewardGateway,
+  ProjectEscrowFunding,
   WorkerRewardReceipt,
   WorkerRewardStatus,
 } from "./runtime-types.js";
@@ -103,6 +103,7 @@ export type RegistryProjectIntentV2 = {
   workUnitManifestRoot: Hex;
   chapterCount: number;
   workUnitCount: number;
+  pricingInputs: WorkUnitPricingInput[];
 };
 
 export type SavedWorkUnitResultV2 = {
@@ -327,6 +328,7 @@ export interface ProjectDesignFreezeRepositoryV3 {
 }
 
 export interface WorkflowDispatchRepositoryV2 extends WorkflowJobRepositoryV2 {
+  getWorkUnit(projectId: Hex, workUnitId: number): Promise<RunnerWorkUnitV2>;
   claimWorkflowWorkUnit(
     projectId: Hex,
     workUnitId: number,
@@ -338,10 +340,32 @@ export interface WorkflowDispatchRepositoryV2 extends WorkflowJobRepositoryV2 {
   claimWorkflowWorkUnitReward(projectId: Hex, workUnitId: number): Promise<WorkUnitRewardV2 | null>;
 }
 
-export interface ProjectRunnerRepositoryV2 {
-  listPendingRegistryProjects(limit: number): Promise<RegistryProjectIntentV2[]>;
-  markProjectRegistryReconciled(projectId: Hex): Promise<void>;
+export type ProjectAgentEventV2 = {
+  projectId: Hex;
+  chapterId?: number;
+  workUnitId?: number;
+  role: "worker" | "chapter-quality-gate" | "chapter-assembler" | "project-finalizer" | "settlement-agent";
+  type: string;
+  payload?: Record<string, string | number | boolean>;
+  txHash?: Hex;
+};
+
+export type ProjectFinalizationV2 = {
+  projectId: Hex;
+  projectDeckRoot: Hex;
+  initialPlan: ReviewPlan;
+  initialPlanHash: Hex;
+  totalCardCount: number;
+};
+
+export interface RegistryReconciliationRepositoryV2 {
+  getPendingRegistryProject(projectId: Hex): Promise<RegistryProjectIntentV2 | null>;
+  markProjectRegistryReconciled(projectId: Hex, funding: ProjectEscrowFunding): Promise<void>;
+}
+
+export interface WorkUnitGenerationRepositoryV2 extends Partial<BlueprintWorkerRepositoryV3> {
   getWorkUnit(projectId: Hex, workUnitId: number): Promise<RunnerWorkUnitV2>;
+  getChapterBundle(projectId: Hex, chapterId: number): Promise<ChapterBundleV2>;
   markWorkUnitValidating(projectId: Hex, workUnitId: number): Promise<void>;
   saveWorkUnitResult(projectId: Hex, workUnitId: number, result: SavedWorkUnitResultV2): Promise<void>;
   markWorkUnitSubmitting(projectId: Hex, workUnitId: number, txHash: Hex): Promise<void>;
@@ -351,42 +375,35 @@ export interface ProjectRunnerRepositoryV2 {
     confirmation: { txHash: Hex | null; blockNumber: bigint; gasUsed: bigint | null; confirmationMs: number },
   ): Promise<void>;
   markWorkUnitRetryable(projectId: Hex, workUnitId: number, message: string): Promise<void>;
+  recordProjectAgentEvent(event: ProjectAgentEventV2): Promise<void>;
+}
+
+export interface ChapterQualityRepositoryV2 extends Partial<BlueprintQualityRepositoryV3> {
+  getChapterBundle(projectId: Hex, chapterId: number): Promise<ChapterBundleV2>;
   approveChapterCandidates(
     projectId: Hex,
     chapterId: number,
     workUnits: ApprovedWorkUnitResultV2[],
   ): Promise<void>;
   requestChapterCandidateRepair(projectId: Hex, chapterId: number, message: string): Promise<void>;
+  markChapterRetryable(projectId: Hex, chapterId: number, message: string): Promise<void>;
+  recordProjectAgentEvent(event: ProjectAgentEventV2): Promise<void>;
+}
+
+export interface ChapterCommitmentRepositoryV2 {
   getChapterBundle(projectId: Hex, chapterId: number): Promise<ChapterBundleV2>;
   saveChapterAssembly(projectId: Hex, chapterId: number, assembly: ChapterAssemblyV2): Promise<void>;
   markChapterReady(projectId: Hex, chapterId: number, txHash: Hex | null): Promise<void>;
   markChapterRetryable(projectId: Hex, chapterId: number, message: string): Promise<void>;
+  recordProjectAgentEvent(event: ProjectAgentEventV2): Promise<void>;
+}
+
+export interface ProjectCommitmentRepositoryV2 {
   getProjectBundle(projectId: Hex): Promise<ProjectBundleV2>;
-  saveProjectFinalization(input: {
-    projectId: Hex;
-    projectDeckRoot: Hex;
-    initialPlan: ReviewPlan;
-    initialPlanHash: Hex;
-    totalCardCount: number;
-  }): Promise<void>;
-  markProjectReady(input: {
-    projectId: Hex;
-    projectDeckRoot: Hex;
-    initialPlan: ReviewPlan;
-    initialPlanHash: Hex;
-    totalCardCount: number;
-    txHash: Hex | null;
-  }): Promise<void>;
+  saveProjectFinalization(input: ProjectFinalizationV2): Promise<void>;
+  markProjectReady(input: ProjectFinalizationV2 & { txHash: Hex | null }): Promise<void>;
   markProjectRetryable(projectId: Hex, message: string): Promise<void>;
-  recordProjectAgentEvent(event: {
-    projectId: Hex;
-    chapterId?: number;
-    workUnitId?: number;
-    role: "worker" | "chapter-quality-gate" | "chapter-assembler" | "project-finalizer" | "settlement-agent";
-    type: string;
-    payload?: Record<string, string | number | boolean>;
-    txHash?: Hex;
-  }): Promise<void>;
+  recordProjectAgentEvent(event: ProjectAgentEventV2): Promise<void>;
 }
 
 export type ChainProjectStateV2 = {
@@ -456,17 +473,6 @@ export interface ProjectRegistryGatewayV2 {
   }): Promise<ChainReceipt>;
 }
 
-export type ProjectWorkerV2Dependencies = {
-  repository: ProjectRunnerRepositoryV2;
-  registry: ProjectRegistryGatewayV2;
-  model: ToolCallingModel;
-};
-
-export type ProjectSettlementV2Dependencies = {
-  repository: ProjectRunnerRepositoryV2;
-  registry: ProjectRegistryGatewayV2;
-  rewardGateway: WorkerRewardGateway;
-};
 
 export type WorkUnitRewardV2 = {
   projectId: Hex;

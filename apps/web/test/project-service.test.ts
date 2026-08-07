@@ -1,19 +1,23 @@
 import type { Hex } from "viem";
 import { describe, expect, it } from "vitest";
+import { intakeProjectForOwner } from "@/lib/server/project-lifecycle/intake";
 import {
   confirmProjectOutlineForOwner,
-  getProjectSummaryForOwner,
   getProjectOutlinePlanningOperationForOwner,
-  intakeProjectForOwner,
+  requestProjectOutlinePlanningForOwner,
+} from "@/lib/server/project-lifecycle/outline";
+import {
+  getProjectSummaryForOwner,
   listChaptersForOwner,
   listProjectsForOwner,
-  requestProjectOutlinePlanningForOwner,
-  type ChapterSummaryStore,
-  type ProjectConfirmationStore,
-  type ProjectOutlineOperationStore,
-  type ProjectSourceStore,
-  type ProjectSummaryStore,
-} from "@/lib/server/projects";
+} from "@/lib/server/project-lifecycle/queries";
+import type {
+  ChapterSummaryStore,
+  ProjectConfirmationStore,
+  ProjectOutlineOperationStore,
+  ProjectSourceStore,
+  ProjectSummaryStore,
+} from "@/lib/server/project-lifecycle/types";
 import { intakeSource, planChaptersDeterministically } from "@mindmark/shared";
 
 const projectId = `0x${"71".repeat(32)}` as Hex;

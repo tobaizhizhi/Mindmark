@@ -1,0 +1,198 @@
+{
+  "chapterId": 10,
+  "position": 10,
+  "slug": "constructor-and-modifier",
+  "title": "构造函数与 modifier：建立权限边界",
+  "summary": "把部署时初始化和重复的前置检查抽成稳定的权限入口。",
+  "estimatedMinutes": 28,
+  "learningObjectives": [
+    "能用 constructor 初始化 owner 和不可变配置",
+    "能解释 msg.sender 在部署与调用时的含义",
+    "能编写 onlyOwner modifier 并识别检查执行位置"
+  ],
+  "prerequisiteChapterIds": [
+    9
+  ],
+  "cards": [
+    {
+      "packCardId": "v3-constructor-and-modifier-concept",
+      "position": 0,
+      "type": "concept",
+      "question": "构造函数中的 msg.sender 与普通函数中的 msg.sender 为什么可能不同？",
+      "answer": "构造函数执行在部署交易期间，msg.sender 是部署者；合约部署完成后，普通函数里的 msg.sender 是当前调用者。构造函数只运行一次。",
+      "keyPoint": "部署者、合约地址和后续调用者是三个不同角色，权限设计必须明确区分。",
+      "tags": [
+        "constructor",
+        "msg.sender",
+        "部署"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#constructors",
+        "locator": "Constructors and Function Modifiers"
+      }
+    },
+    {
+      "packCardId": "v3-constructor-and-modifier-check",
+      "position": 1,
+      "type": "qa",
+      "question": "modifier 中的下划线代表什么，放在检查前后有什么影响？",
+      "answer": "_ 是被修饰函数主体的插入点。放在检查后表示先验证再执行主体；放在检查前则主体会先执行，可能造成未授权写入。",
+      "keyPoint": "modifier 是代码展开，下划线位置就是执行顺序。",
+      "tags": [
+        "modifier",
+        "权限",
+        "执行顺序"
+      ],
+      "importance": 4,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#constructors",
+        "locator": "Constructors and Function Modifiers"
+      }
+    },
+    {
+      "packCardId": "v3-constructor-and-modifier-read",
+      "position": 2,
+      "type": "code_read",
+      "question": "阅读 OwnableVault，部署、存款和提取分别经过哪些路径？",
+      "answer": "部署时 owner 取部署者；deposit 允许任何地址记账；withdraw 先经过 onlyOwner，只有 owner 能把余额转给 treasury。",
+      "keyPoint": "画出每个入口的调用者和状态写入，再审查 modifier 是否覆盖全部敏感路径。",
+      "tags": [
+        "读代码",
+        "onlyOwner",
+        "Vault"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#constructors",
+        "locator": "Constructors and Function Modifiers"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "contract OwnableVault {\\n address public immutable owner;\\n address public immutable treasury;\\n uint256 public total;\\n constructor(address nextTreasury) { require(nextTreasury != address(0)); owner = msg.sender; treasury = nextTreasury; }\\n modifier onlyOwner() { require(msg.sender == owner); _; }\\n function deposit() external payable { total += msg.value; }\\n function withdraw(uint256 amount) external onlyOwner { require(amount <= address(this).balance); (bool ok,) = treasury.call{value: amount}(\"\"); require(ok); }\\n}",
+        "solutionCode": "部署 -> owner=部署者；deposit -> 任意地址增加 total；withdraw -> 先 onlyOwner，再转账。",
+        "testInput": "A 部署，B 存入 1 ether，B 尝试提取，A 提取。",
+        "expectedResult": "B 回滚；A 的提取成功且 treasury 收到金额。",
+        "hints": [
+          "关注 constructor 的 msg.sender。",
+          "敏感函数是否带 onlyOwner？"
+        ]
+      }
+    },
+    {
+      "packCardId": "v3-constructor-and-modifier-complete",
+      "position": 3,
+      "type": "code_complete",
+      "question": "补全 onlyOwner modifier，并让 setTreasury 只能由 owner 调用。",
+      "answer": "modifier 在 _ 前检查 msg.sender == owner；setTreasury 使用 onlyOwner 并拒绝零地址。",
+      "keyPoint": "封装权限后仍要逐个确认所有敏感写函数都使用 modifier。",
+      "tags": [
+        "modifier",
+        "补全",
+        "权限"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#constructors",
+        "locator": "Constructors and Function Modifiers"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "address public immutable owner;\\naddress public treasury;\\nmodifier onlyOwner() {\\n // TODO\\n}\\nfunction setTreasury(address next) external /* TODO */ {\\n require(next != address(0));\\n treasury = next;\\n}",
+        "solutionCode": "modifier onlyOwner() { require(msg.sender == owner, \"not owner\"); _; }\\nfunction setTreasury(address next) external onlyOwner { require(next != address(0), \"zero treasury\"); treasury = next; }",
+        "testInput": "非 owner 与 owner 分别调用 setTreasury。",
+        "expectedResult": "非 owner 回滚，owner 可以设置有效地址，零地址始终回滚。",
+        "hints": [
+          "下划线是函数主体插入点。",
+          "modifier 名称写在函数可见性之后。"
+        ]
+      }
+    },
+    {
+      "packCardId": "v3-constructor-and-modifier-write",
+      "position": 4,
+      "type": "code_write",
+      "question": "写一个 MiniAccess：部署者成为 owner，提供 onlyOwner 的 pause 和 unpause 函数。",
+      "answer": "用 bool paused 记录状态；constructor 设置 owner；两个函数都带 onlyOwner，分别写入 true 与 false。",
+      "keyPoint": "权限、状态和状态转换要同时可读。",
+      "tags": [
+        "onlyOwner",
+        "pause",
+        "写代码"
+      ],
+      "importance": 5,
+      "initialDifficulty": 4,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#constructors",
+        "locator": "Constructors and Function Modifiers"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "// 完成 MiniAccess：owner、paused、constructor、onlyOwner、pause、unpause\\n",
+        "solutionCode": "contract MiniAccess { address public immutable owner; bool public paused; constructor() { owner = msg.sender; } modifier onlyOwner() { require(msg.sender == owner); _; } function pause() external onlyOwner { paused = true; } function unpause() external onlyOwner { paused = false; } }",
+        "testInput": "A 部署，B 调用 pause，A 调用 pause 和 unpause。",
+        "expectedResult": "B 回滚；A 可将 paused 在 true 和 false 之间切换。",
+        "hints": [
+          "owner 只在 constructor 设置。",
+          "两个状态转换都必须带 onlyOwner。"
+        ]
+      }
+    },
+    {
+      "packCardId": "v3-constructor-and-modifier-application",
+      "position": 5,
+      "type": "application",
+      "question": "为什么 modifier 不能替代对每个状态转换的业务检查？",
+      "answer": "modifier 适合复用角色和暂停状态等横切条件；金额上限、零地址和状态机顺序仍属于具体函数的不变量，必须在函数内检查。",
+      "keyPoint": "抽象重复代码，不要把不同业务规则硬塞进一个 modifier。",
+      "tags": [
+        "抽象",
+        "不变量",
+        "应用"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#constructors",
+        "locator": "Constructors and Function Modifiers"
+      }
+    },
+    {
+      "packCardId": "v3-constructor-and-modifier-misconception",
+      "position": 6,
+      "type": "misconception",
+      "question": "误区：把 owner 声明为 private 就能隐藏管理员地址，为什么不成立？",
+      "answer": "private 只限制 Solidity 源码的访问，storage 数据仍可从链上读取。它可以减少误用，但不是隐私机制。",
+      "keyPoint": "权限边界和信息保密是两件事。",
+      "tags": [
+        "private",
+        "隐私",
+        "误区"
+      ],
+      "importance": 4,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#constructors",
+        "locator": "Constructors and Function Modifiers"
+      }
+    }
+  ]
+}

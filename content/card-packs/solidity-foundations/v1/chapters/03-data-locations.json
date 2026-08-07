@@ -1,0 +1,15 @@
+{
+  "chapterId": 2,
+  "position": 2,
+  "slug": "data-locations",
+  "title": "storage、memory 与 calldata",
+  "summary": "区分三种数据位置及复制和引用语义。",
+  "estimatedMinutes": 14,
+  "cards": [
+    { "packCardId": "locations-storage", "position": 0, "type": "concept", "question": "storage 数据位置表示什么？", "answer": "storage 是合约持久化状态所在的数据区域，内容会跨交易保留。对 storage 引用的修改通常会直接修改链上状态，并产生相应存储成本。", "keyPoint": "storage 生命周期最长，写入成本也最高。", "tags": ["storage", "数据位置"], "importance": 5, "initialDifficulty": 2, "sourceReference": { "kind": "pack_reference", "label": "Solidity Data Location", "url": "https://docs.soliditylang.org/en/latest/types.html#data-location", "locator": "Data location and assignment behavior" } },
+    { "packCardId": "locations-calldata", "position": 1, "type": "qa", "question": "为什么外部函数的只读引用类型参数通常优先使用 calldata？", "answer": "calldata 是只读的调用输入区域，可避免把动态数组、字符串或 struct 复制到 memory。只读参数使用 calldata 通常更清晰，也可能减少复制和 gas 成本。", "keyPoint": "只读外部输入优先考虑 calldata。", "tags": ["calldata", "参数", "gas"], "importance": 4, "initialDifficulty": 2, "sourceReference": { "kind": "pack_reference", "label": "Solidity Data Location", "url": "https://docs.soliditylang.org/en/latest/types.html#data-location", "locator": "calldata" } },
+    { "packCardId": "locations-copy-reference-process", "position": 2, "type": "process", "question": "判断一次引用类型赋值会复制还是共享引用时，应按什么顺序分析？", "answer": "先确定源和目标的数据位置，再查该组合的赋值规则。storage 与 memory 之间通常复制；从一个 storage 变量赋给 storage 局部引用通常共享引用；memory 到 memory 的赋值可能共享同一内存对象。", "keyPoint": "不能只看变量类型，必须同时看赋值两端的数据位置。", "tags": ["复制", "引用", "数据位置"], "importance": 5, "initialDifficulty": 4, "sourceReference": { "kind": "pack_reference", "label": "Solidity Data Location", "url": "https://docs.soliditylang.org/en/latest/types.html#data-location-and-assignment-behavior", "locator": "Data location and assignment behavior" } },
+    { "packCardId": "locations-application-storage-reference", "position": 3, "type": "application", "question": "函数内写 User storage user = users[id] 后修改 user.balance，会发生什么？", "answer": "user 是指向 users[id] 的 storage 引用，修改 user.balance 会直接修改合约持久化状态。若改为 User memory user = users[id]，得到的是内存副本，修改副本不会自动写回。", "keyPoint": "storage 局部引用会让后续写操作落到原状态。", "tags": ["struct", "storage 引用", "应用"], "importance": 5, "initialDifficulty": 3, "sourceReference": { "kind": "pack_reference", "label": "Solidity Data Location", "url": "https://docs.soliditylang.org/en/latest/types.html#data-location-and-assignment-behavior", "locator": "Assignments between storage and memory" } },
+    { "packCardId": "locations-misconception-memory-persistent", "position": 4, "type": "misconception", "question": "误区：修改 memory 副本后状态变量会自动更新，为什么错误？", "answer": "memory 数据只在当前外部调用期间存在。从 storage 复制到 memory 后，两者是独立数据；除非代码显式把副本重新赋回 storage，否则链上状态不会改变。", "keyPoint": "memory 修改不会隐式同步回 storage。", "tags": ["memory", "状态更新", "误区"], "importance": 4, "initialDifficulty": 3, "sourceReference": { "kind": "pack_reference", "label": "Solidity Data Location", "url": "https://docs.soliditylang.org/en/latest/types.html#data-location-and-assignment-behavior", "locator": "Assignments" } }
+  ]
+}

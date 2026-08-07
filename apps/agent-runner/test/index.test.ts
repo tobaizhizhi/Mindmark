@@ -36,4 +36,14 @@ describe("runner workspace", () => {
 
     expect(packageJson.scripts?.dev).toContain("--env-file-if-exists=../../.env");
   });
+
+  it("resolves Shared source subpaths without requiring a prebuilt dist directory", () => {
+    const tsconfig = JSON.parse(
+      readFileSync(new URL("../tsconfig.json", import.meta.url), "utf8"),
+    ) as { compilerOptions?: { paths?: Record<string, string[]> } };
+
+    expect(tsconfig.compilerOptions?.paths?.["@mindmark/shared/schemas"]).toEqual([
+      "../../packages/shared/src/schemas.ts",
+    ]);
+  });
 });

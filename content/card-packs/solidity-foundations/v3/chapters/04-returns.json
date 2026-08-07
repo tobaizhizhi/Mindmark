@@ -1,0 +1,198 @@
+{
+  "chapterId": 3,
+  "position": 3,
+  "slug": "returns",
+  "title": "函数输出：return、returns 与解构赋值",
+  "summary": "在写复杂逻辑前学会稳定地返回单值、多值和命名结果。",
+  "estimatedMinutes": 20,
+  "learningObjectives": [
+    "能区分 returns 声明和 return 语句",
+    "能写命名返回值与多返回值",
+    "能用解构赋值接收函数结果"
+  ],
+  "prerequisiteChapterIds": [
+    2
+  ],
+  "cards": [
+    {
+      "packCardId": "v3-returns-concept",
+      "position": 0,
+      "type": "concept",
+      "question": "returns 和 return 的职责分别是什么？",
+      "answer": "returns 在函数签名中声明返回类型和数量；return 在执行时提供具体值并结束当前函数。命名返回值可以让函数体直接给返回变量赋值。",
+      "keyPoint": "签名告诉调用者 ABI 形状，return 决定本次执行的结果。",
+      "tags": [
+        "return",
+        "returns",
+        "ABI"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html",
+        "locator": "Return Variables"
+      }
+    },
+    {
+      "packCardId": "v3-returns-check",
+      "position": 1,
+      "type": "qa",
+      "question": "一个函数返回 (uint256 total, bool passed) 时，调用者如何分别接收两个结果？",
+      "answer": "可以写 (uint256 total, bool passed) = contract.evaluate();，也可以忽略不需要的值，例如 (uint256 total, ) = contract.evaluate()。",
+      "keyPoint": "多返回值需要按顺序解构，忽略值也要显式写逗号。",
+      "tags": [
+        "多返回值",
+        "解构",
+        "ABI"
+      ],
+      "importance": 4,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html",
+        "locator": "Return Variables"
+      }
+    },
+    {
+      "packCardId": "v3-returns-read",
+      "position": 2,
+      "type": "output_trace",
+      "question": "推断 average(7, 4) 的两个返回值，并注意 Solidity 整数除法。",
+      "answer": "sum 为 11，average 为 5，因为 uint256 除法会舍弃小数部分。返回值顺序由函数签名决定。",
+      "keyPoint": "整数除法不是四舍五入；读代码和写测试时要预期截断。",
+      "tags": [
+        "运行推理",
+        "整数除法",
+        "返回值"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html",
+        "locator": "Return Variables"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "function average(uint256 a, uint256 b)\n    external pure returns (uint256 sum, uint256 averageValue)\n{\n    return (a + b, (a + b) / 2);\n}",
+        "solutionCode": "average(7, 4) -> (11, 5)\n因为 11 / 2 在 uint256 中截断为 5。",
+        "testInput": "调用 average(7, 4)。",
+        "expectedResult": "返回 sum=11、averageValue=5。",
+        "hints": [
+          "先算分子。",
+          "Solidity 整数除法向零截断。"
+        ]
+      }
+    },
+    {
+      "packCardId": "v3-returns-complete",
+      "position": 3,
+      "type": "code_complete",
+      "question": "补全 getProfile，让它同时返回 name 和 score。",
+      "answer": "在签名中声明两个返回值，并按相同顺序 return (name, score)。",
+      "keyPoint": "返回值顺序必须在声明、实现和调用解构之间保持一致。",
+      "tags": [
+        "多返回值",
+        "补全",
+        "struct"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html",
+        "locator": "Return Variables"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "string private name;\nuint256 private score;\n\nfunction getProfile() external view\n    returns (string memory /* TODO */, uint256 /* TODO */)\n{\n    // TODO\n}",
+        "solutionCode": "string private name;\nuint256 private score;\n\nfunction getProfile() external view\n    returns (string memory profileName, uint256 profileScore)\n{\n    return (name, score);\n}",
+        "testInput": "先写入 Alice 和 90，再调用 getProfile。",
+        "expectedResult": "返回 Alice、90。",
+        "hints": [
+          "动态字符串返回需要 memory。",
+          "return 的顺序和 returns 一致。"
+        ]
+      }
+    },
+    {
+      "packCardId": "v3-returns-write",
+      "position": 4,
+      "type": "code_write",
+      "question": "写一个 pure classify 函数：输入 score，返回 (passed, level)，60 分及以上通过，90 分及以上为 A，否则为 B。",
+      "answer": "函数可以声明 pure，先判断 passed，再用 if/else 产生字符串或 enum 结果。初学阶段先保证返回顺序和边界清楚。",
+      "keyPoint": "多返回值适合把一个确定性计算的相关结果一次性暴露给调用者。",
+      "tags": [
+        "pure",
+        "多返回值",
+        "写代码"
+      ],
+      "importance": 5,
+      "initialDifficulty": 4,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html",
+        "locator": "Return Variables"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "// 选择合适的返回类型并实现 60/90 两个边界\n",
+        "solutionCode": "function classify(uint256 score)\n    external pure returns (bool passed, string memory level)\n{\n    passed = score >= 60;\n    level = score >= 90 ? \"A\" : \"B\";\n}",
+        "testInput": "classify(59)、classify(60)、classify(90)。",
+        "expectedResult": "分别得到 (false,B)、(true,B)、(true,A)。",
+        "hints": [
+          "pure 函数不读状态。",
+          "用 >= 表达包含边界。"
+        ]
+      }
+    },
+    {
+      "packCardId": "v3-returns-application",
+      "position": 5,
+      "type": "application",
+      "question": "为什么返回值设计应该在写函数前确定？",
+      "answer": "返回值会进入 ABI，影响前端解码、其他合约调用和测试断言。临时改变顺序或类型会让调用方静默读错数据。",
+      "keyPoint": "函数签名是合约之间的接口，不只是给当前函数体看的注释。",
+      "tags": [
+        "ABI",
+        "接口设计",
+        "应用"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html",
+        "locator": "Return Variables"
+      }
+    },
+    {
+      "packCardId": "v3-returns-misconception",
+      "position": 6,
+      "type": "misconception",
+      "question": "误区：函数写了 return 就一定会把数据保存到链上，为什么错误？",
+      "answer": "return 只把执行结果交给调用者，不会自动写 storage。要持久化必须显式修改状态变量，并且交易成功后才会保留。",
+      "keyPoint": "返回数据和状态数据是两条不同通道。",
+      "tags": [
+        "return",
+        "storage",
+        "误区"
+      ],
+      "importance": 4,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html",
+        "locator": "Return Variables"
+      }
+    }
+  ]
+}

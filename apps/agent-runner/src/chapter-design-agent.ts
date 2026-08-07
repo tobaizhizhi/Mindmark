@@ -8,7 +8,10 @@ import {
   validateCardBlueprint,
   validateChapterConceptInventory,
   type CardBlueprint,
+  type CardBlueprintSlotProposal,
+  type ChapterConceptProposal,
   type ChapterConceptInventory,
+  type SourceBlock,
 } from "@mindmark/shared";
 import { z } from "zod";
 import {
@@ -22,9 +25,10 @@ import {
   detectLearningOutputLanguage,
   learnerFacingLanguageIssues,
   learningOutputLanguageInstruction,
+  type LearningOutputLanguage,
 } from "./language-policy.js";
+import { expandBlueprintEvidenceBlockIndexes } from "./blueprint-evidence.js";
 
-const EmptyArgumentsSchema = z.object({}).strict();
 const ProposeInventoryArgumentsSchema = z.object({
   concepts: ChapterConceptProposalListSchema,
 }).strict();
@@ -33,11 +37,6 @@ const ProposeBlueprintArgumentsSchema = z.object({
 }).strict();
 
 const chapterDesignTools: AgentToolDefinition[] = [
-  {
-    name: "read_chapter_design_context",
-    description: "Read only the confirmed Chapter source, learning goal, and card-design rules.",
-    parameters: { type: "object", properties: {}, additionalProperties: false },
-  },
   {
     name: "propose_chapter_concepts",
     description: "Propose source-grounded learning concepts. Do not provide IDs, hashes, statuses, wallet, or transaction fields.",
@@ -103,6 +102,132 @@ function issuesOf(error: unknown): string[] {
   return [error instanceof Error ? error.message : "Chapter Design validation failed"];
 }
 
+function sampleEvenly<T>(values: readonly T[], count: number): T[] {
+  if (count >= values.length) return [...values];
+  if (count <= 1) return [values[Math.floor((values.length - 1) / 2)]!];
+  return Array.from({ length: count }, (_, index) =>
+    values[Math.round((index * (values.length - 1)) / (count - 1))]!,
+  );
+}
+
+function compactConceptName(
+  block: SourceBlock,
+  ordinal: number,
+  language: LearningOutputLanguage,
+): string {
+  const withoutFence = block.text
+    .replace(/^#{1,6}\s+/u, "")
+    .replace(/^```[^\n]*\n?/u, "")
+    .trim();
+  const firstSentence = withoutFence.split(/(?:[。！？.!?]\s*|\n)/u)[0]?.trim() ?? "";
+  const limit = language === "zh-CN" ? 48 : 80;
+  if (firstSentence.length >= 2) return firstSentence.slice(0, limit);
+  return language === "zh-CN" ? `核心要点 ${ordinal + 1}` : `Core point ${ordinal + 1}`;
+}
+
+function selectConceptBlocks(source: ChapterDesignSourceV3, count: number): SourceBlock[] {
+  const chapterTitle = source.chapter.title.replace(/^#{1,6}\s+/u, "").trim().toLocaleLowerCase();
+  const headings = source.sourceBlocks.filter((block) =>
+    block.kind === "heading"
+    && block.text.replace(/^#{1,6}\s+/u, "").trim().toLocaleLowerCase() !== chapterTitle,
+  );
+  const selected = sampleEvenly(headings, Math.min(count, headings.length));
+  if (selected.length < count) {
+    const selectedIndexes = new Set(selected.map((block) => block.blockIndex));
+    const remaining = source.sourceBlocks.filter((block) => !selectedIndexes.has(block.blockIndex));
+    selected.push(...sampleEvenly(remaining, Math.min(count - selected.length, remaining.length)));
+  }
+  return selected.sort((left, right) => left.blockIndex - right.blockIndex);
+}
+
+/** Keeps the workflow moving when the external model gateway is unavailable or too slow. */
+export function buildDeterministicChapterDesign(source: ChapterDesignSourceV3): DesignedChapter {
+  const outputLanguage = detectLearningOutputLanguage(source.sourceBlocks, [
+    source.goal,
+    source.chapter.title,
+    source.chapter.summary,
+  ]);
+  const slotCount = source.cardPolicy.targetCardCount;
+  const conceptCount = Math.min(source.sourceBlocks.length, slotCount, Math.max(1, Math.ceil(slotCount / 2)), 6);
+  const anchors = selectConceptBlocks(source, conceptCount);
+  const usedNames = new Set<string>();
+  const concepts: ChapterConceptProposal[] = anchors.map((block, index) => {
+    const baseName = compactConceptName(block, index, outputLanguage);
+    const normalised = baseName.toLocaleLowerCase();
+    const name = usedNames.has(normalised)
+      ? `${baseName.slice(0, 150)} (${index + 1})`
+      : baseName;
+    usedNames.add(name.toLocaleLowerCase());
+    return {
+      name,
+      importance: Math.max(3, Math.min(5, source.chapter.importance - (index === 0 ? 0 : 1))),
+      learningObjective: outputLanguage === "zh-CN"
+        ? `理解“${name}”的核心原理，并能依据资料进行解释与应用。`
+        : `Understand the core principles of ${name} and explain and apply them from the source.`,
+      sourceBlockIndexes: expandBlueprintEvidenceBlockIndexes(
+        [block.blockIndex],
+        source.sourceBlocks,
+      ),
+      prerequisites: [],
+      misconceptions: [],
+    };
+  });
+  const inventory = validateChapterConceptInventory(materializeChapterConceptInventory({
+    projectId: source.projectId,
+    chapterId: source.chapter.chapterId,
+    outlineVersion: source.outlineVersion,
+    sourceHash: source.chapter.sourceHash,
+    concepts,
+  }), source.chapter, source.sourceBlocks);
+  const inventoryHash = hashChapterConceptInventoryV3(inventory);
+  const secondaryTypes = ["application", "process", "comparison", "concept"] as const;
+  const slots: CardBlueprintSlotProposal[] = Array.from({ length: slotCount }, (_, slotIndex) => {
+    const concept = inventory.concepts[slotIndex % inventory.concepts.length]!;
+    const cycle = Math.floor(slotIndex / inventory.concepts.length);
+    const type = cycle === 0 ? "concept" : secondaryTypes[(cycle - 1) % secondaryTypes.length]!;
+    const objective = outputLanguage === "zh-CN"
+      ? type === "concept"
+        ? `解释“${concept.name}”的核心含义。`
+        : type === "application"
+          ? `运用“${concept.name}”解决资料中的典型问题。`
+          : type === "process"
+            ? `梳理“${concept.name}”的关键步骤与因果关系。`
+            : type === "comparison"
+              ? `区分“${concept.name}”与相关概念的适用边界。`
+              : `从另一个角度解释“${concept.name}”。`
+      : type === "concept"
+        ? `Explain the core meaning of ${concept.name}.`
+        : type === "application"
+          ? `Apply ${concept.name} to a representative source-grounded problem.`
+          : type === "process"
+            ? `Trace the key steps and causal relationships in ${concept.name}.`
+            : type === "comparison"
+              ? `Distinguish ${concept.name} from related concepts and boundaries.`
+              : `Explain ${concept.name} from another perspective.`;
+    return {
+      conceptId: concept.conceptId,
+      type,
+      objective,
+      difficulty: Math.min(5, 2 + cycle + (concept.importance >= 5 ? 1 : 0)),
+      sourceBlockIndexes: concept.sourceBlockIndexes,
+      required: cycle === 0,
+    };
+  });
+  const blueprint = validateCardBlueprint(materializeCardBlueprint({
+    projectId: source.projectId,
+    chapterId: source.chapter.chapterId,
+    outlineVersion: source.outlineVersion,
+    inventoryHash,
+    slots,
+  }), inventory, source.chapter, source.cardPolicy);
+  return {
+    inventory,
+    blueprint,
+    inventoryHash,
+    blueprintHash: hashCardBlueprintV3(blueprint),
+  };
+}
+
 export type DesignedChapter = {
   inventory: ChapterConceptInventory;
   blueprint: CardBlueprint;
@@ -131,13 +256,48 @@ export class ChapterDesignModule {
     );
     timeout.unref();
     const transcript: AgentTranscriptEntry[] = [];
-    let read = false;
     let inventory: ChapterConceptInventory | null = null;
     let inventoryHash: `0x${string}` | null = null;
     let inventoryRepairCount = 0;
     let blueprintRepairCount = 0;
+    const context = {
+      chapter: {
+        chapterId: source.chapter.chapterId,
+        title: source.chapter.title,
+        summary: source.chapter.summary,
+        sourceRange: [source.chapter.startBlock, source.chapter.endBlock],
+      },
+      policy: {
+        importantConceptNeedsRequiredSlot: true,
+        importantMisconceptionNeedsRequiredSlot: true,
+        cardTypes: ["concept", "comparison", "process", "application", "misconception"],
+        cardCount: {
+          minimum: source.cardPolicy.minCardCount,
+          target: source.cardPolicy.targetCardCount,
+          maximum: source.cardPolicy.maxCardCount,
+        },
+      },
+      outputLanguage,
+      blocks: source.sourceBlocks.map((block) => ({
+        blockIndex: block.blockIndex,
+        pageNumber: block.pageNumber,
+        kind: block.kind,
+        text: block.text,
+      })),
+    };
     try {
       for (let index = 0; index < (this.options.maxToolCalls ?? 8); index += 1) {
+        const phaseConfiguration = !inventory
+          ? {
+              tools: [chapterDesignTools[0]!],
+              maxCompletionTokens: 2048,
+              instruction: "Propose or repair the Chapter Concept Inventory now.",
+            }
+          : {
+              tools: [chapterDesignTools[1]!],
+              maxCompletionTokens: 2048,
+              instruction: "Propose or repair the Card Blueprint now.",
+            };
         const call = await this.model.nextTool({
           system: [
             "You are Mindmark's Chapter Design Agent.",
@@ -147,45 +307,15 @@ export class ChapterDesignModule {
             languageInstruction,
             "Never invent IDs, hashes, status, wallet, proofs, or transaction fields.",
           ].join(" "),
-          task: `Design learning coverage for Chapter ${source.chapter.chapterId}: ${source.chapter.title}. Learning goal: ${source.goal ?? "not specified"}.`,
-          tools: chapterDesignTools,
+          task: `Design learning coverage for Chapter ${source.chapter.chapterId}: ${source.chapter.title}. Learning goal: ${source.goal ?? "not specified"}. ${phaseConfiguration.instruction}\nContext: ${JSON.stringify(context)}`,
+          tools: phaseConfiguration.tools,
           transcript,
           signal: controller.signal,
+          maxCompletionTokens: phaseConfiguration.maxCompletionTokens,
         });
         let result: unknown;
-        if (call.name === "read_chapter_design_context") {
-          EmptyArgumentsSchema.parse(call.arguments);
-          read = true;
-          result = {
-            chapter: {
-              chapterId: source.chapter.chapterId,
-              title: source.chapter.title,
-              summary: source.chapter.summary,
-              sourceRange: [source.chapter.startBlock, source.chapter.endBlock],
-            },
-            policy: {
-              importantConceptNeedsRequiredSlot: true,
-              importantMisconceptionNeedsRequiredSlot: true,
-              cardTypes: ["concept", "comparison", "process", "application", "misconception"],
-              cardCount: {
-                minimum: source.cardPolicy.minCardCount,
-                target: source.cardPolicy.targetCardCount,
-                maximum: source.cardPolicy.maxCardCount,
-              },
-            },
-            outputLanguage,
-            blocks: source.sourceBlocks.map((block) => ({
-              blockIndex: block.blockIndex,
-              pageNumber: block.pageNumber,
-              kind: block.kind,
-              text: block.text,
-            })),
-          };
-        } else if (call.name === "propose_chapter_concepts") {
-          if (!read) {
-            result = { accepted: false, errors: ["read_chapter_design_context must be called first"] };
-          } else {
-            try {
+        if (call.name === "propose_chapter_concepts") {
+          try {
               const proposals = ProposeInventoryArgumentsSchema.parse(call.arguments).concepts;
               const languageIssues = learnerFacingLanguageIssues(
                 proposals.flatMap((concept, conceptIndex) => [
@@ -221,11 +351,10 @@ export class ChapterDesignModule {
                   misconceptions: concept.misconceptions,
                 })),
               };
-            } catch (error) {
-              inventoryRepairCount += 1;
-              if (inventoryRepairCount > 1) throw new Error(`Chapter Concept Inventory repair exhausted: ${issuesOf(error).join("; ")}`);
-              result = { accepted: false, errors: issuesOf(error) };
-            }
+          } catch (error) {
+            inventoryRepairCount += 1;
+            if (inventoryRepairCount > 1) throw new Error(`Chapter Concept Inventory repair exhausted: ${issuesOf(error).join("; ")}`);
+            result = { accepted: false, errors: issuesOf(error) };
           }
         } else if (call.name === "propose_card_blueprint") {
           if (!inventory || !inventoryHash) {
@@ -281,11 +410,17 @@ export class ChapterDesignModule {
 
 export class ChapterDesignWorkflowAgent {
   private readonly designModule: ChapterDesignModule;
+  private modelRetryAfter = 0;
 
   constructor(
     private readonly repository: ChapterDesignRepositoryV3,
     model: ToolCallingModel,
-    private readonly options: { timeoutMs?: number; promptVersion?: string; modelId?: string } = {},
+    private readonly options: {
+      timeoutMs?: number;
+      promptVersion?: string;
+      modelId?: string;
+      modelFailureBackoffMs?: number;
+    } = {},
   ) {
     this.designModule = new ChapterDesignModule(model, { timeoutMs: options.timeoutMs });
   }
@@ -303,16 +438,37 @@ export class ChapterDesignWorkflowAgent {
     if (run.status === "COMPLETED") return { state: "ALREADY_DESIGNED", designRunId: run.designRunId };
     try {
       const startedAt = performance.now();
-      const design = await this.designModule.design(source);
+      let strategy: "AI" | "DETERMINISTIC_FALLBACK" = "AI";
+      let fallbackReason: string | null = null;
+      let design: DesignedChapter;
+      if (Date.now() < this.modelRetryAfter) {
+        strategy = "DETERMINISTIC_FALLBACK";
+        fallbackReason = "Chapter Design model is temporarily unavailable after a previous failure";
+        design = buildDeterministicChapterDesign(source);
+      } else {
+        try {
+          design = await this.designModule.design(source);
+          this.modelRetryAfter = 0;
+        } catch (error) {
+          strategy = "DETERMINISTIC_FALLBACK";
+          fallbackReason = issuesOf(error).join("; ").slice(0, 200);
+          this.modelRetryAfter = Date.now() + (this.options.modelFailureBackoffMs ?? 300_000);
+          design = buildDeterministicChapterDesign(source);
+        }
+      }
       await this.repository.completeChapterDesign({
         designRunId: run.designRunId,
         ...design,
-        promptVersion: this.options.promptVersion ?? "chapter-design-v3.1.0",
-        modelId: this.options.modelId ?? "configured-model",
+        promptVersion: this.options.promptVersion ?? "chapter-design-v3.2.0",
+        modelId: strategy === "AI"
+          ? this.options.modelId ?? "configured-model"
+          : "deterministic-chapter-design-v1",
         metrics: {
           conceptCount: design.inventory.concepts.length,
           slotCount: design.blueprint.slots.length,
           durationMs: Math.round(performance.now() - startedAt),
+          strategy,
+          ...(fallbackReason ? { fallbackReason } : {}),
         },
       });
       return { state: "DESIGNED", designRunId: run.designRunId };

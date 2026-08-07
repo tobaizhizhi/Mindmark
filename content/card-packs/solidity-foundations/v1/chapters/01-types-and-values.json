@@ -1,0 +1,15 @@
+{
+  "chapterId": 0,
+  "position": 0,
+  "slug": "types-and-values",
+  "title": "类型与值",
+  "summary": "理解 Solidity 的值类型、引用类型和默认值。",
+  "estimatedMinutes": 12,
+  "cards": [
+    { "packCardId": "types-value-vs-reference", "position": 0, "type": "concept", "question": "Solidity 中值类型和引用类型的核心区别是什么？", "answer": "值类型在赋值或传参时复制值；引用类型保存并操作一组数据，其复制行为还取决于数据位置。常见值类型包括 bool、整数、address 和 enum，常见引用类型包括数组、struct 和 mapping。", "keyPoint": "先判断类型类别，再判断数据位置，才能确定一次赋值是复制还是引用。", "tags": ["类型", "值类型", "引用类型"], "importance": 5, "initialDifficulty": 2, "sourceReference": { "kind": "pack_reference", "label": "Solidity Types", "url": "https://docs.soliditylang.org/en/latest/types.html", "locator": "Value Types and Reference Types" } },
+    { "packCardId": "types-default-values", "position": 1, "type": "qa", "question": "未显式赋值的 Solidity 状态变量会得到什么值？", "answer": "变量会得到该类型的零值，例如 bool 为 false、整数为 0、address 为零地址、动态数组为空。Solidity 不存在 JavaScript 式的 undefined。", "keyPoint": "默认值是类型确定的零值，但零值不一定符合业务有效性。", "tags": ["默认值", "状态变量"], "importance": 4, "initialDifficulty": 1, "sourceReference": { "kind": "pack_reference", "label": "Solidity Types", "url": "https://docs.soliditylang.org/en/latest/types.html", "locator": "Default Values" } },
+    { "packCardId": "types-uint-int-comparison", "position": 2, "type": "comparison", "question": "uint256 与 int256 在可表示范围和使用场景上有什么差异？", "answer": "uint256 只表示非负整数，范围是 0 到 2^256-1；int256 表示有符号整数，范围是 -2^255 到 2^255-1。余额、数量常用 uint256，确实需要负值的业务差额才使用 int256。", "keyPoint": "选择有符号类型应由业务是否需要负值决定，而不是为了节省空间。", "tags": ["uint256", "int256", "整数"], "importance": 4, "initialDifficulty": 2, "sourceReference": { "kind": "pack_reference", "label": "Solidity Types", "url": "https://docs.soliditylang.org/en/latest/types.html", "locator": "Integers" } },
+    { "packCardId": "types-application-zero-address", "position": 3, "type": "application", "question": "合约设置管理员地址时，为什么通常要拒绝 address(0)？", "answer": "零地址是 address 的默认值，通常不代表一个可控制的管理员账户。如果接受它，权限可能永久丢失或关键操作无法执行，因此应在构造或更新时检查 newAdmin != address(0)。", "keyPoint": "类型允许的值不等于业务允许的值，入口处还要验证业务不变量。", "tags": ["address", "零地址", "校验"], "importance": 5, "initialDifficulty": 2, "sourceReference": { "kind": "pack_reference", "label": "Solidity Types", "url": "https://docs.soliditylang.org/en/latest/types.html", "locator": "Address Type" } },
+    { "packCardId": "types-misconception-bit-width", "position": 4, "type": "misconception", "question": "误区：把 uint256 改成 uint8 总能显著节省 gas，为什么不准确？", "answer": "EVM 以 256 位字为基本计算单位，单独的 uint8 运算不一定更便宜。只有多个较小状态变量能被正确打包到同一 storage slot 时，才可能减少存储成本；打包也可能增加读改写开销。", "keyPoint": "小整数的收益主要来自 storage packing，而不是算术本身。", "tags": ["gas", "storage packing", "误区"], "importance": 4, "initialDifficulty": 3, "sourceReference": { "kind": "pack_reference", "label": "Solidity Layout of State Variables", "url": "https://docs.soliditylang.org/en/latest/internals/layout_in_storage.html", "locator": "Layout of State Variables in Storage" } }
+  ]
+}

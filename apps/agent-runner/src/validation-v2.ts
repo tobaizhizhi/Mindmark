@@ -239,5 +239,3 @@ export function freezeWorkerCandidatesV2(
     cardsRoot: tree.root,
   };
 }
-
-export { contentOf as contentFromWorkerCardV2 };

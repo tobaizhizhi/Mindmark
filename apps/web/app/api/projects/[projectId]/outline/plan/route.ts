@@ -1,7 +1,7 @@
 import { Bytes32Schema } from "@mindmark/shared";
 import { requireWalletSession } from "@/lib/server/auth";
 import { jsonError } from "@/lib/server/http";
-import { requestProjectOutlinePlanningForOwner } from "@/lib/server/projects";
+import { requestProjectOutlinePlanningForOwner } from "@/lib/server/project-lifecycle/outline";
 
 export async function POST(
   _request: Request,

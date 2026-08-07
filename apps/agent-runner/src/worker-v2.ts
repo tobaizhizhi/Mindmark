@@ -1,7 +1,6 @@
 import {
   Bytes32Schema,
   KnowledgeCardContentSchema,
-  normalizeSourceText,
 } from "@mindmark/shared";
 import { getAddress } from "viem";
 import { z } from "zod";
@@ -14,8 +13,8 @@ import {
 import type {
   BlueprintWorkerRepositoryV3,
   ProjectRegistryGatewayV2,
-  ProjectRunnerRepositoryV2,
   RunnerWorkUnitV2,
+  WorkUnitGenerationRepositoryV2,
   WorkUnitBlueprintContextV3,
 } from "./types-v2.js";
 import {
@@ -29,6 +28,11 @@ import {
   learningOutputLanguageInstruction,
 } from "./language-policy.js";
 import { nextToolWithTransientRetry } from "./model.js";
+import {
+  blueprintCitationForSlot,
+  citationIsWithinSlotEvidence,
+  expandBlueprintSlotEvidence,
+} from "./blueprint-evidence.js";
 
 const EmptyArgumentsSchema = z.object({}).strict();
 const SaveDraftArgumentsSchemaV2 = z.object({
@@ -42,7 +46,7 @@ const SaveDraftArgumentsSchemaV3 = z.object({
 }).strict();
 
 // Keep each model response small enough for the configured AI endpoint.
-export const MAX_BLUEPRINT_SLOTS_PER_MODEL_BATCH = 1;
+const MAX_BLUEPRINT_SLOTS_PER_MODEL_BATCH = 1;
 
 export function workUnitToolTimeoutMs(configuredMs: number, blueprintSlotCount: number): number {
   const scaledMs = 60_000 + Math.max(0, blueprintSlotCount) * 12_000;
@@ -110,6 +114,12 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : "Unknown V2 Worker failure";
 }
 
+function zodIssues(error: z.ZodError): string[] {
+  return error.issues.map((issue) =>
+    `${issue.path.join(".") || "arguments"}: ${issue.message}`,
+  );
+}
+
 async function mapWithConcurrency<T, R>(
   items: T[],
   concurrency: number,
@@ -134,21 +144,100 @@ function groundBlueprintCitation(
 ): z.infer<typeof BlueprintCardDraftSchema> {
   const slot = context.slots.find((candidate) => candidate.slotId === draft.blueprintSlotId);
   if (!slot) return draft;
-  const evidenceBlocks = sourceBlocks.filter((block) => slot.sourceBlockIndexes.includes(block.blockIndex));
-  const normalizedQuote = normalizeSourceText(draft.source.quote);
-  const exactEvidence = evidenceBlocks.find((block) =>
-    block.pageNumber === draft.source.page && normalizeSourceText(block.text).includes(normalizedQuote),
-  );
-  if (exactEvidence) return draft;
-  const fallbackEvidence = evidenceBlocks.find((block) => normalizeSourceText(block.text).length >= 20);
-  if (!fallbackEvidence) return draft;
+  if (citationIsWithinSlotEvidence(draft.source, slot, sourceBlocks)) return draft;
+  const citation = blueprintCitationForSlot(slot, sourceBlocks);
+  if (!citation) return draft;
   return {
     ...draft,
-    source: {
-      page: fallbackEvidence.pageNumber,
-      quote: normalizeSourceText(fallbackEvidence.text).slice(0, 400).trim(),
-    },
+    source: citation,
   };
+}
+
+function expandBlueprintContextEvidence(
+  context: WorkUnitBlueprintContextV3,
+  sourceBlocks: NonNullable<RunnerWorkUnitV2["sourceBlocks"]>,
+): WorkUnitBlueprintContextV3 {
+  const slots = context.slots.map((slot) => expandBlueprintSlotEvidence(slot, sourceBlocks));
+  const expandedById = new Map(slots.map((slot) => [slot.slotId, slot]));
+  return {
+    ...context,
+    blueprint: {
+      ...context.blueprint,
+      slots: context.blueprint.slots.map((slot) => expandedById.get(slot.slotId) ?? slot),
+    },
+    slots,
+  };
+}
+
+function groundBlueprintCallArguments(
+  rawArguments: unknown,
+  context: WorkUnitBlueprintContextV3,
+  sourceBlocks: NonNullable<RunnerWorkUnitV2["sourceBlocks"]>,
+): unknown {
+  if (!rawArguments || typeof rawArguments !== "object") return rawArguments;
+  const cards = Reflect.get(rawArguments, "cards");
+  if (!Array.isArray(cards)) return rawArguments;
+  return {
+    ...rawArguments,
+    cards: cards.map((rawCard) => {
+      if (!rawCard || typeof rawCard !== "object") return rawCard;
+      const slotId = Reflect.get(rawCard, "blueprintSlotId");
+      const slot = context.slots.find((candidate) => candidate.slotId === slotId);
+      if (!slot) return rawCard;
+      const rawSource = Reflect.get(rawCard, "source");
+      const currentCitation = rawSource && typeof rawSource === "object"
+        ? {
+            page: Reflect.get(rawSource, "page"),
+            quote: Reflect.get(rawSource, "quote"),
+          }
+        : null;
+      if (
+        currentCitation
+        && typeof currentCitation.page === "number"
+        && typeof currentCitation.quote === "string"
+        && citationIsWithinSlotEvidence(
+          { page: currentCitation.page, quote: currentCitation.quote },
+          slot,
+          sourceBlocks,
+        )
+      ) return rawCard;
+      const fallbackCitation = blueprintCitationForSlot(slot, sourceBlocks);
+      return fallbackCitation ? { ...rawCard, source: fallbackCitation } : rawCard;
+    }),
+  };
+}
+
+function deterministicBlueprintBatch(input: {
+  context: WorkUnitBlueprintContextV3;
+  sourceBlocks: NonNullable<RunnerWorkUnitV2["sourceBlocks"]>;
+  outputLanguage: ReturnType<typeof detectLearningOutputLanguage>;
+}): z.infer<typeof BlueprintCardDraftSchema>[] {
+  return input.context.slots.map((slot) => {
+    const concept = input.context.inventory.concepts.find((candidate) => candidate.conceptId === slot.conceptId);
+    const citation = blueprintCitationForSlot(slot, input.sourceBlocks);
+    if (!citation) {
+      throw new Error(`Blueprint Slot ${slot.slotId} has no evidence long enough for a valid citation`);
+    }
+    const conceptName = concept?.name.trim() || (input.outputLanguage === "zh-CN" ? "本知识点" : "this concept");
+    const objective = slot.objective.replace(/[。.!?？]+$/u, "").trim();
+    const question = input.outputLanguage === "zh-CN"
+      ? `${objective}？`
+      : `${objective}?`;
+    const answer = input.outputLanguage === "zh-CN"
+      ? `资料中的关键信息是：${citation.quote}`
+      : `The source states: ${citation.quote}`;
+    return BlueprintCardDraftSchema.parse({
+      blueprintSlotId: slot.slotId,
+      type: slot.type === "concept" ? "concept" : "qa",
+      question: question.slice(0, 500),
+      answer,
+      keyPoint: `${conceptName}：${objective}`.slice(0, 500),
+      source: citation,
+      tags: [conceptName.slice(0, 40)],
+      importance: concept?.importance ?? 4,
+      initialDifficulty: slot.difficulty,
+    });
+  });
 }
 
 function verifyPersisted(unit: RunnerWorkUnitV2): boolean {
@@ -167,7 +256,7 @@ function verifyPersisted(unit: RunnerWorkUnitV2): boolean {
 
 export class WorkUnitWorkerAgent {
   constructor(
-    private readonly repository: ProjectRunnerRepositoryV2,
+    private readonly repository: WorkUnitGenerationRepositoryV2,
     private readonly registry: ProjectRegistryGatewayV2,
     private readonly model: ToolCallingModel,
     private readonly workerIndex: number,
@@ -213,7 +302,7 @@ export class WorkUnitWorkerAgent {
           sourceBlocks,
           outputLanguage,
           languageInstruction,
-          blueprintContext,
+          blueprintContext: expandBlueprintContextEvidence(blueprintContext, sourceBlocks),
         });
         return;
       }
@@ -265,7 +354,7 @@ export class WorkUnitWorkerAgent {
             } else {
               const parsed = SaveDraftArgumentsSchemaV2.safeParse(call.arguments);
               if (!parsed.success) {
-                result = { accepted: false, errors: parsed.error.issues.map((issue) => issue.message) };
+                result = { accepted: false, errors: zodIssues(parsed.error) };
               } else {
                 const languageIssues = learnerFacingLanguageIssues(
                   parsed.data.cards.flatMap((card, cardIndex) => [
@@ -362,7 +451,7 @@ export class WorkUnitWorkerAgent {
 
   private async runBlueprintBatches(input: {
     unit: RunnerWorkUnitV2;
-    bundle: Awaited<ReturnType<ProjectRunnerRepositoryV2["getChapterBundle"]>>;
+    bundle: Awaited<ReturnType<WorkUnitGenerationRepositoryV2["getChapterBundle"]>>;
     sourceBlocks: NonNullable<RunnerWorkUnitV2["sourceBlocks"]>;
     outputLanguage: ReturnType<typeof detectLearningOutputLanguage>;
     languageInstruction: string;
@@ -428,7 +517,7 @@ export class WorkUnitWorkerAgent {
 
   private async generateBlueprintBatch(input: {
     unit: RunnerWorkUnitV2;
-    bundle: Awaited<ReturnType<ProjectRunnerRepositoryV2["getChapterBundle"]>>;
+    bundle: Awaited<ReturnType<WorkUnitGenerationRepositoryV2["getChapterBundle"]>>;
     sourceBlocks: NonNullable<RunnerWorkUnitV2["sourceBlocks"]>;
     outputLanguage: ReturnType<typeof detectLearningOutputLanguage>;
     languageInstruction: string;
@@ -495,9 +584,15 @@ export class WorkUnitWorkerAgent {
         });
         let result: unknown;
         if (call.name === "save_work_unit_draft") {
-          const parsed = SaveDraftArgumentsSchemaV3.safeParse(call.arguments);
+          const parsed = SaveDraftArgumentsSchemaV3.safeParse(
+            groundBlueprintCallArguments(
+              call.arguments,
+              input.blueprintContext,
+              input.sourceBlocks,
+            ),
+          );
           if (!parsed.success) {
-            result = { accepted: false, errors: parsed.error.issues.map((issue) => issue.message) };
+            result = { accepted: false, errors: zodIssues(parsed.error) };
           } else {
             const languageIssues = learnerFacingLanguageIssues(
               parsed.data.cards.flatMap((card, cardIndex) => [
@@ -539,13 +634,31 @@ export class WorkUnitWorkerAgent {
         ? `: ${lastValidationErrors.join("; ")}`
         : "";
       throw new Error(`V3 Blueprint Worker did not produce valid batch candidates${validationDetail}`);
+    } catch (generationError) {
+      const fallback = deterministicBlueprintBatch({
+        context: input.blueprintContext,
+        sourceBlocks: input.sourceBlocks,
+        outputLanguage: input.outputLanguage,
+      });
+      const validation = validateAndCommitBlueprintCardsV3({
+        rawCards: fallback,
+        projectId: input.unit.projectId,
+        chapterId: input.unit.chapterId,
+        workUnitId: input.unit.workUnitId,
+        slots: input.blueprintContext.slots,
+        sourceBlocks: input.sourceBlocks,
+      });
+      if (validation.valid) return fallback;
+      throw new Error(
+        `${messageOf(generationError)}; deterministic fallback failed: ${validation.errors.join("; ")}`,
+      );
     } finally {
       clearTimeout(timeout);
     }
   }
 
   private async loadBlueprintContext(unit: RunnerWorkUnitV2): Promise<WorkUnitBlueprintContextV3> {
-    const repository = this.repository as ProjectRunnerRepositoryV2 & Partial<BlueprintWorkerRepositoryV3>;
+    const repository = this.repository as WorkUnitGenerationRepositoryV2 & Partial<BlueprintWorkerRepositoryV3>;
     if (!repository.getWorkUnitBlueprintContext) {
       throw new Error("V3 Work Unit repository does not support Blueprint context loading");
     }

@@ -47,7 +47,7 @@ function feedbackFromRow(row: FeedbackRow): KnowledgeCardFeedback {
   });
 }
 
-export class SupabaseKnowledgeCardFeedbackStore implements KnowledgeCardFeedbackStore {
+class SupabaseKnowledgeCardFeedbackStore implements KnowledgeCardFeedbackStore {
   async ownsProject(projectId: Hex, owner: `0x${string}`): Promise<boolean> {
     const { data, error } = await getSupabaseAdmin().from("learning_projects")
       .select("project_id").eq("project_id", projectId).eq("owner_address", owner).maybeSingle();

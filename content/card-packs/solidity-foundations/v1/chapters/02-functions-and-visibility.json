@@ -1,0 +1,15 @@
+{
+  "chapterId": 1,
+  "position": 1,
+  "slug": "functions-and-visibility",
+  "title": "状态变量、函数与可见性",
+  "summary": "掌握状态变量、函数修饰和四种可见性的使用边界。",
+  "estimatedMinutes": 14,
+  "cards": [
+    { "packCardId": "functions-view-pure", "position": 0, "type": "concept", "question": "view 与 pure 函数分别承诺什么？", "answer": "view 承诺不修改链上状态，但可以读取状态；pure 承诺既不修改也不读取合约状态，只依赖参数和局部计算。编译器会检查这些限制。", "keyPoint": "pure 比 view 的状态依赖更严格。", "tags": ["view", "pure", "函数"], "importance": 4, "initialDifficulty": 2, "sourceReference": { "kind": "pack_reference", "label": "Solidity Functions", "url": "https://docs.soliditylang.org/en/latest/contracts.html#functions", "locator": "State Mutability" } },
+    { "packCardId": "functions-state-getter", "position": 1, "type": "qa", "question": "public 状态变量为什么不等于允许外部直接修改？", "answer": "编译器只为 public 状态变量生成外部 getter，用来读取值；外部调用者不能绕过合约函数直接写入 storage。修改仍必须经过合约提供的状态变更函数。", "keyPoint": "public 状态变量公开的是读取接口，不是任意写权限。", "tags": ["public", "getter", "状态变量"], "importance": 4, "initialDifficulty": 2, "sourceReference": { "kind": "pack_reference", "label": "Solidity Visibility", "url": "https://docs.soliditylang.org/en/latest/contracts.html#visibility-and-getters", "locator": "Getter Functions" } },
+    { "packCardId": "functions-visibility-comparison", "position": 2, "type": "comparison", "question": "external、public、internal、private 四种函数可见性如何区分？", "answer": "external 面向外部消息调用；public 可从外部调用也可在内部直接调用；internal 仅当前合约及派生合约可直接调用；private 仅声明它的合约可直接调用。可见性不是访问控制，external/public 仍需权限检查。", "keyPoint": "可见性决定调用路径，访问控制决定谁有权执行。", "tags": ["可见性", "访问控制"], "importance": 5, "initialDifficulty": 3, "sourceReference": { "kind": "pack_reference", "label": "Solidity Visibility", "url": "https://docs.soliditylang.org/en/latest/contracts.html#function-visibility", "locator": "Function Visibility" } },
+    { "packCardId": "functions-application-access-control", "position": 3, "type": "application", "question": "withdraw 函数声明为 external 后，为什么仍必须检查调用者？", "answer": "external 只说明调用来自合约外部，并不限制哪个地址能调用。若 withdraw 只允许所有者执行，应检查 msg.sender 或使用经过审查的访问控制模块，否则任何地址都可能触发提款。", "keyPoint": "不要把语言级可见性误当成业务级授权。", "tags": ["external", "msg.sender", "授权"], "importance": 5, "initialDifficulty": 2, "sourceReference": { "kind": "pack_reference", "label": "Solidity Security Considerations", "url": "https://docs.soliditylang.org/en/latest/security-considerations.html", "locator": "Authorized Proxies" } },
+    { "packCardId": "functions-misconception-private-secret", "position": 4, "type": "misconception", "question": "误区：private 状态变量能在链上保存秘密，为什么错误？", "answer": "private 只限制其他合约通过 Solidity 标识符访问，链上 storage 和交易数据仍可被节点与区块浏览工具读取。真正的秘密不能以明文存入公开链。", "keyPoint": "private 是代码访问限制，不是数据加密。", "tags": ["private", "隐私", "误区"], "importance": 5, "initialDifficulty": 2, "sourceReference": { "kind": "pack_reference", "label": "Solidity Security Considerations", "url": "https://docs.soliditylang.org/en/latest/security-considerations.html#private-information-and-randomness", "locator": "Private Information and Randomness" } }
+  ]
+}

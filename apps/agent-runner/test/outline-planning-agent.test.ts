@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { intakeSource } from "@mindmark/shared";
 import { OutlinePlanningAgent } from "../src/outline-planning-agent.js";
+import { ProjectWorkflowDispatcherV2 } from "../src/workflow-dispatcher-v2.js";
 import type {
   OutlinePlanningSourceV2,
   SavedProjectOutlineDraftV2,
@@ -83,23 +84,25 @@ describe("OutlinePlanningAgent", () => {
         id: "propose",
         name: "propose_chapters",
         arguments: {
-          chapters: [{ title: "调用原理", summary: "理解控制权变化", startBlock: 0, endBlock: 1, importance: 5 }],
+          chapters: [{ title: "**第 1 章 · 调用原理。**", summary: "理解控制权变化", startBlock: 0, endBlock: 1, importance: 5 }],
           excludedRanges: [],
         },
       },
     ]));
 
-    await expect(agent.runNext()).resolves.toBe(true);
+    const output = await agent.runClaimed(repository.job);
+    await repository.completeWorkflowJob(repository.job.jobId, output);
 
     expect(repository.job.status).toBe("SUCCEEDED");
     expect(repository.saved).toMatchObject({
       projectId,
       ownerAddress,
       expectedHeadVersion: null,
-      plannerVersion: "semantic-relevance-v6",
+      plannerVersion: "semantic-relevance-v9",
     });
     expect(repository.saved?.chapters[0]).toMatchObject({
       item_id: "chapter-0",
+      title: "调用原理",
       min_card_count: 3,
     });
     expect(repository.saved?.exclusions).toEqual([]);
@@ -114,11 +117,12 @@ describe("OutlinePlanningAgent", () => {
       { id: "invalid", name: "unknown_tool", arguments: {} },
     ]));
 
-    await agent.runNext();
+    const output = await agent.runClaimed(repository.job);
+    await repository.completeWorkflowJob(repository.job.jobId, output);
     warn.mockRestore();
 
     expect(repository.job.status).toBe("SUCCEEDED");
-    expect(repository.saved?.plannerVersion).toBe("relevance-deterministic-v6");
+    expect(repository.saved?.plannerVersion).toBe("relevance-deterministic-v9");
   });
 
   it("keeps deterministic exam exclusions when the model omits them", async () => {
@@ -138,11 +142,70 @@ describe("OutlinePlanningAgent", () => {
       },
     ]));
 
-    await agent.runNext();
+    const output = await agent.runClaimed(repository.job);
+    await repository.completeWorkflowJob(repository.job.jobId, output);
 
-    expect(repository.saved?.plannerVersion).toBe("semantic-relevance-v6");
+    expect(repository.saved?.plannerVersion).toBe("semantic-relevance-v9");
     expect(repository.saved?.exclusions).toEqual([
       expect.objectContaining({ start_block: 0, end_block: 1, category: "EXAM_UPDATE" }),
+    ]);
+  });
+
+  it("falls back when AI wraps learning content in an exam-update Chapter", async () => {
+    const repository = new InMemoryWorkflowRepository([
+      { pageNumber: 1, text: "# 2026 年考纲改动\n\n新增知识点：外部调用。" },
+      { pageNumber: 2, text: "# 调用原理\n\n外部调用会转移执行控制权。" },
+    ]);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const agent = new OutlinePlanningAgent(repository, new ScriptedModel([
+      { id: "read", name: "read_source_outline", arguments: {} },
+      {
+        id: "wrapped",
+        name: "propose_chapters",
+        arguments: {
+          chapters: [{ title: "2026 年考纲改动", summary: "考纲改动与外部调用", startBlock: 0, endBlock: 3, importance: 5 }],
+          excludedRanges: [],
+        },
+      },
+    ]));
+
+    await agent.runClaimed(repository.job);
+    warn.mockRestore();
+
+    expect(repository.saved?.plannerVersion).toBe("relevance-deterministic-v9");
+    expect(repository.saved?.chapters.map((chapter) => chapter.title)).toEqual(["调用原理"]);
+  });
+
+  it("falls back when AI proposes a sentence-like arithmetic Chapter title", async () => {
+    const repository = new InMemoryWorkflowRepository([{
+      pageNumber: 1,
+      text: "# 最低松弛度优先算法\n\n松弛度越低，实时任务的调度优先级越高。",
+    }]);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const agent = new OutlinePlanningAgent(repository, new ScriptedModel([
+      { id: "read", name: "read_source_outline", arguments: {} },
+      {
+        id: "propose",
+        name: "propose_chapters",
+        arguments: {
+          chapters: [{
+            title: "50 − 5 − 30 ）。 此 时应抢占处理机给 A 运行。",
+            summary: "说明最低松弛度优先算法。",
+            startBlock: 0,
+            endBlock: 1,
+            importance: 4,
+          }],
+          excludedRanges: [],
+        },
+      },
+    ]));
+
+    await agent.runClaimed(repository.job);
+    warn.mockRestore();
+
+    expect(repository.saved?.plannerVersion).toBe("relevance-deterministic-v9");
+    expect(repository.saved?.chapters.map((chapter) => chapter.title)).toEqual([
+      "最低松弛度优先算法",
     ]);
   });
 
@@ -161,9 +224,38 @@ describe("OutlinePlanningAgent", () => {
       },
     ]));
 
-    await agent.runNext();
+    await expect(agent.runClaimed(repository.job)).rejects.toThrow("database unavailable");
+  });
 
-    expect(repository.job.status).toBe("RETRYABLE");
-    expect(repository.retried).toContain("database unavailable");
+  it("runs PLAN_OUTLINE through the same Dispatcher completion path", async () => {
+    const repository = new InMemoryWorkflowRepository();
+    const agent = new OutlinePlanningAgent(repository, new ScriptedModel([
+      { id: "read", name: "read_source_outline", arguments: {} },
+      {
+        id: "propose",
+        name: "propose_chapters",
+        arguments: {
+          chapters: [{ title: "调用原理", summary: "理解控制权变化", startBlock: 0, endBlock: 1, importance: 5 }],
+          excludedRanges: [],
+        },
+      },
+    ]));
+    const dispatcher = new ProjectWorkflowDispatcherV2(
+      repository as never,
+      {} as never,
+      [] as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      undefined,
+      undefined,
+      agent,
+    );
+
+    await expect(dispatcher.runNextDetailed()).resolves.toBe("PLAN_OUTLINE");
+    expect(repository.job.status).toBe("SUCCEEDED");
+    expect(repository.completed).toMatchObject({ chapterCount: 1 });
   });
 });

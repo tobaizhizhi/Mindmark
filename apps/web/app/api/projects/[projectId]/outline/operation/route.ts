@@ -1,7 +1,7 @@
 import { Bytes32Schema } from "@mindmark/shared";
 import { requireWalletSession } from "@/lib/server/auth";
 import { jsonError } from "@/lib/server/http";
-import { getProjectOutlinePlanningOperationForOwner } from "@/lib/server/projects";
+import { getProjectOutlinePlanningOperationForOwner } from "@/lib/server/project-lifecycle/outline";
 
 export async function GET(
   request: Request,

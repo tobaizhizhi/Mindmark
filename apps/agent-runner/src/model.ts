@@ -1,33 +1,17 @@
-import { z } from "zod";
+import {
+  OpenAICompatibleGateway,
+  isRetryableAiGatewayError,
+  type AiChatMessage,
+} from "@mindmark/ai-gateway";
 import type {
   AgentToolCall,
   AgentTranscriptEntry,
   ToolCallingModel,
 } from "./runtime-types.js";
 
-const ToolCallResponseSchema = z.object({
-  choices: z
-    .array(
-      z.object({
-        message: z.object({
-          tool_calls: z
-            .array(
-              z.object({
-                id: z.string().min(1),
-                function: z.object({
-                  name: z.string().min(1),
-                  arguments: z.string(),
-                }),
-              }),
-            )
-            .min(1),
-        }),
-      }),
-    )
-    .min(1),
-});
+const DEFAULT_MAX_COMPLETION_TOKENS = 4096;
 
-function transcriptMessages(transcript: AgentTranscriptEntry[]) {
+function transcriptMessages(transcript: AgentTranscriptEntry[]): AiChatMessage[] {
   return transcript.flatMap((entry) => [
     {
       role: "assistant" as const,
@@ -90,9 +74,8 @@ export async function nextToolWithTransientRetry(
     try {
       return await nextToolWithAbort(model, input);
     } catch (error) {
-      const transient = /status (?:429|5\d\d)\b|fetch failed|econnreset|etimedout/iu.test(
-        modelErrorMessage(error),
-      );
+      const transient = isRetryableAiGatewayError(error)
+        || /status (?:429|5\d\d)\b|fetch failed|econnreset|etimedout/iu.test(modelErrorMessage(error));
       if (!transient || input.signal.aborted || attempt === retryDelaysMs.length) throw error;
       await waitForModelRetry(retryDelaysMs[attempt]!, input.signal);
     }
@@ -101,59 +84,42 @@ export async function nextToolWithTransientRetry(
 }
 
 export class OpenAICompatibleToolModel implements ToolCallingModel {
+  private readonly gateway: OpenAICompatibleGateway;
+
   constructor(
     private readonly configuration: {
       apiKey: string;
       model: string;
       baseUrl?: string;
       temperature?: number;
+      maxCompletionTokens?: number;
     },
-  ) {}
+  ) {
+    this.gateway = new OpenAICompatibleGateway(configuration);
+  }
 
   async nextTool(input: Parameters<ToolCallingModel["nextTool"]>[0]): Promise<AgentToolCall> {
-    const baseUrl = (this.configuration.baseUrl ?? "https://api.openai.com/v1").replace(
-      /\/$/u,
-      "",
-    );
-    const response = await fetch(`${baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${this.configuration.apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: this.configuration.model,
-        temperature: this.configuration.temperature ?? 0.2,
-        parallel_tool_calls: false,
-        tool_choice: "required",
-        messages: [
-          { role: "system", content: input.system },
-          { role: "user", content: input.task },
-          ...transcriptMessages(input.transcript),
-        ],
-        tools: input.tools.map((tool) => ({
-          type: "function",
-          function: tool,
-        })),
-      }),
+    const call = await this.gateway.callTool({
+      messages: [
+        { role: "system", content: input.system },
+        { role: "user", content: input.task },
+        ...transcriptMessages(input.transcript),
+      ],
+      tools: input.tools,
       signal: input.signal,
+      timeoutMs: 600_000,
+      temperature: this.configuration.temperature ?? 0.2,
+      maxCompletionTokens:
+        input.maxCompletionTokens
+        ?? this.configuration.maxCompletionTokens
+        ?? DEFAULT_MAX_COMPLETION_TOKENS,
+      toolChoice: "required",
     });
-    if (!response.ok) {
-      throw new Error(`AI model request failed with status ${response.status}`);
-    }
-
-    const parsed = ToolCallResponseSchema.parse(await response.json());
-    const toolCall = parsed.choices[0]!.message.tool_calls[0]!;
-    let argumentsValue: unknown;
-    try {
-      argumentsValue = JSON.parse(toolCall.function.arguments) as unknown;
-    } catch {
-      throw new Error("AI model returned invalid tool arguments JSON");
-    }
+    if (!call.id) throw new Error("AI model returned a tool call without an id");
     return {
-      id: toolCall.id,
-      name: toolCall.function.name,
-      arguments: argumentsValue,
+      id: call.id,
+      name: call.name,
+      arguments: call.arguments,
     };
   }
 }

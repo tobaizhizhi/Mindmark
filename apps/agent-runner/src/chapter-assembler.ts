@@ -5,7 +5,7 @@ import {
   type KnowledgeCardV2,
 } from "@mindmark/shared";
 import { getAddress } from "viem";
-import type { ProjectRegistryGatewayV2, ProjectRunnerRepositoryV2 } from "./types-v2.js";
+import type { ChapterCommitmentRepositoryV2, ProjectRegistryGatewayV2 } from "./types-v2.js";
 import { verifyCommittedCardsV2 } from "./validation-v2.js";
 
 function messageOf(error: unknown): string {
@@ -14,7 +14,7 @@ function messageOf(error: unknown): string {
 
 export class ChapterAssembler {
   constructor(
-    private readonly repository: ProjectRunnerRepositoryV2,
+    private readonly repository: ChapterCommitmentRepositoryV2,
     private readonly registry: ProjectRegistryGatewayV2,
   ) {}
 

@@ -1,0 +1,212 @@
+{
+  "chapterId": 4,
+  "position": 4,
+  "slug": "arrays",
+  "title": "05 数组：保存有序的学习记录",
+  "summary": "先用 fixed/dynamic array 和 push/length 建立集合直觉。",
+  "estimatedMinutes": 26,
+  "learningObjectives": [
+    "能选择固定数组或动态数组",
+    "能安全 push 和读取数组元素",
+    "能为数组读取设计越界失败路径"
+  ],
+  "prerequisiteChapterIds": [
+    3
+  ],
+  "stageId": 1,
+  "stageTitle": "阶段二：组织数据",
+  "newConcepts": [
+    "fixed array",
+    "dynamic array",
+    "push",
+    "length",
+    "索引边界"
+  ],
+  "prerequisiteConcepts": [
+    "函数写入",
+    "uint/int",
+    "view",
+    "return"
+  ],
+  "practiceFocus": "LearningRegistry 增加 chapterIds 动态数组，不使用 struct 或 mapping。",
+  "projectMilestone": "Registry 可以登记章节 ID，并按顺序读取。",
+  "cards": [
+    {
+      "packCardId": "v4-arrays-concept",
+      "position": 0,
+      "type": "concept",
+      "question": "fixed array 和 dynamic array 的使用场景有什么不同？",
+      "answer": "fixed array 的长度在类型中固定，适合明确容量；dynamic array 的长度由运行时 push 和 pop 改变，适合章节数量不预先固定的记录。",
+      "keyPoint": "集合类型要表达容量和生命周期，而不是默认使用 dynamic。",
+      "tags": [
+        "数组",
+        "fixed",
+        "dynamic"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html#arrays",
+        "locator": "Arrays"
+      }
+    },
+    {
+      "packCardId": "v4-arrays-check",
+      "position": 1,
+      "type": "qa",
+      "question": "为什么数组读取函数必须先检查 index < length？",
+      "answer": "最后合法索引是 length - 1，越界访问会回滚；显式检查还能返回更清楚的失败原因。",
+      "keyPoint": "边界检查应该靠近外部输入。",
+      "tags": [
+        "数组",
+        "边界",
+        "回滚"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html#arrays",
+        "locator": "Arrays"
+      }
+    },
+    {
+      "packCardId": "v4-arrays-read",
+      "position": 2,
+      "type": "code_read",
+      "question": "推断 addChapter 调用后的数组长度和元素。",
+      "answer": "每次 push 把一个 ID 放到末尾，length 依次增加；读取 chapterIds[index] 按零开始的索引返回。",
+      "keyPoint": "动态数组的 length 是当前元素个数，不是最后索引。",
+      "tags": [
+        "arrays",
+        "code_read"
+      ],
+      "code": {
+        "language": "solidity",
+        "starterCode": "uint256[] public chapterIds;\nfunction addChapter(uint256 id) external { chapterIds.push(id); }\nfunction chapterCount() external view returns (uint256) { return chapterIds.length; }",
+        "solutionCode": "addChapter(4), addChapter(9) 后：length=2，chapterIds[0]=4，chapterIds[1]=9。",
+        "testInput": "连续添加 4 和 9。",
+        "expectedResult": "计数 2，按索引读取 4、9。",
+        "hints": [
+          "length 从 0 开始。",
+          "索引从 0 开始。"
+        ]
+      },
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html#arrays",
+        "locator": "Arrays"
+      }
+    },
+    {
+      "packCardId": "v4-arrays-complete",
+      "position": 3,
+      "type": "code_complete",
+      "question": "补全 chapterAt，拒绝越界后返回 chapterIds[index]。",
+      "answer": "require(index < chapterIds.length)，再 return chapterIds[index]。",
+      "keyPoint": "先检查，再索引；不要依赖低层回滚给用户解释。",
+      "tags": [
+        "arrays",
+        "code_complete"
+      ],
+      "code": {
+        "language": "solidity",
+        "starterCode": "uint256[] public chapterIds;\nfunction chapterAt(uint256 index) external view returns (uint256) {\n    // TODO\n}",
+        "solutionCode": "uint256[] public chapterIds;\nfunction chapterAt(uint256 index) external view returns (uint256) {\n    require(index < chapterIds.length, \"index out of bounds\");\n    return chapterIds[index];\n}",
+        "testInput": "数组为 [4, 9] 时读取 1 和 2。",
+        "expectedResult": "读取 1 返回 9，读取 2 回滚。",
+        "hints": [
+          "先比较 index 和 length。",
+          "合法索引小于 length。"
+        ]
+      },
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html#arrays",
+        "locator": "Arrays"
+      }
+    },
+    {
+      "packCardId": "v4-arrays-write",
+      "position": 4,
+      "type": "code_write",
+      "question": "写一个 ChapterList，提供 add、count 和 removeLast，removeLast 不能在空数组执行。",
+      "answer": "使用 uint256[] storage；add push，count 返回 length，removeLast require length > 0 后 pop。",
+      "keyPoint": "集合的增删接口要一起定义空集合行为。",
+      "tags": [
+        "arrays",
+        "code_write"
+      ],
+      "code": {
+        "language": "solidity",
+        "starterCode": "// 完成 ChapterList 的 add、count、removeLast\n",
+        "solutionCode": "pragma solidity ^0.8.20;\ncontract ChapterList {\n    uint256[] public chapterIds;\n    function add(uint256 id) external { chapterIds.push(id); }\n    function count() external view returns (uint256) { return chapterIds.length; }\n    function removeLast() external { require(chapterIds.length > 0, \"empty\"); chapterIds.pop(); }\n}",
+        "testInput": "空数组 removeLast；添加 1、2 后 removeLast。",
+        "expectedResult": "空数组回滚；之后长度从 2 变为 1。",
+        "hints": [
+          "pop 只能移除末尾。",
+          "空数组先检查 length。"
+        ]
+      },
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html#arrays",
+        "locator": "Arrays"
+      }
+    },
+    {
+      "packCardId": "v4-arrays-application",
+      "position": 5,
+      "type": "application",
+      "question": "为什么链上数组不适合充当任意长度的全文数据库？",
+      "answer": "遍历和存储都会产生成本，删除和分页也需要额外设计；链上数组更适合小规模、顺序明确且合约确实需要读取的集合。",
+      "keyPoint": "先设计查询和规模，再选择存储结构。",
+      "tags": [
+        "数组",
+        "存储",
+        "应用"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html#arrays",
+        "locator": "Arrays"
+      }
+    },
+    {
+      "packCardId": "v4-arrays-misconception",
+      "position": 6,
+      "type": "misconception",
+      "question": "误区：数组 length 就是最后一个元素的索引，为什么错？",
+      "answer": "length 是元素数量，最后索引是 length - 1；空数组没有合法索引。",
+      "keyPoint": "数量和位置必须分开。",
+      "tags": [
+        "length",
+        "索引",
+        "误区"
+      ],
+      "importance": 4,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html#arrays",
+        "locator": "Arrays"
+      }
+    }
+  ]
+}

@@ -12,11 +12,12 @@ import {
   DeterministicCardQualityEvaluatorV3,
   type CardQualityEvaluatorV3,
 } from "./quality-evaluator-v3.js";
+import { expandBlueprintSlotEvidence } from "./blueprint-evidence.js";
 import type {
   BlueprintQualityDecisionV3,
   BlueprintQualityRepositoryV3,
   BlueprintSlotCandidateV3,
-  ProjectRunnerRepositoryV2,
+  ChapterQualityRepositoryV2,
 } from "./types-v2.js";
 import { freezeWorkerCandidatesV2, verifyCommittedCardsV2 } from "./validation-v2.js";
 
@@ -51,7 +52,7 @@ export class ChapterQualityGate {
   private readonly policy: GenerationPolicyV3;
 
   constructor(
-    private readonly repository: ProjectRunnerRepositoryV2,
+    private readonly repository: ChapterQualityRepositoryV2,
     private readonly embeddings: CardEmbeddingGatewayV3 = new DeterministicCardEmbeddingGatewayV3(),
     private readonly qualityEvaluator: CardQualityEvaluatorV3 = new DeterministicCardQualityEvaluatorV3(),
     policy: GenerationPolicyV3 = DEFAULT_GENERATION_POLICY_V3,
@@ -147,9 +148,9 @@ export class ChapterQualityGate {
 
   private async runBlueprintQualityGate(
     claimed: { projectId: `0x${string}`; chapterId: number },
-    bundle: Awaited<ReturnType<ProjectRunnerRepositoryV2["getChapterBundle"]>>,
+    bundle: Awaited<ReturnType<ChapterQualityRepositoryV2["getChapterBundle"]>>,
   ): Promise<"APPROVED" | "REPAIR_REQUESTED"> {
-    const repository = this.repository as ProjectRunnerRepositoryV2 & Partial<BlueprintQualityRepositoryV3>;
+    const repository = this.repository as ChapterQualityRepositoryV2 & Partial<BlueprintQualityRepositoryV3>;
     if (
       !repository.getChapterBlueprintQualityContext ||
       !repository.approveChapterBlueprintCandidates ||
@@ -201,16 +202,23 @@ export class ChapterQualityGate {
     }
 
     const sourceBlocks = bundle.workUnits.flatMap((unit) => unit.sourceBlocks ?? []);
+    const deterministicQualityFallback = new DeterministicCardQualityEvaluatorV3();
+    let qualityFallbackUsed = false;
     const pendingRubricResults = await mapWithConcurrency(pendingCandidates, 1, async (candidate) => {
-      const slot = context.blueprint.slots.find((candidateSlot) => candidateSlot.slotId === candidate.slotId);
-      if (!slot) throw new Error(`V3 candidate ${candidate.card.id} references an unknown Blueprint Slot`);
+      const frozenSlot = context.blueprint.slots.find((candidateSlot) => candidateSlot.slotId === candidate.slotId);
+      if (!frozenSlot) throw new Error(`V3 candidate ${candidate.card.id} references an unknown Blueprint Slot`);
+      const slot = expandBlueprintSlotEvidence(frozenSlot, sourceBlocks);
       const concept = context.inventory.concepts.find((item) => item.conceptId === slot.conceptId);
       if (!concept) throw new Error(`V3 Blueprint Slot ${slot.slotId} references an unknown Concept`);
-      const rubric = await this.qualityEvaluator.evaluate({
+      const evaluationInput = {
         conceptName: concept.name,
         slot,
         card: candidate.card,
         evidenceBlocks: sourceBlocks.filter((block) => slot.sourceBlockIndexes.includes(block.blockIndex)),
+      };
+      const rubric = await this.qualityEvaluator.evaluate(evaluationInput).catch(async () => {
+        qualityFallbackUsed = true;
+        return deterministicQualityFallback.evaluate(evaluationInput);
       });
       return { candidate, rubric, result: evaluateCardRubric({ evaluation: rubric, policy: this.policy }) };
     });
@@ -242,9 +250,15 @@ export class ChapterQualityGate {
       );
     }
     const dedupCandidates = reviewCandidates.filter((candidate) => !rubricRepairCardIds.has(candidate.card.id));
-    const vectors = await this.embeddings.embed(
-      dedupCandidates.map((candidate) => `${candidate.card.question}\n${candidate.card.keyPoint}`),
+    const embeddingInputs = dedupCandidates.map(
+      (candidate) => `${candidate.card.question}\n${candidate.card.keyPoint}`,
     );
+    let embeddingModel = this.embeddings.modelId;
+    const vectors = await this.embeddings.embed(embeddingInputs).catch(async () => {
+      const fallback = new DeterministicCardEmbeddingGatewayV3();
+      embeddingModel = fallback.modelId;
+      return fallback.embed(embeddingInputs);
+    });
     if (vectors.length !== dedupCandidates.length) {
       throw new Error("Embedding gateway returned the wrong number of vectors");
     }
@@ -342,12 +356,16 @@ export class ChapterQualityGate {
         ...coverage,
         duplicateRate,
         countPasses,
-        embeddingModel: this.embeddings.modelId,
+        embeddingModel,
         policySnapshot: this.policy,
       },
       duplicatePairs: duplicates,
-      evaluatorModel: this.qualityEvaluator.modelId.slice(0, 200),
-      promptVersion: this.qualityEvaluator.promptVersion,
+      evaluatorModel: (qualityFallbackUsed
+        ? `${this.qualityEvaluator.modelId}+${deterministicQualityFallback.modelId}`
+        : this.qualityEvaluator.modelId).slice(0, 200),
+      promptVersion: qualityFallbackUsed
+        ? deterministicQualityFallback.promptVersion
+        : this.qualityEvaluator.promptVersion,
     };
 
     if (!passes) {

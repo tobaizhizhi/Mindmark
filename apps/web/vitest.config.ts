@@ -5,6 +5,24 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": fileURLToPath(new URL(".", import.meta.url)),
+      "@mindmark/ai-gateway": fileURLToPath(
+        new URL("../../packages/ai-gateway/src/index.ts", import.meta.url),
+      ),
+      "@mindmark/shared/learning-project": fileURLToPath(
+        new URL("../../packages/shared/src/learning-project/index.ts", import.meta.url),
+      ),
+      "@mindmark/shared/chapter": fileURLToPath(
+        new URL("../../packages/shared/src/chapter/index.ts", import.meta.url),
+      ),
+      "@mindmark/shared/knowledge-card": fileURLToPath(
+        new URL("../../packages/shared/src/knowledge-card/index.ts", import.meta.url),
+      ),
+      "@mindmark/shared/study": fileURLToPath(
+        new URL("../../packages/shared/src/study/index.ts", import.meta.url),
+      ),
+      "@mindmark/shared/commitments": fileURLToPath(
+        new URL("../../packages/shared/src/commitments/index.ts", import.meta.url),
+      ),
       "@mindmark/shared/schemas": fileURLToPath(
         new URL("../../packages/shared/src/schemas.ts", import.meta.url),
       ),

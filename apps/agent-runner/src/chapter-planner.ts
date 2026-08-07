@@ -1,8 +1,11 @@
 import {
+  analyzeChapterStructure,
   ChapterPlanningProposalSchema,
   SourceBlockSchema,
+  chapterTitleQualityIssues,
   classifySourceExclusions,
   mergeSourceExclusionRanges,
+  normalizeChapterTitle,
   planChapterCountBudget,
   planChaptersDeterministically,
   type ChapterPlanningProposal,
@@ -11,7 +14,6 @@ import {
 import { z } from "zod";
 import {
   DEFAULT_AI_TOOL_TIMEOUT_MS,
-  type AgentToolCall,
   type AgentToolDefinition,
   type AgentTranscriptEntry,
   type ToolCallingModel,
@@ -144,7 +146,7 @@ export class AiChapterPlanner implements ChapterPlanner {
       for (let index = 0; index < (this.options.maxToolCalls ?? 3); index += 1) {
         const call = await this.model.nextTool({
           system:
-            `You are Mindmark's Chapter Planner. Account for every Source Block as either learner-facing Chapter content or an excluded non-learning range. Exclude repeated headers, footers, watermarks, page numbers, contents pages, copyright notices, promotional messages, administrative text, exam-syllabus changes, added or removed exam topics, score or question-format changes, schedules, registration notices, and course or document version updates. These notices must never become Chapters. A Chapter must contain real learnable knowledge and may span excluded blocks inside its range. Document headings are candidate boundaries, not automatic Chapters. Prefer coherent learning units over one Chapter per heading. Every non-excluded block must belong to exactly one ordered, non-overlapping Chapter. The initial Chapter budget is ${initialBudget.minChapters}-${initialBudget.maxChapters}, with a target of ${initialBudget.targetChapters}. Never exceed the budget returned by read_source_outline. ${languageInstruction} Never invent IDs, hashes, proofs, or transaction data.`,
+            `You are Mindmark's Chapter Planner. Account for every Source Block as either learner-facing Chapter content or an excluded non-learning range. Exclude repeated headers, footers, watermarks, page numbers, contents pages, copyright notices, promotional messages, administrative text, exam-syllabus changes, added or removed exam topics, score or question-format changes, schedules, registration notices, and course or document version updates. These notices must never become Chapters. A Chapter must contain real learnable knowledge and may span excluded blocks inside its range. Document headings are candidate boundaries, not automatic Chapters. Follow the structural hints from read_source_outline: keep each natural topic group together unless a split is necessary for the budget, keep parenthesized or decimal numbered headings as subsections, and never cross unrelated groups without a composite title that describes both topics. Prefer coherent learning units over one Chapter per heading. Every non-excluded block must belong to exactly one ordered, non-overlapping Chapter. The initial Chapter budget is ${initialBudget.minChapters}-${initialBudget.maxChapters}, with a target of ${initialBudget.targetChapters}. Never exceed the budget returned by read_source_outline. Titles must be concise learning-topic noun phrases with no Chapter numbering, Markdown, formulas, worked-example fragments, explanatory sentences, or terminal punctuation. ${languageInstruction} Never invent IDs, hashes, proofs, or transaction data.`,
           task: `Plan ${initialBudget.targetChapters} target Chapters (${initialBudget.minChapters}-${initialBudget.maxChapters} allowed) for Project ${input.projectId}. Learning goal: ${input.goal ?? "not specified"}`,
           tools: plannerTools,
           transcript,
@@ -157,11 +159,13 @@ export class AiChapterPlanner implements ChapterPlanner {
           result = {
             chapterBudget: initialBudget,
             outputLanguage,
+            structuralHints: analyzeChapterStructure(blocks, protectedExclusions),
             blocks: blocks.map((block) => ({
               blockIndex: block.blockIndex,
               pageNumber: block.pageNumber,
               kind: block.kind,
               text: block.text,
+              headingLevel: block.headingLevel,
             })),
           };
         } else if (call.name === "propose_chapters") {
@@ -197,10 +201,15 @@ export class AiChapterPlanner implements ChapterPlanner {
                     ]),
                     outputLanguage,
                   );
-                  if (languageIssues.length > 0) {
+                  const titleIssues = proposal.chapters.flatMap((chapter, chapterIndex) =>
+                    chapterTitleQualityIssues(chapter.title).map((issue) =>
+                      `chapters[${chapterIndex}].title: ${issue}`,
+                    ),
+                  );
+                  if (languageIssues.length > 0 || titleIssues.length > 0) {
                     result = {
                       accepted: false,
-                      errors: languageIssues,
+                      errors: [...languageIssues, ...titleIssues],
                       outputLanguage,
                     };
                     transcript.push({ call, result });
@@ -215,7 +224,13 @@ export class AiChapterPlanner implements ChapterPlanner {
                       chapterBudget: budget,
                     },
                   });
-                  return proposal;
+                  return {
+                    ...proposal,
+                    chapters: proposal.chapters.map((chapter) => ({
+                      ...chapter,
+                      title: normalizeChapterTitle(chapter.title),
+                    })),
+                  };
                 }
               } catch (error) {
                 result = {
@@ -236,8 +251,4 @@ export class AiChapterPlanner implements ChapterPlanner {
       clearTimeout(timeout);
     }
   }
-}
-
-export function isChapterPlannerToolCall(call: AgentToolCall): boolean {
-  return plannerTools.some((tool) => tool.name === call.name);
 }

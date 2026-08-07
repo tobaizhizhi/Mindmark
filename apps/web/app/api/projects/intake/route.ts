@@ -1,7 +1,7 @@
 import { ProjectIntakeRequestSchema } from "@mindmark/shared";
 import { requireWalletSession } from "@/lib/server/auth";
 import { jsonError } from "@/lib/server/http";
-import { intakeProjectForOwner } from "@/lib/server/projects";
+import { intakeProjectForOwner } from "@/lib/server/project-lifecycle/intake";
 
 export async function POST(request: Request) {
   try {

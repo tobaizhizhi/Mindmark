@@ -1,0 +1,198 @@
+{
+  "chapterId": 5,
+  "position": 5,
+  "slug": "arrays-and-structs",
+  "title": "数组与 Struct：组织一组学习记录",
+  "summary": "把多个字段组合成实体，再用固定数组和动态数组保存一组实体。",
+  "estimatedMinutes": 27,
+  "learningObjectives": [
+    "能声明 fixed/dynamic array",
+    "能定义、创建和修改 struct",
+    "能处理 push、length 和边界检查"
+  ],
+  "prerequisiteChapterIds": [
+    4
+  ],
+  "cards": [
+    {
+      "packCardId": "v3-arrays-and-structs-concept",
+      "position": 0,
+      "type": "concept",
+      "question": "固定长度数组和动态数组的主要差异是什么？",
+      "answer": "固定数组长度写入类型并不可变；动态数组可在 storage 中 push 和 pop，并有 length。数组元素可以是值类型、引用类型或 struct。",
+      "keyPoint": "需要增长的集合用动态数组，但遍历规模必须受 gas 预算约束。",
+      "tags": [
+        "数组",
+        "push",
+        "length"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html#arrays",
+        "locator": "Array Members and Struct Types"
+      }
+    },
+    {
+      "packCardId": "v3-arrays-and-structs-check",
+      "position": 1,
+      "type": "qa",
+      "question": "为什么 struct 适合表示 Learner，而不是用三个平行数组？",
+      "answer": "struct 把 name、score、active 等属于同一实体的字段绑定在一起，读取和更新更不容易错位；平行数组会增加索引同步和删除复杂度。",
+      "keyPoint": "先让数据模型表达实体边界，再写函数操作它。",
+      "tags": [
+        "struct",
+        "数据建模",
+        "数组"
+      ],
+      "importance": 4,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html#arrays",
+        "locator": "Array Members and Struct Types"
+      }
+    },
+    {
+      "packCardId": "v3-arrays-and-structs-read",
+      "position": 2,
+      "type": "code_read",
+      "question": "阅读 enroll：一次调用会改变数组的哪两个事实？",
+      "answer": "它把新的 Learner 追加到 learners 数组，使 length 增一；同时返回或记录新元素的位置，后续可以用索引读取。",
+      "keyPoint": "push 同时改变集合内容和 length，审计边界时要关注索引是否越界。",
+      "tags": [
+        "读代码",
+        "push",
+        "struct"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html#arrays",
+        "locator": "Array Members and Struct Types"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "struct Learner { string name; uint256 score; }\nLearner[] public learners;\n\nfunction enroll(string calldata name) external {\n    learners.push(Learner({ name: name, score: 0 }));\n}",
+        "solutionCode": "enroll(\"Alice\") -> learners.length 从 0 变 1\nlearners[0].name == \"Alice\"\nlearners[0].score == 0",
+        "testInput": "先 enroll Alice，再 enroll Bob。",
+        "expectedResult": "length=2，索引 0/1 分别是 Alice/Bob。",
+        "hints": [
+          "数组从索引 0 开始。",
+          "push 会追加一个元素。"
+        ]
+      }
+    },
+    {
+      "packCardId": "v3-arrays-and-structs-complete",
+      "position": 3,
+      "type": "code_complete",
+      "question": "补全 addLearner，把 name 和 score 组合为 Learner 后 push。",
+      "answer": "可以使用命名字段的 struct literal，明确 name 和 score 对应关系。",
+      "keyPoint": "结构体字面量比按位置传值更适合字段较多的实体。",
+      "tags": [
+        "struct literal",
+        "push",
+        "补全"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html#arrays",
+        "locator": "Array Members and Struct Types"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "struct Learner { string name; uint256 score; }\nLearner[] public learners;\n\nfunction addLearner(string calldata name, uint256 score) external {\n    // TODO\n}",
+        "solutionCode": "struct Learner { string name; uint256 score; }\nLearner[] public learners;\n\nfunction addLearner(string calldata name, uint256 score) external {\n    learners.push(Learner({ name: name, score: score }));\n}",
+        "testInput": "addLearner(\"Bob\", 80)。",
+        "expectedResult": "learners[0] 为 Bob/80。",
+        "hints": [
+          "用 Learner({ ... })。",
+          "最后调用 learners.push。"
+        ]
+      }
+    },
+    {
+      "packCardId": "v3-arrays-and-structs-write",
+      "position": 4,
+      "type": "code_write",
+      "question": "写一个 updateScore：接收 learnerId 和 score，先检查索引，再更新对应 struct。",
+      "answer": "检查 learnerId < learners.length，随后写 learners[learnerId].score = score。",
+      "keyPoint": "数组下标必须先做边界检查，不能依赖 Solidity 在复杂业务中替你表达错误原因。",
+      "tags": [
+        "数组边界",
+        "struct",
+        "写代码"
+      ],
+      "importance": 5,
+      "initialDifficulty": 4,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html#arrays",
+        "locator": "Array Members and Struct Types"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "struct Learner { string name; uint256 score; }\nLearner[] public learners;\n\n// 写出 updateScore(uint256 learnerId, uint256 score)",
+        "solutionCode": "function updateScore(uint256 learnerId, uint256 score) external {\n    require(learnerId < learners.length, \"invalid learner\");\n    learners[learnerId].score = score;\n}",
+        "testInput": "空数组 updateScore(0, 90)；有一条记录 updateScore(0, 90)。",
+        "expectedResult": "空数组回滚；有记录时 score 更新为 90。",
+        "hints": [
+          "有效索引小于 length。",
+          "直接访问 storage struct 字段。"
+        ]
+      }
+    },
+    {
+      "packCardId": "v3-arrays-and-structs-application",
+      "position": 5,
+      "type": "application",
+      "question": "为什么链上不适合无界遍历 learners 数组？",
+      "answer": "每个元素读取都会消耗 gas，数组增长后单次交易可能超过区块 gas 限制。需要分页、按 key 查询或限制集合规模。",
+      "keyPoint": "数据结构的便利性必须和链上资源上限一起设计。",
+      "tags": [
+        "gas",
+        "遍历",
+        "应用"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html#arrays",
+        "locator": "Array Members and Struct Types"
+      }
+    },
+    {
+      "packCardId": "v3-arrays-and-structs-misconception",
+      "position": 6,
+      "type": "misconception",
+      "question": "误区：数组 push 后最后一个元素的索引是 length，为什么错误？",
+      "answer": "length 是元素数量，最后一个有效索引是 length - 1；访问 learners[length] 会越界。",
+      "keyPoint": "数量和索引是两个不同概念，边界测试必须覆盖空数组和最后一项。",
+      "tags": [
+        "数组",
+        "索引",
+        "误区"
+      ],
+      "importance": 4,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/types.html#arrays",
+        "locator": "Array Members and Struct Types"
+      }
+    }
+  ]
+}

@@ -1,0 +1,211 @@
+{
+  "chapterId": 11,
+  "position": 11,
+  "slug": "events",
+  "title": "12 events：让权限操作可被追踪",
+  "summary": "在状态和权限稳定后引入 event、emit、indexed 和日志查询。",
+  "estimatedMinutes": 26,
+  "learningObjectives": [
+    "能为关键状态变化设计事件",
+    "能选择 indexed 参数进行筛选",
+    "能区分事件历史和当前 storage 状态"
+  ],
+  "prerequisiteChapterIds": [
+    10
+  ],
+  "stageId": 3,
+  "stageTitle": "阶段四：建立权限",
+  "newConcepts": [
+    "event",
+    "emit",
+    "indexed",
+    "topics/data"
+  ],
+  "prerequisiteConcepts": [
+    "modifier",
+    "onlyOwner",
+    "状态转换",
+    "address"
+  ],
+  "practiceFocus": "Registry 的创建章节、发布和暂停都要发出可查询事件。",
+  "projectMilestone": "前端可以通过日志重建 Registry 的关键动作历史。",
+  "cards": [
+    {
+      "packCardId": "v4-events-concept",
+      "position": 0,
+      "type": "concept",
+      "question": "event 和 storage 各自应该保存什么？",
+      "answer": "storage 保存合约后续执行需要的当前状态；event 记录发生过的事实，供前端和索引器查询。合约本身不能读取自己的 event。",
+      "keyPoint": "当前值和历史事实不能互相替代。",
+      "tags": [
+        "event",
+        "storage",
+        "日志"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#events",
+        "locator": "Events"
+      }
+    },
+    {
+      "packCardId": "v4-events-check",
+      "position": 1,
+      "type": "qa",
+      "question": "indexed 参数在 topics 中有什么作用？",
+      "answer": "非匿名事件最多三个 indexed 参数进入 topics，可被前端按地址或 ID 筛选；普通参数编码在 data 中。",
+      "keyPoint": "indexed 是查询索引，不是加密。",
+      "tags": [
+        "indexed",
+        "topics",
+        "查询"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#events",
+        "locator": "Events"
+      }
+    },
+    {
+      "packCardId": "v4-events-read",
+      "position": 2,
+      "type": "code_read",
+      "question": "阅读 ChapterAdded 日志，指出 topics 和 data 中的字段。",
+      "answer": "topics[0] 是事件签名，topics[1] 是 indexed chapterId；title 在 data 中。",
+      "keyPoint": "事件日志布局由 indexed 标记决定。",
+      "tags": [
+        "events",
+        "code_read"
+      ],
+      "code": {
+        "language": "solidity",
+        "starterCode": "event ChapterAdded(uint256 indexed chapterId, string title);\nfunction add(uint256 id, string calldata title) external { emit ChapterAdded(id, title); }",
+        "solutionCode": "topics -> 事件签名和 chapterId；data -> title。",
+        "testInput": "调用 add(3, \"Mapping\")。",
+        "expectedResult": "产生可按 chapterId=3 筛选的日志。",
+        "hints": [
+          "第一个 topic 是签名。",
+          "只有 indexed 参数进入 topics。"
+        ]
+      },
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#events",
+        "locator": "Events"
+      }
+    },
+    {
+      "packCardId": "v4-events-complete",
+      "position": 3,
+      "type": "code_complete",
+      "question": "补全 setPaused，让成功的状态变化发出 Paused 事件。",
+      "answer": "声明 event Paused(address indexed actor, bool value)，写入 paused 后 emit。",
+      "keyPoint": "事件应描述已经成功提交的状态变化。",
+      "tags": [
+        "events",
+        "code_complete"
+      ],
+      "code": {
+        "language": "solidity",
+        "starterCode": "event Paused(address indexed actor, bool value);\nbool public paused;\nfunction setPaused(bool next) external onlyOwner {\n    // TODO\n}",
+        "solutionCode": "function setPaused(bool next) external onlyOwner {\n    paused = next;\n    emit Paused(msg.sender, next);\n}",
+        "testInput": "owner setPaused(true)。",
+        "expectedResult": "paused=true，并产生 actor=owner、value=true 的日志。",
+        "hints": [
+          "先写状态，再 emit。",
+          "msg.sender 适合 indexed actor。"
+        ]
+      },
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#events",
+        "locator": "Events"
+      }
+    },
+    {
+      "packCardId": "v4-events-write",
+      "position": 4,
+      "type": "code_write",
+      "question": "写一个 EventRegistry：owner 添加章节时保存记录并发出 ChapterAdded。",
+      "answer": "定义 owner、Chapter struct、onlyOwner 和 event；addChapter 检查权限，push 记录，再 emit。",
+      "keyPoint": "日志把权限动作与业务实体 ID 连接起来。",
+      "tags": [
+        "events",
+        "code_write"
+      ],
+      "code": {
+        "language": "solidity",
+        "starterCode": "// 完成 EventRegistry 的 addChapter 和 ChapterAdded 事件\n",
+        "solutionCode": "pragma solidity ^0.8.20;\ncontract EventRegistry {\n    address public immutable owner;\n    struct Chapter { uint256 id; string title; }\n    Chapter[] public chapters;\n    event ChapterAdded(uint256 indexed chapterId, string title, address indexed actor);\n    constructor() { owner = msg.sender; }\n    function addChapter(string calldata title) external {\n        require(msg.sender == owner, \"not owner\");\n        uint256 id = chapters.length;\n        chapters.push(Chapter(id, title));\n        emit ChapterAdded(id, title, msg.sender);\n    }\n}",
+        "testInput": "A 添加 Types，B 尝试添加 Mapping。",
+        "expectedResult": "A 成功并发日志，B 回滚且没有日志。",
+        "hints": [
+          "日志只出现在成功交易。",
+          "章节 ID 使用 push 前的 length。"
+        ]
+      },
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#events",
+        "locator": "Events"
+      }
+    },
+    {
+      "packCardId": "v4-events-application",
+      "position": 5,
+      "type": "application",
+      "question": "为什么前端不能只监听事件而不读取 storage？",
+      "answer": "事件是历史记录，可能有索引延迟或重组；当前 title、paused 等业务真相仍应从 storage 读取。",
+      "keyPoint": "事件加速查询，storage 保持当前状态权威。",
+      "tags": [
+        "前端",
+        "事件",
+        "状态"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#events",
+        "locator": "Events"
+      }
+    },
+    {
+      "packCardId": "v4-events-misconception",
+      "position": 6,
+      "type": "misconception",
+      "question": "误区：emit 在函数中执行过就永远存在，为什么不对？",
+      "answer": "如果交易后续回滚，整笔交易的状态和日志都会回滚；日志与成功收据原子绑定。",
+      "keyPoint": "先保证成功路径，再依赖事件提供历史。",
+      "tags": [
+        "回滚",
+        "日志",
+        "误区"
+      ],
+      "importance": 4,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#events",
+        "locator": "Events"
+      }
+    }
+  ]
+}

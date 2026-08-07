@@ -1,0 +1,296 @@
+{
+  "chapterId": 13,
+  "position": 13,
+  "slug": "inheritance",
+  "title": "14 inheritance：拆出可复用的基础合约",
+  "summary": "在完整基础合约后学习 virtual、override、super 和抽象契约。",
+  "estimatedMinutes": 28,
+  "learningObjectives": [
+    "能编写基础合约和派生合约",
+    "能正确使用 virtual/override/super",
+    "能判断继承还是组合更清晰"
+  ],
+  "prerequisiteChapterIds": [
+    12
+  ],
+  "stageId": 4,
+  "stageTitle": "阶段五：组合合约",
+  "newConcepts": [
+    "abstract contract",
+    "virtual",
+    "override",
+    "super",
+    "继承构造"
+  ],
+  "prerequisiteConcepts": [
+    "modifier",
+    "events",
+    "payable",
+    "struct"
+  ],
+  "practiceFocus": "把 Registry 的计数逻辑拆成 BaseRegistry，派生合约增加奖励策略。",
+  "projectMilestone": "LearningRegistry 形成基础能力与扩展能力两层结构。",
+  "cards": [
+    {
+      "packCardId": "v5-v4-inheritance-concept",
+      "position": 0,
+      "type": "concept",
+      "question": "virtual、override 和 super 各自表示什么？",
+      "answer": "virtual 允许派生合约重写；override 声明当前函数履行父契约；super 显式调用父实现。父实现不会因为 override 自动执行。",
+      "keyPoint": "重写关系和复用关系都要写在代码里。",
+      "tags": [
+        "继承",
+        "virtual",
+        "override"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#inheritance",
+        "locator": "Inheritance"
+      },
+      "readingBlockId": "inheritance-concept-text"
+    },
+    {
+      "packCardId": "v5-v4-inheritance-check",
+      "position": 1,
+      "type": "qa",
+      "question": "为什么抽象合约不能直接部署？",
+      "answer": "抽象合约包含未实现的函数契约，无法生成完整可执行行为；派生合约实现所有要求后才能部署。",
+      "keyPoint": "抽象层定义规则，具体层提供行为。",
+      "tags": [
+        "abstract",
+        "部署",
+        "契约"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#inheritance",
+        "locator": "Inheritance"
+      },
+      "readingBlockId": "inheritance-concept-text"
+    },
+    {
+      "packCardId": "v5-v4-inheritance-read",
+      "position": 2,
+      "type": "code_read",
+      "question": "调用 BonusRegistry.record 后 count 和 bonus 如何变化？",
+      "answer": "override 先调用 super.record 增加基础 count，再增加 bonus；两个效果都发生。",
+      "keyPoint": "是否保留父行为取决于显式 super 调用。",
+      "tags": [
+        "inheritance",
+        "code_read"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#inheritance",
+        "locator": "Inheritance"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "contract BaseRegistry { uint256 public count; function record() public virtual { count += 1; } }\ncontract BonusRegistry is BaseRegistry { uint256 public bonus; function record() public override { super.record(); bonus += 10; } }",
+        "solutionCode": "调用一次 -> count=1、bonus=10。",
+        "testInput": "部署 BonusRegistry，调用 record。",
+        "expectedResult": "count=1，bonus=10。",
+        "hints": [
+          "先看 super.record。",
+          "再看 bonus 写入。"
+        ]
+      },
+      "readingBlockId": "inheritance-code-1"
+    },
+    {
+      "packCardId": "v5-v4-inheritance-complete",
+      "position": 3,
+      "type": "code_complete",
+      "question": "补全 PausableRegistry 的 override，使 paused 时拒绝并复用父计数。",
+      "answer": "require(!paused)，然后 super.record()。",
+      "keyPoint": "派生合约增加前置条件，父合约保留通用效果。",
+      "tags": [
+        "inheritance",
+        "code_complete"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#inheritance",
+        "locator": "Inheritance"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "contract BaseRegistry { uint256 public count; function record() public virtual { count += 1; } }\ncontract PausableRegistry is BaseRegistry { bool public paused; function record() public override {\n    // TODO\n} }",
+        "solutionCode": "function record() public override {\n    require(!paused, \"paused\");\n    super.record();\n}",
+        "testInput": "paused=true/false 时分别 record。",
+        "expectedResult": "暂停回滚，恢复后 count 增加 1。",
+        "hints": [
+          "先检查 paused。",
+          "用 super 保留父行为。"
+        ]
+      },
+      "readingBlockId": "inheritance-code-2"
+    },
+    {
+      "packCardId": "v5-v4-inheritance-write",
+      "position": 4,
+      "type": "code_write",
+      "question": "写一个 BaseRegistry 和 RewardRegistry：每次 record 后按 10% 累计 bonus。",
+      "answer": "父合约维护 count，record 标记 virtual；派生合约 override，先 super.record，再 bonus += value / 10。",
+      "keyPoint": "父层保存稳定不变量，子层增加可替换策略。",
+      "tags": [
+        "inheritance",
+        "code_write"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#inheritance",
+        "locator": "Inheritance"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "// 完成 BaseRegistry/RewardRegistry，record(100) 得 bonus=10",
+        "solutionCode": "pragma solidity ^0.8.20;\ncontract BaseRegistry { uint256 public count; function record(uint256 value) public virtual { count += value; } }\ncontract RewardRegistry is BaseRegistry { uint256 public bonus; function record(uint256 value) public override { super.record(value); bonus += value / 10; } }",
+        "testInput": "record(100) 和 record(9)。",
+        "expectedResult": "count=109，bonus=10。",
+        "hints": [
+          "父函数声明 virtual。",
+          "整数除法向下取整。"
+        ]
+      },
+      "readingBlockId": "inheritance-code-3"
+    },
+    {
+      "packCardId": "v5-v4-inheritance-application",
+      "position": 5,
+      "type": "application",
+      "question": "什么时候组合比继承更适合？",
+      "answer": "如果只需要调用一个可替换组件，组合不会引入父状态、线性化和 override 约束，测试边界更清晰。",
+      "keyPoint": "继承表达稳定 is-a 关系，不是复用代码的唯一方式。",
+      "tags": [
+        "组合",
+        "架构",
+        "应用"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#inheritance",
+        "locator": "Inheritance"
+      },
+      "readingBlockId": "inheritance-practice-text"
+    },
+    {
+      "packCardId": "v5-v4-inheritance-misconception",
+      "position": 6,
+      "type": "misconception",
+      "question": "误区：子合约 override 后父函数还会自动执行，为什么错？",
+      "answer": "override 默认替换父实现，只有显式调用 super 才会复用父逻辑。",
+      "keyPoint": "执行路径必须从函数体中确认。",
+      "tags": [
+        "override",
+        "super",
+        "误区"
+      ],
+      "importance": 4,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#inheritance",
+        "locator": "Inheritance"
+      },
+      "readingBlockId": "inheritance-practice-text"
+    }
+  ],
+  "readingBlocks": [
+    {
+      "blockId": "inheritance-title",
+      "position": 0,
+      "kind": "heading",
+      "text": "14 inheritance：拆出可复用的基础合约"
+    },
+    {
+      "blockId": "inheritance-overview",
+      "position": 1,
+      "kind": "paragraph",
+      "text": "在完整基础合约后学习 virtual、override、super 和抽象契约。"
+    },
+    {
+      "blockId": "inheritance-stage",
+      "position": 2,
+      "kind": "callout",
+      "text": "阶段五：组合合约。练习重点：把 Registry 的计数逻辑拆成 BaseRegistry，派生合约增加奖励策略。"
+    },
+    {
+      "blockId": "inheritance-objectives",
+      "position": 3,
+      "kind": "heading",
+      "text": "本章学习目标"
+    },
+    {
+      "blockId": "inheritance-objective-text",
+      "position": 4,
+      "kind": "paragraph",
+      "text": "1. 能编写基础合约和派生合约\n2. 能正确使用 virtual/override/super\n3. 能判断继承还是组合更清晰"
+    },
+    {
+      "blockId": "inheritance-concepts",
+      "position": 5,
+      "kind": "heading",
+      "text": "关键概念"
+    },
+    {
+      "blockId": "inheritance-concept-text",
+      "position": 6,
+      "kind": "paragraph",
+      "text": "本章引入：abstract contract、virtual、override、super、继承构造。LearningRegistry 形成基础能力与扩展能力两层结构。"
+    },
+    {
+      "blockId": "inheritance-code-1",
+      "position": 7,
+      "kind": "code",
+      "text": "contract BaseRegistry { uint256 public count; function record() public virtual { count += 1; } }\ncontract BonusRegistry is BaseRegistry { uint256 public bonus; function record() public override { super.record(); bonus += 10; } }",
+      "language": "solidity"
+    },
+    {
+      "blockId": "inheritance-code-2",
+      "position": 8,
+      "kind": "code",
+      "text": "contract BaseRegistry { uint256 public count; function record() public virtual { count += 1; } }\ncontract PausableRegistry is BaseRegistry { bool public paused; function record() public override {\n    // TODO\n} }",
+      "language": "solidity"
+    },
+    {
+      "blockId": "inheritance-code-3",
+      "position": 9,
+      "kind": "code",
+      "text": "// 完成 BaseRegistry/RewardRegistry，record(100) 得 bonus=10",
+      "language": "solidity"
+    },
+    {
+      "blockId": "inheritance-practice",
+      "position": 10,
+      "kind": "heading",
+      "text": "迁移练习"
+    },
+    {
+      "blockId": "inheritance-practice-text",
+      "position": 11,
+      "kind": "paragraph",
+      "text": "把 Registry 的计数逻辑拆成 BaseRegistry，派生合约增加奖励策略。\n项目里程碑：LearningRegistry 形成基础能力与扩展能力两层结构。"
+    }
+  ]
+}

@@ -1,0 +1,211 @@
+{
+  "chapterId": 3,
+  "position": 3,
+  "slug": "read-write-mutability",
+  "title": "04 读写函数：view、pure 与返回值",
+  "summary": "建立读状态、纯计算、写状态三条清晰路径。",
+  "estimatedMinutes": 24,
+  "learningObjectives": [
+    "能正确标注 view、pure 和普通写函数",
+    "能区分 eth_call 与交易",
+    "能写单值和多值返回函数"
+  ],
+  "prerequisiteChapterIds": [
+    2
+  ],
+  "stageId": 0,
+  "stageTitle": "阶段一：看见合约",
+  "newConcepts": [
+    "view",
+    "pure",
+    "return",
+    "状态写入",
+    "require 输入检查"
+  ],
+  "prerequisiteConcepts": [
+    "function",
+    "参数",
+    "返回值签名"
+  ],
+  "practiceFocus": "LearningRegistry 只维护数值和文本，不处理 Ether 或集合。",
+  "projectMilestone": "增加 readSummary 和 incrementVersion，能观察读写差异。",
+  "cards": [
+    {
+      "packCardId": "v4-read-write-mutability-concept",
+      "position": 0,
+      "type": "concept",
+      "question": "view 和 pure 的边界是什么？",
+      "answer": "view 可以读取状态但不能修改；pure 既不能读取也不能修改状态，只能依赖参数和局部计算。",
+      "keyPoint": "修饰符是执行承诺，函数体必须与承诺一致。",
+      "tags": [
+        "view",
+        "pure",
+        "状态"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#state-mutability",
+        "locator": "State Mutability"
+      }
+    },
+    {
+      "packCardId": "v4-read-write-mutability-check",
+      "position": 1,
+      "type": "qa",
+      "question": "为什么调用 view 通常不需要发送交易，但写函数需要？",
+      "answer": "view 通过 eth_call 在节点本地执行，不提交状态改变；写函数必须由交易执行并等待共识确认。",
+      "keyPoint": "调用方式决定用户体验，但写入仍要承担 gas 和确认等待。",
+      "tags": [
+        "eth_call",
+        "交易",
+        "gas"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#state-mutability",
+        "locator": "State Mutability"
+      }
+    },
+    {
+      "packCardId": "v4-read-write-mutability-read",
+      "position": 2,
+      "type": "code_read",
+      "question": "给四个函数分类：纯计算、读状态、写状态。",
+      "answer": "double 是 pure；readVersion 是 view；bumpVersion 和 rename 都是写状态的普通函数。",
+      "keyPoint": "先看修饰符，再检查函数体是否违约。",
+      "tags": [
+        "read-write-mutability",
+        "code_read"
+      ],
+      "code": {
+        "language": "solidity",
+        "starterCode": "uint256 public version;\nfunction double(uint256 x) external pure returns (uint256) { return x * 2; }\nfunction readVersion() external view returns (uint256) { return version; }\nfunction bumpVersion() external { version += 1; }\nfunction rename(string calldata next) external { name = next; }",
+        "solutionCode": "double -> pure；readVersion -> view；bumpVersion/rename -> 写状态交易。",
+        "testInput": "从 Remix 分别点击四个函数。",
+        "expectedResult": "前两个读取结果，后两个要求交易并改变状态。",
+        "hints": [
+          "看函数体里的赋值。",
+          "pure 不读状态。"
+        ]
+      },
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#state-mutability",
+        "locator": "State Mutability"
+      }
+    },
+    {
+      "packCardId": "v4-read-write-mutability-complete",
+      "position": 3,
+      "type": "code_complete",
+      "question": "补全 average，让它以 pure 函数返回两个整数的平均值。",
+      "answer": "声明 external pure returns (uint256)，return (a + b) / 2。",
+      "keyPoint": "先确认函数不访问状态，再选择 pure。",
+      "tags": [
+        "read-write-mutability",
+        "code_complete"
+      ],
+      "code": {
+        "language": "solidity",
+        "starterCode": "function average(uint256 a, uint256 b) external /* TODO */ returns (uint256) {\n    // TODO\n}",
+        "solutionCode": "function average(uint256 a, uint256 b) external pure returns (uint256) {\n    return (a + b) / 2;\n}",
+        "testInput": "average(7, 4)。",
+        "expectedResult": "返回 5，整数除法向下取整。",
+        "hints": [
+          "只依赖 a、b。",
+          "使用 / 2。"
+        ]
+      },
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#state-mutability",
+        "locator": "State Mutability"
+      }
+    },
+    {
+      "packCardId": "v4-read-write-mutability-write",
+      "position": 4,
+      "type": "code_write",
+      "question": "写一个 VersionedRegistry：提供 ownerless 的 bump 和 view current，bump 每次增加 1。",
+      "answer": "version 初值为 0；bump 执行 version += 1；current 用 view returns 返回 version。",
+      "keyPoint": "先练习状态转换，不在这一章提前引入权限。",
+      "tags": [
+        "read-write-mutability",
+        "code_write"
+      ],
+      "code": {
+        "language": "solidity",
+        "starterCode": "// 写出 version、bump() 和 current()\n",
+        "solutionCode": "pragma solidity ^0.8.20;\ncontract VersionedRegistry {\n    uint256 public version;\n    function bump() external { version += 1; }\n    function current() external view returns (uint256) { return version; }\n}",
+        "testInput": "调用 bump 两次，再 current。",
+        "expectedResult": "返回 2。",
+        "hints": [
+          "写函数不能标记 view。",
+          "current 只读取状态。"
+        ]
+      },
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#state-mutability",
+        "locator": "State Mutability"
+      }
+    },
+    {
+      "packCardId": "v4-read-write-mutability-application",
+      "position": 5,
+      "type": "application",
+      "question": "为什么把读函数写成 view 能帮助前端和审计者？",
+      "answer": "view 明确表示不会直接修改状态，前端可以用 eth_call，审计者也能快速隔离状态改变路径。",
+      "keyPoint": "清晰的状态边界降低误调用和审计成本。",
+      "tags": [
+        "view",
+        "前端",
+        "审计"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#state-mutability",
+        "locator": "State Mutability"
+      }
+    },
+    {
+      "packCardId": "v4-read-write-mutability-misconception",
+      "position": 6,
+      "type": "misconception",
+      "question": "误区：pure 函数永远不会消耗 gas，为什么不严谨？",
+      "answer": "单独 eth_call 通常不由用户支付 gas，但 pure 被其他合约在交易中调用时仍占用执行资源。",
+      "keyPoint": "费用取决于调用上下文，不只取决于修饰符。",
+      "tags": [
+        "pure",
+        "gas",
+        "误区"
+      ],
+      "importance": 4,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#state-mutability",
+        "locator": "State Mutability"
+      }
+    }
+  ]
+}

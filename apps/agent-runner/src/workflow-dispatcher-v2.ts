@@ -8,13 +8,14 @@ import type { RegistryReconcilerV2 } from "./registry-reconciler-v2.js";
 import type { WorkUnitSettlementAgentV2 } from "./reward-v2.js";
 import type {
   ProjectRegistryGatewayV2,
-  ProjectRunnerRepositoryV2,
   WorkflowDispatchRepositoryV2,
-  WorkUnitRewardRepositoryV2,
+  WorkflowJobKindV2,
 } from "./types-v2.js";
 import type { WorkUnitWorkerAgent } from "./worker-v2.js";
+import type { OutlinePlanningAgent } from "./outline-planning-agent.js";
 
 const dispatchKinds = [
+  "PLAN_OUTLINE",
   "DESIGN_CHAPTER",
   "FREEZE_PROJECT_DESIGN",
   "RECONCILE_PROJECT",
@@ -25,15 +26,15 @@ const dispatchKinds = [
   "SETTLE_WORK_UNIT_REWARD",
 ] as const;
 
-type DispatcherRepository = WorkflowDispatchRepositoryV2 & ProjectRunnerRepositoryV2 & WorkUnitRewardRepositoryV2;
-
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Workflow handler failed";
 }
 
 export class ProjectWorkflowDispatcherV2 {
+  private outlinePlanner?: OutlinePlanningAgent;
+
   constructor(
-    private readonly repository: DispatcherRepository,
+    private readonly repository: WorkflowDispatchRepositoryV2,
     private readonly registry: ProjectRegistryGatewayV2,
     private readonly workers: readonly [WorkUnitWorkerAgent, WorkUnitWorkerAgent, WorkUnitWorkerAgent],
     private readonly reconciler: RegistryReconcilerV2,
@@ -43,22 +44,33 @@ export class ProjectWorkflowDispatcherV2 {
     private readonly settlement: WorkUnitSettlementAgentV2,
     private readonly chapterDesign?: ChapterDesignWorkflowAgent,
     private readonly designFreezer?: ProjectDesignFreezer,
-  ) {}
+    outlinePlanner?: OutlinePlanningAgent,
+  ) {
+    this.outlinePlanner = outlinePlanner;
+  }
+
+  setOutlinePlanner(outlinePlanner: OutlinePlanningAgent): void {
+    this.outlinePlanner = outlinePlanner;
+  }
 
   async recoverStaleJobs(): Promise<number> {
     return this.repository.recoverStaleWorkflowJobs();
   }
 
   async runNext(): Promise<boolean> {
+    return (await this.runNextDetailed()) !== null;
+  }
+
+  async runNextDetailed(): Promise<WorkflowJobKindV2 | null> {
     const job = await this.repository.claimNextWorkflowJob([...dispatchKinds]);
-    if (!job) return false;
+    if (!job) return null;
     try {
       const output = await this.dispatch(job);
       await this.repository.completeWorkflowJob(job.jobId, output);
     } catch (error) {
       await this.repository.retryWorkflowJob(job.jobId, errorMessage(error));
     }
-    return true;
+    return job.kind;
   }
 
   private async dispatch(job: Awaited<ReturnType<WorkflowDispatchRepositoryV2["claimNextWorkflowJob"]>> extends infer T ? Exclude<T, null> : never) {
@@ -120,7 +132,8 @@ export class ProjectWorkflowDispatcherV2 {
         return { state };
       }
       case "PLAN_OUTLINE":
-        throw new Error("PLAN_OUTLINE is handled by OutlinePlanningAgent");
+        if (!this.outlinePlanner) throw new Error("Outline planning handler is not configured");
+        return this.outlinePlanner.runClaimed(job);
     }
   }
 

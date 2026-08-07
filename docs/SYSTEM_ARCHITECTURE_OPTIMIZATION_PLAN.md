@@ -1,5 +1,7 @@
 # Mindmark 系统架构优化方案
 
+> 历史说明：本文记录 2026-07 的 V1 -> V2 收敛实施。Card Pack、原版 PDF、三视图与 Chapter AI Tutor 上线后的当前演进方案见 [Mindmark 整体架构优化与演进方案](OVERALL_ARCHITECTURE_OPTIMIZATION_PLAN.md)。下文“Runner-only AI”仅指会生成或修改学习内容的异步 AI；同步、只读的 Chapter AI Tutor 属于后续 Web 能力。
+
 > 状态：本地架构实施完成，待真实环境演练  
 > 前提：旧业务数据可以丢弃；新版本尚未对外承载正式用户数据  
 > 范围：Web、Runner、共享领域代码、Supabase、Monad 合约集成、测试和运维  
@@ -24,6 +26,7 @@
 - 已完成：迁移链重建为 V2 基线，资料库与文件夹保持为不参与承诺的组织元数据。
 - 已完成：`PLAN_OUTLINE` 已接入 `workflow_jobs`。Web 只登记/读取操作，Runner 负责 AI 规划、确定性降级、卡片策略和草稿落库。
 - 已完成：`RECONCILE_PROJECT`、`GENERATE_WORK_UNIT`、`QUALITY_CHECK_CHAPTER`、`ASSEMBLE_CHAPTER`、`FINALIZE_PROJECT` 和 `SETTLE_WORK_UNIT_REWARD` 已接入同一队列。Coordinator 只恢复和分发 job；旧的全局扫描领取 RPC 已从运行路径和最终 schema 删除。
+- 已完成：`PLAN_OUTLINE` 也已收敛到同一 Workflow Dispatcher。Outline Planner 只负责已领取任务的规划与草稿持久化，claim、complete、retry 统一由 Dispatcher 处理；Coordinator 不再维护第二套大纲轮询循环。
 - 已完成：受限 `/operations` 页面、脱敏工作流事件、队列/奖励指标、核心告警和带 request ID 的稳定错误合同已接入；旧 Journey/Chunk 实施文档已删除。
 - 待真实环境：按 `PRODUCTION_REHEARSAL_RUNBOOK.md` 重建可丢弃 Supabase、部署 V2 Registry 并执行真实 PDF、Monad、模型、Moss 和故障注入验收。
 
@@ -170,7 +173,7 @@ apps/agent-runner/src/model/
 - `PLAN_OUTLINE` job 从 Source Block 读取资料，AI Planner Adapter 产出 proposal，Shared Domain Module 统一验证连续覆盖和 card policy；任一模型、schema 或覆盖错误都在该 Module 内降级为确定性 Planner。
 - `GENERATE_WORK_UNIT` job 只产出候选卡；所有引用、card count、hash 和 proof 都由服务端验证、派生和保存。
 - prompt/version、模型名、耗时、token 使用量（可用时）和拒绝原因进入 `workflow_events`。不得记录原始密钥、完整私密资料或完整模型 transcript。
-- Web 不再需要 `AI_API_KEY`、`AI_MODEL` 或 AI provider URL。
+- Web 的异步 Project/Chapter 生成路径不再需要 AI 配置；后续 Chapter AI Tutor 通过 Web server-only 环境使用独立白名单配置，密钥不进入浏览器。
 
 AI Planner Adapter 与 Deterministic Planner Adapter 是两个真实 Adapter，因此该 seam 有清晰价值；不为只有一个 Supabase 实现的简单查询引入无意义的 Repository 抽象。
 
@@ -335,7 +338,7 @@ POST /api/projects/:id/.../reviews        -> 原子评分
 
 ### Phase 0：冻结决策与安全基线
 
-- 记录本方案中的 V2-only、Supabase 权威、Runner-only AI、Postgres job queue 四项决策。
+- 记录本方案中的 V2-only、Supabase 权威、异步内容生成只在 Runner、Postgres job queue 四项决策。
 - 删除或撤销曾写入本地环境的高权限 token；确认 `.env*` 没有被提交。
 - 对当前 V2 路径跑一次完整回归，建立重构前基线。
 
@@ -351,7 +354,7 @@ POST /api/projects/:id/.../reviews        -> 原子评分
 - 将 Web 的 Chapter Planner 移至 Runner，Web 改成 operation command/query。
 - 统一 V2 Registry Gateway、错误分类、receipt 校验和 reconciliation。
 - 整理 Web application Module 与 Supabase Adapter，Route Handler 变薄。
-- **验收**：Web 不读取 AI 环境变量；模型协议和 `propose_chapters` 工具定义只存在一处；所有浏览器回调都可由 Runner 恢复。
+- **验收**：Web 不执行异步内容生成；`propose_chapters` 模型协议只存在 Runner；所有浏览器链上回调都可由 Runner 恢复。后续同步 Chapter AI Tutor 的 server-only 配置不改变此约束。
 
 ### Phase 3：实现 Workflow Job Queue（已完成）
 

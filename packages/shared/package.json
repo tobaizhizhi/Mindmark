@@ -13,6 +13,26 @@
     "./schemas": {
       "types": "./dist/schemas.d.ts",
       "import": "./dist/schemas.js"
+    },
+    "./learning-project": {
+      "types": "./dist/learning-project/index.d.ts",
+      "import": "./dist/learning-project/index.js"
+    },
+    "./chapter": {
+      "types": "./dist/chapter/index.d.ts",
+      "import": "./dist/chapter/index.js"
+    },
+    "./knowledge-card": {
+      "types": "./dist/knowledge-card/index.d.ts",
+      "import": "./dist/knowledge-card/index.js"
+    },
+    "./study": {
+      "types": "./dist/study/index.d.ts",
+      "import": "./dist/study/index.js"
+    },
+    "./commitments": {
+      "types": "./dist/commitments/index.d.ts",
+      "import": "./dist/commitments/index.js"
     }
   },
   "files": [

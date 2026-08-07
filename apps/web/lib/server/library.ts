@@ -24,7 +24,7 @@ function storageError(action: string, message: string): never {
   throw new Error(`${action}: ${message}`);
 }
 
-export class SupabaseDocumentLibraryStore implements DocumentLibraryStore {
+class SupabaseDocumentLibraryStore implements DocumentLibraryStore {
   async load(owner: `0x${string}`, folderId: string | null, now: string): Promise<unknown> {
     const { data, error } = await getSupabaseAdmin().rpc("get_document_library_v2", {
       p_owner: owner,

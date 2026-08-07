@@ -1,0 +1,214 @@
+{
+  "chapterId": 9,
+  "position": 9,
+  "slug": "constructor",
+  "title": "10 constructor：在部署时建立身份",
+  "summary": "在值类型、函数、集合和重置之后引入 constructor、部署者 msg.sender、constant 与 immutable。",
+  "estimatedMinutes": 28,
+  "learningObjectives": [
+    "能在 constructor 中保存部署者",
+    "能区分部署时和调用时的 msg.sender",
+    "能使用 immutable 固定实例级配置"
+  ],
+  "prerequisiteChapterIds": [
+    8
+  ],
+  "stageId": 2,
+  "stageTitle": "阶段三：按用户建模",
+  "newConcepts": [
+    "constructor",
+    "部署时 msg.sender",
+    "immutable",
+    "部署不变量",
+    "constant 配置"
+  ],
+  "prerequisiteConcepts": [
+    "mapping",
+    "msg.sender",
+    "address",
+    "函数写入"
+  ],
+  "practiceFocus": "为 LearningRegistry 设置 owner 和 treasury，但先不抽 modifier。",
+  "projectMilestone": "每个 Registry 实例拥有自己的 owner 和 treasury。",
+  "cards": [
+    {
+      "packCardId": "v4-constructor-concept",
+      "position": 0,
+      "type": "concept",
+      "question": "constructor 什么时候执行，constant、immutable 又分别适合什么？",
+      "answer": "constructor 只在部署交易期间执行一次；constant 在编译期固定，immutable 可在 constructor 按实例设置。固定上限用 constant，部署者和 treasury 用 immutable。",
+      "keyPoint": "编译期固定、部署期固定和运行时可变是三种不同生命周期。",
+      "tags": [
+        "constructor",
+        "constant",
+        "immutable",
+        "部署"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#constructors",
+        "locator": "Constructors"
+      }
+    },
+    {
+      "packCardId": "v4-constructor-check",
+      "position": 1,
+      "type": "qa",
+      "question": "constructor 中的 msg.sender 与普通函数中的 msg.sender 有什么不同？",
+      "answer": "前者是部署者，后者是当前调用者；constant 不能保存部署者，immutable 才能在 constructor 锁定每个实例不同的 owner。",
+      "keyPoint": "先看值何时确定，再选择 constant、immutable 或普通 storage。",
+      "tags": [
+        "msg.sender",
+        "owner",
+        "constant",
+        "权限"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#constructors",
+        "locator": "Constructors"
+      }
+    },
+    {
+      "packCardId": "v4-constructor-read",
+      "position": 2,
+      "type": "code_read",
+      "question": "阅读 ConfigRegistry，判断两个实例的 owner、VERSION 和 MAX_CHAPTERS 是否相同。",
+      "answer": "VERSION 和 MAX_CHAPTERS 是 constant，所有实例相同；owner 在 constructor 取部署者，因此不同部署地址可不同。",
+      "keyPoint": "constant 是编译期固定，immutable 是部署期固定。",
+      "tags": [
+        "constructor",
+        "code_read"
+      ],
+      "code": {
+        "language": "solidity",
+        "starterCode": "contract ConfigRegistry {\n    uint256 public constant VERSION = 1;\n    uint256 public constant MAX_CHAPTERS = 16;\n    address public immutable owner;\n    constructor() { owner = msg.sender; }\n}",
+        "solutionCode": "A 部署 -> owner=A；B 部署 -> owner=B；两个实例 VERSION=1、MAX_CHAPTERS=16。",
+        "testInput": "用 A、B 分别部署。",
+        "expectedResult": "owner 分别为 A、B，两个常量相同。",
+        "hints": [
+          "看赋值发生在编译还是 constructor。",
+          "msg.sender 是部署者。"
+        ]
+      },
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#constructors",
+        "locator": "Constructors"
+      }
+    },
+    {
+      "packCardId": "v4-constructor-complete",
+      "position": 3,
+      "type": "code_complete",
+      "question": "补全 constructor，声明 MAX_CHAPTERS constant，拒绝零地址并锁定 treasury。",
+      "answer": "MAX_CHAPTERS 在声明处固定；constructor 要求 nextTreasury != address(0)，再 treasury = nextTreasury。",
+      "keyPoint": "把编译期规则和部署期配置放在各自正确的生命周期。",
+      "tags": [
+        "constructor",
+        "code_complete"
+      ],
+      "code": {
+        "language": "solidity",
+        "starterCode": "uint256 public constant MAX_CHAPTERS = 16;\naddress public immutable treasury;\nconstructor(address nextTreasury) {\n    // TODO\n}",
+        "solutionCode": "uint256 public constant MAX_CHAPTERS = 16;\naddress public immutable treasury;\nconstructor(address nextTreasury) {\n    require(nextTreasury != address(0), \"zero treasury\");\n    treasury = nextTreasury;\n}",
+        "testInput": "用有效地址和 address(0) 部署。",
+        "expectedResult": "有效地址部署成功，零地址部署回滚，MAX_CHAPTERS 始终为 16。",
+        "hints": [
+          "constant 不在 constructor 赋值。",
+          "immutable 可在 constructor 写一次。"
+        ]
+      },
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#constructors",
+        "locator": "Constructors"
+      }
+    },
+    {
+      "packCardId": "v4-constructor-write",
+      "position": 4,
+      "type": "code_write",
+      "question": "写一个 OwnedRegistry，包含 constant MAX_CHAPTERS、immutable owner 和 immutable treasury。",
+      "answer": "MAX_CHAPTERS=16 在编译期固定；constructor 校验 treasury，保存 owner=msg.sender 和 treasury；提供读取函数。",
+      "keyPoint": "这是主线第一次同时固定协议规则和实例身份。",
+      "tags": [
+        "constructor",
+        "code_write"
+      ],
+      "code": {
+        "language": "solidity",
+        "starterCode": "// 完成 MAX_CHAPTERS、owner、treasury、constructor 和读取函数\n",
+        "solutionCode": "pragma solidity ^0.8.20;\ncontract OwnedRegistry {\n    uint256 public constant MAX_CHAPTERS = 16;\n    address public immutable owner;\n    address public immutable treasury;\n    constructor(address nextTreasury) { require(nextTreasury != address(0)); owner = msg.sender; treasury = nextTreasury; }\n    function ownerAddress() external view returns (address) { return owner; }\n}",
+        "testInput": "A 用有效 treasury 部署，再读取三个配置。",
+        "expectedResult": "MAX_CHAPTERS=16，owner=A，treasury=部署参数。",
+        "hints": [
+          "constant 不需要 constructor 赋值。",
+          "先校验 treasury，再保存两个 immutable。"
+        ]
+      },
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#constructors",
+        "locator": "Constructors"
+      }
+    },
+    {
+      "packCardId": "v4-constructor-application",
+      "position": 5,
+      "type": "application",
+      "question": "为什么 constructor 适合校验 treasury 等配置，而不是让前端部署后再设置？",
+      "answer": "部署后再设置会产生未初始化窗口，可能被错误调用；constructor 能让实例从第一笔可见状态开始就满足不变量。",
+      "keyPoint": "初始化窗口越短，状态越容易审计。",
+      "tags": [
+        "初始化",
+        "不变量",
+        "应用"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#constructors",
+        "locator": "Constructors"
+      }
+    },
+    {
+      "packCardId": "v4-constructor-misconception",
+      "position": 6,
+      "type": "misconception",
+      "question": "误区：immutable 就是 private，为什么错？",
+      "answer": "immutable 约束能否修改，private 只约束源码访问；immutable 地址仍可通过 getter 或链上数据观察。",
+      "keyPoint": "不可变性、可见性和隐私相互独立。",
+      "tags": [
+        "immutable",
+        "private",
+        "误区"
+      ],
+      "importance": 4,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#constructors",
+        "locator": "Constructors"
+      }
+    }
+  ]
+}

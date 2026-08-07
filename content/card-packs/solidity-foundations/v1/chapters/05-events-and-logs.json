@@ -1,0 +1,15 @@
+{
+  "chapterId": 4,
+  "position": 4,
+  "slug": "events-and-logs",
+  "title": "Events 与 Logs",
+  "summary": "理解事件日志、indexed 参数及前端监听方式。",
+  "estimatedMinutes": 12,
+  "cards": [
+    { "packCardId": "events-log-purpose", "position": 0, "type": "concept", "question": "Solidity event 的主要用途是什么？", "answer": "合约通过 emit 写入 EVM 日志，链下应用可以订阅或查询这些日志来更新界面、索引历史和触发后续流程。日志适合链下观察，不是合约内部的持久状态存储。", "keyPoint": "event 是合约向链下观察者发布结构化事实的机制。", "tags": ["event", "log", "前端"], "importance": 5, "initialDifficulty": 2, "sourceReference": { "kind": "pack_reference", "label": "Solidity Events", "url": "https://docs.soliditylang.org/en/latest/contracts.html#events", "locator": "Events" } },
+    { "packCardId": "events-indexed", "position": 1, "type": "qa", "question": "event 参数加 indexed 后有什么作用和限制？", "answer": "indexed 参数会进入日志 topic，客户端可高效按其过滤。除匿名事件外，一个事件最多有三个 indexed 参数；动态类型进入 topic 时保存的是值的哈希，不能直接从 topic 还原原值。", "keyPoint": "indexed 用于查询过滤，不是让所有参数都更容易读取。", "tags": ["indexed", "topic", "过滤"], "importance": 4, "initialDifficulty": 3, "sourceReference": { "kind": "pack_reference", "label": "Solidity Events", "url": "https://docs.soliditylang.org/en/latest/contracts.html#events", "locator": "indexed parameters" } },
+    { "packCardId": "events-state-comparison", "position": 2, "type": "comparison", "question": "状态变量与事件日志在数据可用性上有什么区别？", "answer": "状态变量可被合约后续执行读取并影响逻辑，写入 storage 成本较高；事件日志主要供链下读取，合约不能直接查询历史日志。事件不能替代需要被合约验证的当前状态。", "keyPoint": "链上逻辑依赖的数据放状态，链下观察所需的事实发事件。", "tags": ["状态", "事件", "数据建模"], "importance": 5, "initialDifficulty": 3, "sourceReference": { "kind": "pack_reference", "label": "Solidity Events", "url": "https://docs.soliditylang.org/en/latest/contracts.html#events", "locator": "Low-level interface to logging functionality" } },
+    { "packCardId": "events-application-transfer", "position": 3, "type": "application", "question": "设计代币转账事件时，哪些字段适合 indexed？", "answer": "通常把 from 和 to 设为 indexed，便于查询某地址发出或收到的转账；amount 放在 data 中保留可直接解码的数值。事件应在状态更新成功后发出，并与实际转账结果一致。", "keyPoint": "indexed 字段应服务最常见的检索维度。", "tags": ["Transfer", "indexed", "应用"], "importance": 4, "initialDifficulty": 3, "sourceReference": { "kind": "pack_reference", "label": "Solidity Events", "url": "https://docs.soliditylang.org/en/latest/contracts.html#events", "locator": "Event example" } },
+    { "packCardId": "events-misconception-return-value", "position": 4, "type": "misconception", "question": "误区：交易返回值足以让前端长期追踪状态变化，为什么不可靠？", "answer": "普通交易的返回数据通常不会像 eth_call 结果那样被应用直接持久查询，而且历史检索和订阅能力有限。对外部观察者重要的状态变化应发出稳定事件，而不能只依赖函数返回值。", "keyPoint": "交易结果通知使用事件，函数返回值不能替代可索引日志。", "tags": ["返回值", "事件", "误区"], "importance": 4, "initialDifficulty": 3, "sourceReference": { "kind": "pack_reference", "label": "Solidity Events", "url": "https://docs.soliditylang.org/en/latest/contracts.html#events", "locator": "Events are inheritable members" } }
+  ]
+}

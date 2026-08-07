@@ -9,7 +9,7 @@ import { ProjectFinalizerV2 } from "../src/project-finalizer-v2.js";
 import { RegistryReconcilerV2 } from "../src/registry-reconciler-v2.js";
 import { ProjectWorkflowDispatcherV2 } from "../src/workflow-dispatcher-v2.js";
 import { WorkUnitSettlementAgentV2 } from "../src/reward-v2.js";
-import type { AgentToolCall, ToolCallingModel } from "../src/runtime-types.js";
+import type { AgentToolCall, ProjectSponsorGateway, ToolCallingModel } from "../src/runtime-types.js";
 import type {
   ChapterAssemblyV2,
   ChapterBlueprintQualityContextV3,
@@ -17,14 +17,18 @@ import type {
   ChainChapterStateV2,
   ChainProjectStateV2,
   ChainWorkUnitCommitmentV2,
+  ChapterCommitmentRepositoryV2,
+  ChapterQualityRepositoryV2,
   ProjectBundleV2,
+  ProjectCommitmentRepositoryV2,
   ProjectRegistryGatewayV2,
-  ProjectRunnerRepositoryV2,
+  RegistryReconciliationRepositoryV2,
   RunnerChapterV2,
   RunnerProjectV2,
   RunnerWorkUnitV2,
   SavedWorkUnitResultV2,
   WorkUnitBlueprintContextV3,
+  WorkUnitGenerationRepositoryV2,
   WorkflowDispatchRepositoryV2,
   WorkflowJobV2,
   WorkUnitRewardV2,
@@ -35,6 +39,29 @@ import { address, hex } from "./fakes.js";
 
 const projectId = hex("9");
 const workers = [address("2"), address("3"), address("4")] as const;
+const sponsorGateway: ProjectSponsorGateway = {
+  escrowAddress: () => address("e"),
+  sponsorAddress: () => address("f"),
+  async assertConfiguredEscrow() {},
+  async ensureProjectFunded(input) {
+    const totalBudgetWei = input.quotes.reduce((total, quote) => total + quote.rewardAmountWei, 0n);
+    return {
+      projectId: input.projectId,
+      escrowAddress: address("e"),
+      sponsorAddress: address("f"),
+      pricingMode: "DYNAMIC",
+      pricingRoot: hex("d"),
+      rewardPerWorkUnitWei: null,
+      quotes: input.quotes,
+      totalBudgetWei,
+      remainingBudgetWei: totalBudgetWei,
+      workUnitCount: input.quotes.length,
+      settledWorkUnitCount: 0,
+      fundingTxHash: hex("e"),
+      fundedBlock: 10n,
+    };
+  },
+};
 
 afterEach(() => {
   vi.useRealTimers();
@@ -109,7 +136,12 @@ function fixtureState() {
   return { project, chapters, units, cards: [] as ChapterAssemblyV2["cards"] };
 }
 
-class InMemoryProjectRepositoryV2 implements ProjectRunnerRepositoryV2 {
+class InMemoryProjectRepositoryV2 implements
+  RegistryReconciliationRepositoryV2,
+  WorkUnitGenerationRepositoryV2,
+  ChapterQualityRepositoryV2,
+  ChapterCommitmentRepositoryV2,
+  ProjectCommitmentRepositoryV2 {
   state = fixtureState();
   claims: Array<{ workUnitId: number; worker: string }> = [];
   events: string[] = [];
@@ -118,15 +150,15 @@ class InMemoryProjectRepositoryV2 implements ProjectRunnerRepositoryV2 {
   blueprintQualityContext: ChapterBlueprintQualityContextV3 | null = null;
   lastSavedWorkUnitResult: SavedWorkUnitResultV2 | null = null;
   lastBlueprintApproval: (BlueprintQualityDecisionV3 & {
-    workUnits: Parameters<ProjectRunnerRepositoryV2["approveChapterCandidates"]>[2];
+    workUnits: Parameters<ChapterQualityRepositoryV2["approveChapterCandidates"]>[2];
   }) | null = null;
   lastBlueprintRepairs: (BlueprintQualityDecisionV3 & {
     repairs: Array<{ slotId: Hex; reason: string }>;
   }) | null = null;
 
-  async listPendingRegistryProjects() {
-    if (!this.pendingRegistry) return [];
-    return [{
+  async getPendingRegistryProject(candidateProjectId: Hex) {
+    if (!this.pendingRegistry || candidateProjectId !== projectId) return null;
+    return {
       projectId,
       ownerAddress: this.state.project.ownerAddress,
       sourceHash: this.state.project.sourceHash,
@@ -135,7 +167,12 @@ class InMemoryProjectRepositoryV2 implements ProjectRunnerRepositoryV2 {
       workUnitManifestRoot: this.state.project.workUnitManifestRoot,
       chapterCount: this.state.chapters.length,
       workUnitCount: this.state.units.length,
-    }];
+      pricingInputs: this.state.units.map((unit) => ({
+        workUnitId: unit.workUnitId,
+        sourceCharacterCount: unit.sourceText!.length,
+        slots: Array.from({ length: unit.cardTarget }, () => ({ type: "concept" as const, difficulty: 1 })),
+      })),
+    };
   }
   async markProjectRegistryReconciled() {
     this.pendingRegistry = false;
@@ -152,7 +189,7 @@ class InMemoryProjectRepositoryV2 implements ProjectRunnerRepositoryV2 {
   }
   async approveChapterBlueprintCandidates(
     decision: BlueprintQualityDecisionV3 & {
-      workUnits: Parameters<ProjectRunnerRepositoryV2["approveChapterCandidates"]>[2];
+      workUnits: Parameters<ChapterQualityRepositoryV2["approveChapterCandidates"]>[2];
     },
   ) {
     this.lastBlueprintApproval = structuredClone(decision);
@@ -204,7 +241,7 @@ class InMemoryProjectRepositoryV2 implements ProjectRunnerRepositoryV2 {
   async approveChapterCandidates(
     _id: Hex,
     chapterId: number,
-    workUnits: Parameters<ProjectRunnerRepositoryV2["approveChapterCandidates"]>[2],
+    workUnits: Parameters<ChapterQualityRepositoryV2["approveChapterCandidates"]>[2],
   ) {
     for (const approved of workUnits) {
       Object.assign(this.state.units[approved.workUnitId]!, {
@@ -246,7 +283,7 @@ class InMemoryProjectRepositoryV2 implements ProjectRunnerRepositoryV2 {
   async getProjectBundle(): Promise<ProjectBundleV2> {
     return structuredClone({ project: this.state.project, chapters: this.state.chapters, cards: this.state.cards });
   }
-  async saveProjectFinalization(input: Parameters<ProjectRunnerRepositoryV2["saveProjectFinalization"]>[0]) {
+  async saveProjectFinalization(input: Parameters<ProjectCommitmentRepositoryV2["saveProjectFinalization"]>[0]) {
     Object.assign(this.state.project, {
       projectDeckRoot: input.projectDeckRoot,
       initialPlan: input.initialPlan,
@@ -254,7 +291,7 @@ class InMemoryProjectRepositoryV2 implements ProjectRunnerRepositoryV2 {
       totalCardCount: input.totalCardCount,
     });
   }
-  async markProjectReady(input: Parameters<ProjectRunnerRepositoryV2["markProjectReady"]>[0]) {
+  async markProjectReady(input: Parameters<ProjectCommitmentRepositoryV2["markProjectReady"]>[0]) {
     Object.assign(this.state.project, {
       status: "READY", projectDeckRoot: input.projectDeckRoot,
       initialPlan: input.initialPlan, initialPlanHash: input.initialPlanHash,
@@ -262,7 +299,7 @@ class InMemoryProjectRepositoryV2 implements ProjectRunnerRepositoryV2 {
     });
   }
   async markProjectRetryable() { this.state.project.status = "FAILED_RETRYABLE"; }
-  async recordProjectAgentEvent(event: Parameters<ProjectRunnerRepositoryV2["recordProjectAgentEvent"]>[0]) {
+  async recordProjectAgentEvent(event: Parameters<WorkUnitGenerationRepositoryV2["recordProjectAgentEvent"]>[0]) {
     this.events.push(event.type);
   }
 }
@@ -368,7 +405,7 @@ class InMemoryWorkflowRepositoryV2 extends InMemoryProjectRepositoryV2 implement
   override async approveChapterCandidates(
     id: Hex,
     chapterId: number,
-    workUnits: Parameters<ProjectRunnerRepositoryV2["approveChapterCandidates"]>[2],
+    workUnits: Parameters<ChapterQualityRepositoryV2["approveChapterCandidates"]>[2],
   ) {
     await super.approveChapterCandidates(id, chapterId, workUnits);
     for (const unit of this.state.units.filter((candidate) => candidate.chapterId === chapterId)) {
@@ -379,7 +416,7 @@ class InMemoryWorkflowRepositoryV2 extends InMemoryProjectRepositoryV2 implement
   override async markWorkUnitConfirmed(
     id: Hex,
     workUnitId: number,
-    confirmation: Parameters<ProjectRunnerRepositoryV2["markWorkUnitConfirmed"]>[2],
+    confirmation: Parameters<WorkUnitGenerationRepositoryV2["markWorkUnitConfirmed"]>[2],
   ) {
     await super.markWorkUnitConfirmed(id, workUnitId, confirmation);
     const unit = this.state.units[workUnitId]!;
@@ -729,8 +766,21 @@ describe("Chapter-first V2 Runner pipeline", () => {
     repository.pendingRegistry = true;
     const registry = new FakeProjectRegistryV2();
 
-    await expect(new RegistryReconcilerV2(repository, registry).reconcileProject(projectId)).resolves.toBe("RECONCILED");
+    await expect(new RegistryReconcilerV2(repository, registry, sponsorGateway, 1n)
+      .reconcileProject(projectId)).resolves.toBe("RECONCILED");
     expect(repository.state.project.status).toBe("GENERATING");
+  });
+
+  it("reconciles only the exact pending Project requested by its Workflow Job", async () => {
+    const repository = new InMemoryProjectRepositoryV2();
+    repository.state.project.status = "AWAITING_REGISTRY";
+    repository.pendingRegistry = true;
+    const registry = new FakeProjectRegistryV2();
+
+    await expect(new RegistryReconcilerV2(repository, registry, sponsorGateway, 1n)
+      .reconcileProject(hex("1"))).resolves.toBe("OBSOLETE");
+    expect(repository.pendingRegistry).toBe(true);
+    expect(repository.state.project.status).toBe("AWAITING_REGISTRY");
   });
 
   it("does not commit a Work Unit that returns fewer cards than required", async () => {
@@ -824,6 +874,97 @@ describe("Chapter-first V2 Runner pipeline", () => {
     }
   });
 
+  it("recovers a frozen Blueprint whose Slot cites only a short section heading", async () => {
+    const repository = new InMemoryWorkflowRepositoryV2();
+    repository.state.units = repository.state.units.filter((unit) => unit.chapterId !== 0 || unit.workUnitId === 0);
+    repository.state.project.generationPolicyVersion = 3;
+    const sourceBlocks = repository.state.units[0]!.sourceBlocks!;
+    const heading = sourceBlocks[0]!;
+    heading.kind = "heading";
+    heading.text = "2. 实时调度算法";
+    const body = sourceBlocks[1]!;
+    body.kind = "paragraph";
+    body.text = "实时调度会依据任务截止时间和优先级决定执行顺序，并保证硬实时任务按时完成。";
+    const context = blueprintContextFor(repository.state.units[0]!);
+    context.inventory.concepts[0]!.sourceBlockIndexes = [heading.blockIndex];
+    context.slots = context.slots.map((slot) => ({
+      ...slot,
+      sourceBlockIndexes: [heading.blockIndex],
+    }));
+    context.blueprint.slots = structuredClone(context.slots);
+    repository.blueprintContext = context;
+    const registry = new FakeProjectRegistryV2();
+    const worker = new WorkUnitWorkerAgent(
+      repository,
+      registry,
+      new BlueprintWorkUnitModel(false, true),
+      0,
+    );
+
+    const unit = await repository.claimWorkflowWorkUnit(projectId, 0, registry.workerAddress(0));
+    await expect(worker.runClaimed(unit!)).resolves.toBeUndefined();
+
+    expect(repository.state.units[0]?.status).toBe("CANDIDATE_READY");
+    expect(repository.state.units[0]?.workerCards).toHaveLength(2);
+    expect(repository.state.units[0]?.workerCards.every((card) =>
+      card.source.page === body.pageNumber && body.text.includes(card.source.quote),
+    )).toBe(true);
+  });
+
+  it("uses expanded legacy evidence and a deterministic Rubric when the quality model fails", async () => {
+    const repository = new InMemoryWorkflowRepositoryV2();
+    repository.state.units = repository.state.units.filter((unit) => unit.chapterId !== 0 || unit.workUnitId === 0);
+    repository.state.project.generationPolicyVersion = 3;
+    repository.state.chapters[0]!.minCardCount = 2;
+    const sourceBlocks = repository.state.units[0]!.sourceBlocks!;
+    const heading = sourceBlocks[0]!;
+    heading.kind = "heading";
+    heading.text = "2. 实时调度算法";
+    const body = sourceBlocks[1]!;
+    body.kind = "paragraph";
+    body.text = "实时调度会依据任务截止时间和优先级决定执行顺序，并保证硬实时任务按时完成。";
+    const context = blueprintContextFor(repository.state.units[0]!);
+    context.inventory.concepts[0]!.sourceBlockIndexes = [heading.blockIndex];
+    context.slots = context.slots.map((slot) => ({ ...slot, sourceBlockIndexes: [heading.blockIndex] }));
+    context.blueprint.slots = structuredClone(context.slots);
+    repository.blueprintContext = context;
+    const registry = new FakeProjectRegistryV2();
+    const unit = await repository.claimWorkflowWorkUnit(projectId, 0, registry.workerAddress(0));
+    await new WorkUnitWorkerAgent(
+      repository,
+      registry,
+      new BlueprintWorkUnitModel(false, true),
+      0,
+    ).runClaimed(unit!);
+    configureBlueprintQualityContext(repository);
+    repository.state.chapters[0]!.status = "QUALITY_CHECK";
+    const evaluatedEvidence: number[][] = [];
+    const unavailableEvaluator: CardQualityEvaluatorV3 = {
+      modelId: "unavailable-rubric-model",
+      promptVersion: "unavailable-rubric-model-1",
+      async evaluate(input) {
+        evaluatedEvidence.push(input.evidenceBlocks.map((block) => block.blockIndex));
+        throw new Error("AI evaluation request timed out");
+      },
+    };
+    const orthogonalEmbeddings = {
+      modelId: "orthogonal-test-embedding",
+      async embed(texts: string[]) { return texts.map((_, index) => index === 0 ? [1, 0] : [0, 1]); },
+    };
+
+    await expect(new ChapterQualityGate(
+      repository,
+      orthogonalEmbeddings,
+      unavailableEvaluator,
+    ).runClaimed({ projectId, chapterId: 0 })).resolves.toBe("APPROVED");
+
+    expect(evaluatedEvidence).toEqual([
+      expect.arrayContaining([heading.blockIndex, body.blockIndex]),
+      expect.arrayContaining([heading.blockIndex, body.blockIndex]),
+    ]);
+    expect(repository.lastBlueprintApproval?.evaluatorModel).toContain("deterministic-rubric-v1");
+  });
+
   it("retries a transient model gateway failure inside the current Blueprint batch", async () => {
     vi.useFakeTimers();
     const repository = new InMemoryWorkflowRepositoryV2();
@@ -859,7 +1000,7 @@ describe("Chapter-first V2 Runner pipeline", () => {
     expect(repository.state.units[0]?.workerCards.every((card) => /[\u3400-\u9fff]/u.test(card.question))).toBe(true);
   });
 
-  it("rejects a V3 draft that does not cover every assigned Blueprint Slot", async () => {
+  it("deterministically fills missing V3 Slot candidates after model repair is exhausted", async () => {
     const repository = new InMemoryWorkflowRepositoryV2();
     repository.state.units = repository.state.units.filter((unit) => unit.chapterId !== 0 || unit.workUnitId === 0);
     repository.state.project.generationPolicyVersion = 3;
@@ -874,10 +1015,14 @@ describe("Chapter-first V2 Runner pipeline", () => {
     );
 
     const unit = await repository.claimWorkflowWorkUnit(projectId, 0, registry.workerAddress(0));
-    await expect(worker.runClaimed(unit!)).rejects.toThrow(/Blueprint Slots|has no candidate|batch candidates/u);
+    await expect(worker.runClaimed(unit!)).resolves.toBeUndefined();
 
-    expect(repository.state.units[0]?.status).toBe("RETRYABLE");
-    expect(repository.lastSavedWorkUnitResult).toBeNull();
+    expect(repository.state.units[0]?.status).toBe("CANDIDATE_READY");
+    expect(repository.lastSavedWorkUnitResult?.cards).toHaveLength(2);
+    expect(repository.lastSavedWorkUnitResult?.slotCandidates?.map((candidate) => candidate.slotId)).toEqual([
+      hex("d"),
+      hex("e"),
+    ]);
   });
 
   it("approves V3 candidates only after Blueprint coverage and duplicate evaluation", async () => {
@@ -1211,19 +1356,22 @@ describe("Chapter-first V2 Runner pipeline", () => {
     const assembler = new ChapterAssembler(repository, registry);
     const finalizer = new ProjectFinalizerV2(repository, registry);
     const settlement = new WorkUnitSettlementAgentV2(repository, registry, {} as never);
-    const coordinator = new ProjectCoordinatorV2(
-      registry,
-      new OutlinePlanningAgent(repository, new AdaptiveWorkUnitModel()),
-      new ProjectWorkflowDispatcherV2(
+    const dispatcher = new ProjectWorkflowDispatcherV2(
         repository,
         registry,
         workerAgents,
-        new RegistryReconcilerV2(repository, registry),
+        new RegistryReconcilerV2(repository, registry, sponsorGateway, 1n),
         new ChapterQualityGate(repository),
         assembler,
         finalizer,
         settlement,
-      ),
+        undefined,
+        undefined,
+        new OutlinePlanningAgent(repository, new AdaptiveWorkUnitModel()),
+      );
+    const coordinator = new ProjectCoordinatorV2(
+      registry,
+      dispatcher,
       { maxWorkflowJobsPerRun: 6 },
     );
 
@@ -1251,17 +1399,14 @@ describe("Chapter-first V2 Runner pipeline", () => {
       repository,
       registry,
       workerAgents,
-      new RegistryReconcilerV2(repository, registry),
+      new RegistryReconcilerV2(repository, registry, sponsorGateway, 1n),
       new ChapterQualityGate(repository),
       assembler,
       finalizer,
       settlement,
     );
-    const coordinator = new ProjectCoordinatorV2(
-      registry,
-      new OutlinePlanningAgent(repository, new AdaptiveWorkUnitModel()),
-      dispatcher,
-    );
+    dispatcher.setOutlinePlanner(new OutlinePlanningAgent(repository, new AdaptiveWorkUnitModel()));
+    const coordinator = new ProjectCoordinatorV2(registry, dispatcher);
 
     const result = await coordinator.runOnce();
 

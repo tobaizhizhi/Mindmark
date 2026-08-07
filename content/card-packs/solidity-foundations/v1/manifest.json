@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "slug": "solidity-foundations",
+  "version": "1.0.0",
+  "title": "Solidity 核心基础",
+  "description": "面向智能合约初学者的 Solidity 核心卡包，覆盖类型、函数、数据位置、错误、事件、转账、重入防护和基础审计。",
+  "subject": "Solidity",
+  "language": "zh-CN",
+  "level": "beginner",
+  "license": "CC BY 4.0",
+  "attribution": "Mindmark Hackathon Team，参考 Solidity 官方文档",
+  "chapters": [
+    { "id": 0, "position": 0, "slug": "types-and-values", "title": "类型与值", "summary": "理解 Solidity 的值类型、引用类型和默认值。", "estimatedMinutes": 12, "cardCount": 5, "cardsFile": "chapters/01-types-and-values.json" },
+    { "id": 1, "position": 1, "slug": "functions-and-visibility", "title": "状态变量、函数与可见性", "summary": "掌握状态变量、函数修饰和四种可见性的使用边界。", "estimatedMinutes": 14, "cardCount": 5, "cardsFile": "chapters/02-functions-and-visibility.json" },
+    { "id": 2, "position": 2, "slug": "data-locations", "title": "storage、memory 与 calldata", "summary": "区分三种数据位置及复制和引用语义。", "estimatedMinutes": 14, "cardCount": 5, "cardsFile": "chapters/03-data-locations.json" },
+    { "id": 3, "position": 3, "slug": "errors", "title": "错误处理", "summary": "使用 require、revert、assert 和 custom errors 表达失败。", "estimatedMinutes": 12, "cardCount": 5, "cardsFile": "chapters/04-errors.json" },
+    { "id": 4, "position": 4, "slug": "events-and-logs", "title": "Events 与 Logs", "summary": "理解事件日志、indexed 参数及前端监听方式。", "estimatedMinutes": 12, "cardCount": 5, "cardsFile": "chapters/05-events-and-logs.json" },
+    { "id": 5, "position": 5, "slug": "ether-and-entrypoints", "title": "Ether 转账与入口函数", "summary": "理解 call、receive 和 fallback 的触发规则与失败处理。", "estimatedMinutes": 15, "cardCount": 5, "cardsFile": "chapters/06-ether-and-entrypoints.json" },
+    { "id": 6, "position": 6, "slug": "cei-and-reentrancy", "title": "CEI 与重入防护", "summary": "识别重入条件并应用 Checks-Effects-Interactions。", "estimatedMinutes": 16, "cardCount": 5, "cardsFile": "chapters/07-cei-and-reentrancy.json" },
+    { "id": 7, "position": 7, "slug": "audit-basics", "title": "基础审计与应用", "summary": "用不变量、访问控制和外部调用检查完成基础合约审查。", "estimatedMinutes": 18, "cardCount": 5, "cardsFile": "chapters/08-audit-basics.json" }
+  ]
+}

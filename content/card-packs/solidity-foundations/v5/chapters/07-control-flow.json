@@ -1,0 +1,296 @@
+{
+  "chapterId": 6,
+  "position": 6,
+  "slug": "control-flow",
+  "title": "07 控制流：用 if 和循环表达规则",
+  "summary": "在数组基础上学习条件、for、while、break 和边界。",
+  "estimatedMinutes": 28,
+  "learningObjectives": [
+    "能写有终止条件的 if、for 和 while",
+    "能避免 uint 索引下溢和数组越界",
+    "能用循环不变量解释计数结果"
+  ],
+  "prerequisiteChapterIds": [
+    5
+  ],
+  "stageId": 1,
+  "stageTitle": "阶段二：组织数据",
+  "newConcepts": [
+    "if/else",
+    "for",
+    "while",
+    "break/continue",
+    "循环不变量"
+  ],
+  "prerequisiteConcepts": [
+    "数组",
+    "函数",
+    "pure",
+    "uint"
+  ],
+  "practiceFocus": "所有循环都只遍历调用者输入，暂不写 storage 集合。",
+  "projectMilestone": "为 Registry 增加纯函数统计器，为后续卡片集合打基础。",
+  "cards": [
+    {
+      "packCardId": "v5-v4-control-flow-concept",
+      "position": 0,
+      "type": "concept",
+      "question": "一个安全循环必须先明确哪三个问题？",
+      "answer": "初始值、终止条件和每轮推进方式；还要确认输入规模有界，否则交易可能因 gas 用尽而失败。",
+      "keyPoint": "循环正确既包括结果，也包括可终止和边界安全。",
+      "tags": [
+        "控制流",
+        "循环",
+        "gas"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/control-structures.html",
+        "locator": "Control Structures"
+      },
+      "readingBlockId": "control-flow-concept-text"
+    },
+    {
+      "packCardId": "v5-v4-control-flow-check",
+      "position": 1,
+      "type": "qa",
+      "question": "为什么 uint256 不能使用 j >= 0 作为向左遍历条件？",
+      "answer": "uint 没有负数，j 从 0 减 1 会下溢并在 Solidity 0.8 回滚；应使用 j > 0 后再访问 j - 1。",
+      "keyPoint": "移植数组算法时必须重新检查无符号索引。",
+      "tags": [
+        "uint",
+        "下溢",
+        "边界"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/control-structures.html",
+        "locator": "Control Structures"
+      },
+      "readingBlockId": "control-flow-concept-text"
+    },
+    {
+      "packCardId": "v5-v4-control-flow-read",
+      "position": 2,
+      "type": "code_read",
+      "question": "修复 sumTo 的循环边界，并推断 sumTo(4) 的结果。",
+      "answer": "i 从 1 开始，条件 i <= n，每轮 total += i；sumTo(4) 返回 10。",
+      "keyPoint": "先从数值循环理解初始化、条件和推进，再遍历数组。",
+      "tags": [
+        "control-flow",
+        "code_read"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/control-structures.html",
+        "locator": "Control Structures"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "function sumTo(uint256 n) external pure returns (uint256 total) {\n    for (uint256 i = 1; i < n; i++) {\n        total += i;\n    }\n}",
+        "solutionCode": "function sumTo(uint256 n) external pure returns (uint256 total) {\n    for (uint256 i = 1; i <= n; i++) {\n        total += i;\n    }\n}",
+        "testInput": "sumTo(4)。",
+        "expectedResult": "返回 10。",
+        "hints": [
+          "要包含 n 本身。",
+          "循环条件使用 <=。"
+        ]
+      },
+      "readingBlockId": "control-flow-code-1"
+    },
+    {
+      "packCardId": "v5-v4-control-flow-complete",
+      "position": 3,
+      "type": "code_complete",
+      "question": "补全 findFirst，找到等于 target 的数字后停止并返回索引。",
+      "answer": "循环 i 从 0 到 length-1，匹配时 return i，结束后返回 values.length。",
+      "keyPoint": "数组索引依赖上一章的 length 和边界知识。",
+      "tags": [
+        "control-flow",
+        "code_complete"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/control-structures.html",
+        "locator": "Control Structures"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "function findFirst(uint256[] calldata values, uint256 target) external pure returns (uint256) {\n    for (uint256 i = 0; i < values.length; i++) {\n        // TODO\n    }\n    // TODO\n}",
+        "solutionCode": "function findFirst(uint256[] calldata values, uint256 target) external pure returns (uint256) {\n    for (uint256 i = 0; i < values.length; i++) {\n        if (values[i] == target) return i;\n    }\n    return values.length;\n}",
+        "testInput": "findFirst([4, 7, 9], 7) 和 findFirst([4, 7, 9], 8)。",
+        "expectedResult": "分别返回 1 和 3。",
+        "hints": [
+          "最后合法索引小于 length。",
+          "未找到返回 length。"
+        ]
+      },
+      "readingBlockId": "control-flow-code-2"
+    },
+    {
+      "packCardId": "v5-v4-control-flow-write",
+      "position": 4,
+      "type": "code_write",
+      "question": "写一个 ControlLab 的 sumUntil，遍历数组，达到 limit 后停止并返回总和。",
+      "answer": "使用 for 遍历 values，sum += values[i]；当 sum >= limit 时 break，返回 sum。",
+      "keyPoint": "把数组边界和业务终止条件同时写进循环。",
+      "tags": [
+        "control-flow",
+        "code_write"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/control-structures.html",
+        "locator": "Control Structures"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "// 完成 sumUntil(uint256[] calldata values, uint256 limit)",
+        "solutionCode": "pragma solidity ^0.8.20;\ncontract ControlLab {\n    function sumUntil(uint256[] calldata values, uint256 limit) external pure returns (uint256 sum) {\n        for (uint256 i = 0; i < values.length; i++) {\n            sum += values[i];\n            if (sum >= limit) break;\n        }\n    }\n}",
+        "testInput": "sumUntil([2, 5, 8], 6)。",
+        "expectedResult": "返回 7，只扫描到第二项。",
+        "hints": [
+          "每轮先累加。",
+          "达到 limit 后 break。"
+        ]
+      },
+      "readingBlockId": "control-flow-code-3"
+    },
+    {
+      "packCardId": "v5-v4-control-flow-application",
+      "position": 5,
+      "type": "application",
+      "question": "为什么链上排序和无界遍历通常应该放到链下？",
+      "answer": "循环每轮消耗执行资源，用户可控的超大数组会让交易不可用；链下排序、分页或聚合更适合生产场景。",
+      "keyPoint": "算法复杂度会直接变成 gas 和可用性约束。",
+      "tags": [
+        "复杂度",
+        "gas",
+        "应用"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/control-structures.html",
+        "locator": "Control Structures"
+      },
+      "readingBlockId": "control-flow-practice-text"
+    },
+    {
+      "packCardId": "v5-v4-control-flow-misconception",
+      "position": 6,
+      "type": "misconception",
+      "question": "误区：循环只要逻辑正确就一定能执行完成，为什么不对？",
+      "answer": "即使结果逻辑正确，迭代次数过多也可能超过 gas limit；终止性和规模上限必须一起设计。",
+      "keyPoint": "可证明终止不等于可负担执行。",
+      "tags": [
+        "循环",
+        "gas",
+        "误区"
+      ],
+      "importance": 4,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/control-structures.html",
+        "locator": "Control Structures"
+      },
+      "readingBlockId": "control-flow-practice-text"
+    }
+  ],
+  "readingBlocks": [
+    {
+      "blockId": "control-flow-title",
+      "position": 0,
+      "kind": "heading",
+      "text": "07 控制流：用 if 和循环表达规则"
+    },
+    {
+      "blockId": "control-flow-overview",
+      "position": 1,
+      "kind": "paragraph",
+      "text": "在数组基础上学习条件、for、while、break 和边界。"
+    },
+    {
+      "blockId": "control-flow-stage",
+      "position": 2,
+      "kind": "callout",
+      "text": "阶段二：组织数据。练习重点：所有循环都只遍历调用者输入，暂不写 storage 集合。"
+    },
+    {
+      "blockId": "control-flow-objectives",
+      "position": 3,
+      "kind": "heading",
+      "text": "本章学习目标"
+    },
+    {
+      "blockId": "control-flow-objective-text",
+      "position": 4,
+      "kind": "paragraph",
+      "text": "1. 能写有终止条件的 if、for 和 while\n2. 能避免 uint 索引下溢和数组越界\n3. 能用循环不变量解释计数结果"
+    },
+    {
+      "blockId": "control-flow-concepts",
+      "position": 5,
+      "kind": "heading",
+      "text": "关键概念"
+    },
+    {
+      "blockId": "control-flow-concept-text",
+      "position": 6,
+      "kind": "paragraph",
+      "text": "本章引入：if/else、for、while、break/continue、循环不变量。为 Registry 增加纯函数统计器，为后续卡片集合打基础。"
+    },
+    {
+      "blockId": "control-flow-code-1",
+      "position": 7,
+      "kind": "code",
+      "text": "function sumTo(uint256 n) external pure returns (uint256 total) {\n    for (uint256 i = 1; i < n; i++) {\n        total += i;\n    }\n}",
+      "language": "solidity"
+    },
+    {
+      "blockId": "control-flow-code-2",
+      "position": 8,
+      "kind": "code",
+      "text": "function findFirst(uint256[] calldata values, uint256 target) external pure returns (uint256) {\n    for (uint256 i = 0; i < values.length; i++) {\n        // TODO\n    }\n    // TODO\n}",
+      "language": "solidity"
+    },
+    {
+      "blockId": "control-flow-code-3",
+      "position": 9,
+      "kind": "code",
+      "text": "// 完成 sumUntil(uint256[] calldata values, uint256 limit)",
+      "language": "solidity"
+    },
+    {
+      "blockId": "control-flow-practice",
+      "position": 10,
+      "kind": "heading",
+      "text": "迁移练习"
+    },
+    {
+      "blockId": "control-flow-practice-text",
+      "position": 11,
+      "kind": "paragraph",
+      "text": "所有循环都只遍历调用者输入，暂不写 storage 集合。\n项目里程碑：为 Registry 增加纯函数统计器，为后续卡片集合打基础。"
+    }
+  ]
+}

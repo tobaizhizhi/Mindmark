@@ -1,0 +1,562 @@
+{
+  "schemaVersion": 1,
+  "slug": "solidity-foundations",
+  "version": "4.0.0",
+  "title": "Solidity 101：循序渐进实战课",
+  "subject": "Solidity",
+  "language": "zh-CN",
+  "level": "beginner",
+  "license": "CC BY 4.0",
+  "attribution": "Mindmark Hackathon Team；课程顺序参考 WTF Academy Solidity 101，正文与代码练习由 Mindmark 重新编写",
+  "description": "16 个小步骤、6 个阶段、一个持续演进的 LearningRegistry，从合约外壳开始，逐层加入数据、权限、价值转移、跨合约和错误审查。每章只引入少量新概念。",
+  "chapters": [
+    {
+      "id": 0,
+      "position": 0,
+      "slug": "contract-shell",
+      "title": "01 合约外壳：从源码到链上实例",
+      "summary": "只学习 pragma、contract、状态变量和 Remix 的编译部署闭环。",
+      "estimatedMinutes": 18,
+      "learningObjectives": [
+        "能解释源码、ABI、bytecode 和实例地址的关系",
+        "能在 Remix 编译并部署 LearningRegistry",
+        "能读取一个 public 状态变量"
+      ],
+      "prerequisiteChapterIds": [],
+      "stageId": 0,
+      "stageTitle": "阶段一：看见合约",
+      "newConcepts": [
+        "pragma",
+        "contract",
+        "状态变量",
+        "string",
+        "public getter",
+        "编译与部署"
+      ],
+      "prerequisiteConcepts": [],
+      "practiceFocus": "只观察部署和读取，不引入函数、权限或 Ether。",
+      "projectMilestone": "创建 LearningRegistry 外壳，保存 registryName = Mindmark。",
+      "cardCount": 7,
+      "cardsFile": "chapters/01-contract-shell.json"
+    },
+    {
+      "id": 1,
+      "position": 1,
+      "slug": "value-types",
+      "title": "02 值类型：把数据含义写进类型",
+      "summary": "只处理 bool、uint、int、address、bytes 和 enum，不引入数组或 mapping。",
+      "estimatedMinutes": 22,
+      "learningObjectives": [
+        "能为状态选择合适的值类型",
+        "能解释值类型赋值会复制数据",
+        "能识别零地址和整数范围边界"
+      ],
+      "prerequisiteChapterIds": [
+        0
+      ],
+      "stageId": 0,
+      "stageTitle": "阶段一：看见合约",
+      "newConcepts": [
+        "bool",
+        "uint/int",
+        "address",
+        "bytes",
+        "enum"
+      ],
+      "prerequisiteConcepts": [
+        "pragma",
+        "contract",
+        "状态变量"
+      ],
+      "practiceFocus": "使用独立值变量描述 Registry 的状态，不创建集合。",
+      "projectMilestone": "给 Registry 增加 active、version、admin 和 lifecycle。",
+      "cardCount": 7,
+      "cardsFile": "chapters/02-value-types.json"
+    },
+    {
+      "id": 2,
+      "position": 2,
+      "slug": "function-signatures",
+      "title": "03 函数签名：让合约能够被调用",
+      "summary": "先学习参数、返回值和可见性，再学习函数能否读写状态。",
+      "estimatedMinutes": 24,
+      "learningObjectives": [
+        "能写带值类型参数的函数签名",
+        "能区分 external、public、internal、private 的入口范围",
+        "能按 ABI 顺序传参与接收返回值"
+      ],
+      "prerequisiteChapterIds": [
+        1
+      ],
+      "stageId": 0,
+      "stageTitle": "阶段一：看见合约",
+      "newConcepts": [
+        "function",
+        "参数",
+        "external/public",
+        "返回值签名",
+        "msg.sender 上下文"
+      ],
+      "prerequisiteConcepts": [
+        "uint/int",
+        "address",
+        "public getter"
+      ],
+      "practiceFocus": "函数只接受和返回值类型，暂时不使用 mapping、struct 或 payable。",
+      "projectMilestone": "为 Registry 增加 rename、setLimit 和 readSummary 接口。",
+      "cardCount": 7,
+      "cardsFile": "chapters/03-function-signatures.json"
+    },
+    {
+      "id": 3,
+      "position": 3,
+      "slug": "read-write-mutability",
+      "title": "04 读写函数：view、pure 与返回值",
+      "summary": "建立读状态、纯计算、写状态三条清晰路径。",
+      "estimatedMinutes": 24,
+      "learningObjectives": [
+        "能正确标注 view、pure 和普通写函数",
+        "能区分 eth_call 与交易",
+        "能写单值和多值返回函数"
+      ],
+      "prerequisiteChapterIds": [
+        2
+      ],
+      "stageId": 0,
+      "stageTitle": "阶段一：看见合约",
+      "newConcepts": [
+        "view",
+        "pure",
+        "return",
+        "状态写入",
+        "require 输入检查"
+      ],
+      "prerequisiteConcepts": [
+        "function",
+        "参数",
+        "返回值签名"
+      ],
+      "practiceFocus": "LearningRegistry 只维护数值和文本，不处理 Ether 或集合。",
+      "projectMilestone": "增加 readSummary 和 incrementVersion，能观察读写差异。",
+      "cardCount": 7,
+      "cardsFile": "chapters/04-read-write-mutability.json"
+    },
+    {
+      "id": 4,
+      "position": 4,
+      "slug": "arrays",
+      "title": "05 数组：保存有序的学习记录",
+      "summary": "先用 fixed/dynamic array 和 push/length 建立集合直觉。",
+      "estimatedMinutes": 26,
+      "learningObjectives": [
+        "能选择固定数组或动态数组",
+        "能安全 push 和读取数组元素",
+        "能为数组读取设计越界失败路径"
+      ],
+      "prerequisiteChapterIds": [
+        3
+      ],
+      "stageId": 1,
+      "stageTitle": "阶段二：组织数据",
+      "newConcepts": [
+        "fixed array",
+        "dynamic array",
+        "push",
+        "length",
+        "索引边界"
+      ],
+      "prerequisiteConcepts": [
+        "函数写入",
+        "uint/int",
+        "view",
+        "return"
+      ],
+      "practiceFocus": "LearningRegistry 增加 chapterIds 动态数组，不使用 struct 或 mapping。",
+      "projectMilestone": "Registry 可以登记章节 ID，并按顺序读取。",
+      "cardCount": 7,
+      "cardsFile": "chapters/05-arrays.json"
+    },
+    {
+      "id": 5,
+      "position": 5,
+      "slug": "data-locations",
+      "title": "06 数据位置：storage、memory、calldata",
+      "summary": "在数组基础上理解引用类型的存储位置，再进入循环和结构体。",
+      "estimatedMinutes": 28,
+      "learningObjectives": [
+        "能解释 storage、memory、calldata 的生命周期",
+        "能判断参数是否应使用 calldata",
+        "能识别 storage 引用导致的原地修改"
+      ],
+      "prerequisiteChapterIds": [
+        4
+      ],
+      "stageId": 1,
+      "stageTitle": "阶段二：组织数据",
+      "newConcepts": [
+        "storage",
+        "memory",
+        "calldata",
+        "引用类型复制"
+      ],
+      "prerequisiteConcepts": [
+        "数组",
+        "view",
+        "pure",
+        "return",
+        "string"
+      ],
+      "practiceFocus": "只使用 uint 数组作为例子，暂不引入 mapping 和权限。",
+      "projectMilestone": "为 Registry 添加临时排序和只读数组摘要能力。",
+      "cardCount": 7,
+      "cardsFile": "chapters/06-data-locations.json"
+    },
+    {
+      "id": 6,
+      "position": 6,
+      "slug": "control-flow",
+      "title": "07 控制流：用 if 和循环表达规则",
+      "summary": "在数组基础上学习条件、for、while、break 和边界。",
+      "estimatedMinutes": 28,
+      "learningObjectives": [
+        "能写有终止条件的 if、for 和 while",
+        "能避免 uint 索引下溢和数组越界",
+        "能用循环不变量解释计数结果"
+      ],
+      "prerequisiteChapterIds": [
+        5
+      ],
+      "stageId": 1,
+      "stageTitle": "阶段二：组织数据",
+      "newConcepts": [
+        "if/else",
+        "for",
+        "while",
+        "break/continue",
+        "循环不变量"
+      ],
+      "prerequisiteConcepts": [
+        "数组",
+        "函数",
+        "pure",
+        "uint"
+      ],
+      "practiceFocus": "所有循环都只遍历调用者输入，暂不写 storage 集合。",
+      "projectMilestone": "为 Registry 增加纯函数统计器，为后续卡片集合打基础。",
+      "cardCount": 7,
+      "cardsFile": "chapters/07-control-flow.json"
+    },
+    {
+      "id": 7,
+      "position": 7,
+      "slug": "structs",
+      "title": "08 结构体：把一章变成可读记录",
+      "summary": "使用 struct 和 struct array 表达一条完整学习记录。",
+      "estimatedMinutes": 28,
+      "learningObjectives": [
+        "能定义包含多个字段的 struct",
+        "能创建、读取和修改 struct",
+        "能避免 storage 引用的意外原地修改"
+      ],
+      "prerequisiteChapterIds": [
+        6
+      ],
+      "stageId": 1,
+      "stageTitle": "阶段二：组织数据",
+      "newConcepts": [
+        "struct",
+        "struct 初始化",
+        "storage struct 引用",
+        "结构体数组"
+      ],
+      "prerequisiteConcepts": [
+        "fixed array",
+        "dynamic array",
+        "storage",
+        "函数写入"
+      ],
+      "practiceFocus": "LearningRegistry 的每个 chapter 使用一个 struct，暂不按地址分组。",
+      "projectMilestone": "Registry 从只存 ID 升级为保存 id、title、active 的完整章节记录。",
+      "cardCount": 7,
+      "cardsFile": "chapters/08-structs.json"
+    },
+    {
+      "id": 8,
+      "position": 8,
+      "slug": "mapping",
+      "title": "09 Mapping：按地址索引学习进度",
+      "summary": "在已有 struct 和数组之后，引入 mapping 的键值访问和存在性标记。",
+      "estimatedMinutes": 30,
+      "learningObjectives": [
+        "能定义 mapping(address => T)",
+        "能按 msg.sender 读写个人记录",
+        "能解释 mapping 无法枚举 key 和默认值歧义"
+      ],
+      "prerequisiteChapterIds": [
+        7
+      ],
+      "stageId": 2,
+      "stageTitle": "阶段三：按用户建模",
+      "newConcepts": [
+        "mapping",
+        "address key",
+        "mapping 默认值",
+        "exists 标记",
+        "delete 重置"
+      ],
+      "prerequisiteConcepts": [
+        "struct",
+        "address",
+        "数组",
+        "函数写入"
+      ],
+      "practiceFocus": "只按用户地址保存完成章节数，不提前加入 owner 或权限。",
+      "projectMilestone": "Registry 能为每个学习者记录 completedCount。",
+      "cardCount": 7,
+      "cardsFile": "chapters/09-mapping.json"
+    },
+    {
+      "id": 9,
+      "position": 9,
+      "slug": "constructor",
+      "title": "10 constructor：在部署时建立身份",
+      "summary": "在值类型、函数、集合和重置之后引入 constructor、部署者 msg.sender、constant 与 immutable。",
+      "estimatedMinutes": 28,
+      "learningObjectives": [
+        "能在 constructor 中保存部署者",
+        "能区分部署时和调用时的 msg.sender",
+        "能使用 immutable 固定实例级配置"
+      ],
+      "prerequisiteChapterIds": [
+        8
+      ],
+      "stageId": 2,
+      "stageTitle": "阶段三：按用户建模",
+      "newConcepts": [
+        "constructor",
+        "部署时 msg.sender",
+        "immutable",
+        "部署不变量",
+        "constant 配置"
+      ],
+      "prerequisiteConcepts": [
+        "mapping",
+        "msg.sender",
+        "address",
+        "函数写入"
+      ],
+      "practiceFocus": "为 LearningRegistry 设置 owner 和 treasury，但先不抽 modifier。",
+      "projectMilestone": "每个 Registry 实例拥有自己的 owner 和 treasury。",
+      "cardCount": 7,
+      "cardsFile": "chapters/10-constructor.json"
+    },
+    {
+      "id": 10,
+      "position": 10,
+      "slug": "modifiers-access",
+      "title": "11 modifier：把 owner 规则复用起来",
+      "summary": "在身份建立后抽取 onlyOwner，并学习检查顺序和状态转换。",
+      "estimatedMinutes": 28,
+      "learningObjectives": [
+        "能编写检查 msg.sender 的 onlyOwner",
+        "能解释下划线的执行位置",
+        "能把权限和业务边界检查分开"
+      ],
+      "prerequisiteChapterIds": [
+        9
+      ],
+      "stageId": 3,
+      "stageTitle": "阶段四：建立权限",
+      "newConcepts": [
+        "modifier",
+        "onlyOwner",
+        "权限前置条件",
+        "状态转换"
+      ],
+      "prerequisiteConcepts": [
+        "constructor",
+        "immutable",
+        "msg.sender",
+        "require"
+      ],
+      "practiceFocus": "只有 owner 能修改 Registry 的 title、active 和规则配置。",
+      "projectMilestone": "Registry 具备可复用的管理员边界。",
+      "cardCount": 7,
+      "cardsFile": "chapters/11-modifiers-access.json"
+    },
+    {
+      "id": 11,
+      "position": 11,
+      "slug": "events",
+      "title": "12 events：让权限操作可被追踪",
+      "summary": "在状态和权限稳定后引入 event、emit、indexed 和日志查询。",
+      "estimatedMinutes": 26,
+      "learningObjectives": [
+        "能为关键状态变化设计事件",
+        "能选择 indexed 参数进行筛选",
+        "能区分事件历史和当前 storage 状态"
+      ],
+      "prerequisiteChapterIds": [
+        10
+      ],
+      "stageId": 3,
+      "stageTitle": "阶段四：建立权限",
+      "newConcepts": [
+        "event",
+        "emit",
+        "indexed",
+        "topics/data"
+      ],
+      "prerequisiteConcepts": [
+        "modifier",
+        "onlyOwner",
+        "状态转换",
+        "address"
+      ],
+      "practiceFocus": "Registry 的创建章节、发布和暂停都要发出可查询事件。",
+      "projectMilestone": "前端可以通过日志重建 Registry 的关键动作历史。",
+      "cardCount": 7,
+      "cardsFile": "chapters/12-events.json"
+    },
+    {
+      "id": 12,
+      "position": 12,
+      "slug": "payable-value",
+      "title": "13 payable：让 Registry 接收学习押金",
+      "summary": "在权限和事件之后加入 msg.value、payable、余额和安全转账。",
+      "estimatedMinutes": 32,
+      "learningObjectives": [
+        "能接收并记录 msg.value",
+        "能按 checks-effects-interactions 组织提取",
+        "能检查低级 call 的 bool 结果"
+      ],
+      "prerequisiteChapterIds": [
+        11
+      ],
+      "stageId": 3,
+      "stageTitle": "阶段四：建立权限",
+      "newConcepts": [
+        "payable",
+        "msg.value",
+        "address(this).balance",
+        "call value",
+        "checks-effects-interactions"
+      ],
+      "prerequisiteConcepts": [
+        "constructor",
+        "modifier",
+        "events",
+        "require"
+      ],
+      "practiceFocus": "实现 owner 提取学习押金，所有金额和转账失败路径可回滚。",
+      "projectMilestone": "Registry 支持 deposit 和 owner withdraw，并有事件审计。",
+      "cardCount": 7,
+      "cardsFile": "chapters/13-payable-value.json"
+    },
+    {
+      "id": 13,
+      "position": 13,
+      "slug": "inheritance",
+      "title": "14 inheritance：拆出可复用的基础合约",
+      "summary": "在完整基础合约后学习 virtual、override、super 和抽象契约。",
+      "estimatedMinutes": 28,
+      "learningObjectives": [
+        "能编写基础合约和派生合约",
+        "能正确使用 virtual/override/super",
+        "能判断继承还是组合更清晰"
+      ],
+      "prerequisiteChapterIds": [
+        12
+      ],
+      "stageId": 4,
+      "stageTitle": "阶段五：组合合约",
+      "newConcepts": [
+        "abstract contract",
+        "virtual",
+        "override",
+        "super",
+        "继承构造"
+      ],
+      "prerequisiteConcepts": [
+        "modifier",
+        "events",
+        "payable",
+        "struct"
+      ],
+      "practiceFocus": "把 Registry 的计数逻辑拆成 BaseRegistry，派生合约增加奖励策略。",
+      "projectMilestone": "LearningRegistry 形成基础能力与扩展能力两层结构。",
+      "cardCount": 7,
+      "cardsFile": "chapters/14-inheritance.json"
+    },
+    {
+      "id": 14,
+      "position": 14,
+      "slug": "interfaces",
+      "title": "15 interfaces：只依赖外部合约的最小 ABI",
+      "summary": "最后学习跨合约边界、IERC20 风格函数和返回值检查。",
+      "estimatedMinutes": 30,
+      "learningObjectives": [
+        "能写只含签名的 interface",
+        "能通过接口调用外部合约",
+        "能检查 bool 返回值和外部失败"
+      ],
+      "prerequisiteChapterIds": [
+        13
+      ],
+      "stageId": 4,
+      "stageTitle": "阶段五：组合合约",
+      "newConcepts": [
+        "interface",
+        "外部调用",
+        "ABI 兼容",
+        "返回值检查"
+      ],
+      "prerequisiteConcepts": [
+        "继承",
+        "函数签名",
+        "payable",
+        "require"
+      ],
+      "practiceFocus": "让 Registry 通过 IProgressToken 接口发放学习奖励，不实现完整代币。",
+      "projectMilestone": "LearningRegistry 可插入外部奖励合约，但只依赖最小 ABI。",
+      "cardCount": 7,
+      "cardsFile": "chapters/15-interfaces.json"
+    },
+    {
+      "id": 15,
+      "position": 15,
+      "slug": "errors",
+      "title": "16 errors：把失败路径写成合约契约",
+      "summary": "收束 require、revert、assert、custom error，并完成 MiniVault 综合审查。",
+      "estimatedMinutes": 34,
+      "learningObjectives": [
+        "能区分 require、revert、assert 的职责",
+        "能定义带参数 custom error",
+        "能审查权限、资产转移和状态不变量"
+      ],
+      "prerequisiteChapterIds": [
+        14
+      ],
+      "stageId": 5,
+      "stageTitle": "阶段六：综合审查",
+      "newConcepts": [
+        "custom error",
+        "revert",
+        "assert",
+        "失败路径审计",
+        "MiniVault"
+      ],
+      "prerequisiteConcepts": [
+        "interface",
+        "payable",
+        "modifier",
+        "事件",
+        "CEI"
+      ],
+      "practiceFocus": "把前 17 章能力合并成可测试的 MiniVault 完整实现。",
+      "projectMilestone": "完成 LearningRegistry v1：权限、事件、Ether、外部接口和错误契约齐全。",
+      "cardCount": 7,
+      "cardsFile": "chapters/16-errors.json"
+    }
+  ]
+}

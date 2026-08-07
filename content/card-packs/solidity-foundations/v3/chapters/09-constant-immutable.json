@@ -1,0 +1,198 @@
+{
+  "chapterId": 8,
+  "position": 8,
+  "slug": "constant-immutable",
+  "title": "constant 与 immutable：固定配置的两种方式",
+  "summary": "掌握编译期常量和部署期不可变配置，减少不必要的状态写入。",
+  "estimatedMinutes": 20,
+  "learningObjectives": [
+    "能区分 constant 和 immutable 的赋值时机",
+    "能在构造函数中设置 immutable",
+    "能判断哪些值适合固定配置"
+  ],
+  "prerequisiteChapterIds": [
+    7
+  ],
+  "cards": [
+    {
+      "packCardId": "v3-constant-immutable-concept",
+      "position": 0,
+      "type": "concept",
+      "question": "constant 与 immutable 的核心区别是什么？",
+      "answer": "constant 必须在编译期可确定并内联；immutable 可以在构造函数执行时赋值一次，部署后不可修改。两者都不适合需要运行时更新的配置。",
+      "keyPoint": "赋值时机决定语义：编译期固定 vs 部署期固定。",
+      "tags": [
+        "constant",
+        "immutable",
+        "配置"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#constant-and-immutable-state-variables",
+        "locator": "Constant and Immutable State Variables"
+      }
+    },
+    {
+      "packCardId": "v3-constant-immutable-check",
+      "position": 1,
+      "type": "qa",
+      "question": "部署后想让每个实例拥有不同 owner，应该使用 constant 还是 immutable？",
+      "answer": "使用 immutable，在构造函数中把 msg.sender 或传入地址赋值；constant 无法根据每次部署的调用者改变。",
+      "keyPoint": "多实例不同配置是 immutable 的典型用途。",
+      "tags": [
+        "构造函数",
+        "immutable",
+        "实例"
+      ],
+      "importance": 4,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#constant-and-immutable-state-variables",
+        "locator": "Constant and Immutable State Variables"
+      }
+    },
+    {
+      "packCardId": "v3-constant-immutable-read",
+      "position": 2,
+      "type": "code_read",
+      "question": "阅读这段 Config：哪些值编译期固定，哪些值随部署实例变化？",
+      "answer": "VERSION 是编译期 constant；deployer 在每次部署时取 msg.sender 并写入 immutable。部署后两者都不能再修改。",
+      "keyPoint": "immutable 的读取仍像状态变量，但写入窗口只在构造阶段。",
+      "tags": [
+        "读代码",
+        "constant",
+        "immutable"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#constant-and-immutable-state-variables",
+        "locator": "Constant and Immutable State Variables"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "contract Config {\n    uint256 public constant VERSION = 1;\n    address public immutable deployer;\n\n    constructor() {\n        deployer = msg.sender;\n    }\n}",
+        "solutionCode": "VERSION -> 所有实例相同，由编译器确定\ndeployer -> 每个实例可能不同，只在构造函数写入一次",
+        "testInput": "用地址 A 和地址 B 分别部署。",
+        "expectedResult": "两个实例 VERSION 都是 1，但 deployer 分别是 A、B。",
+        "hints": [
+          "看赋值位置。",
+          "immutable 可以在 constructor 写一次。"
+        ]
+      }
+    },
+    {
+      "packCardId": "v3-constant-immutable-complete",
+      "position": 3,
+      "type": "code_complete",
+      "question": "补全 immutable treasury，使每个 Vault 部署时锁定传入的金库地址。",
+      "answer": "声明 address immutable treasury，在 constructor(address next) 中赋值，并拒绝零地址。",
+      "keyPoint": "构造函数是部署时建立实例不变量的最后机会。",
+      "tags": [
+        "immutable",
+        "constructor",
+        "补全"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#constant-and-immutable-state-variables",
+        "locator": "Constant and Immutable State Variables"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "contract Vault {\n    address public immutable treasury;\n\n    constructor(address next) {\n        // TODO\n    }\n}",
+        "solutionCode": "contract Vault {\n    address public immutable treasury;\n\n    constructor(address next) {\n        require(next != address(0), \"zero treasury\");\n        treasury = next;\n    }\n}",
+        "testInput": "部署时传入有效地址和 address(0)。",
+        "expectedResult": "有效地址被锁定，零地址部署回滚。",
+        "hints": [
+          "immutable 只允许构造阶段赋值。",
+          "把业务不变量放进 constructor。"
+        ]
+      }
+    },
+    {
+      "packCardId": "v3-constant-immutable-write",
+      "position": 4,
+      "type": "code_write",
+      "question": "写一个带 constant MAX_SCORE 和 immutable owner 的 ScoreBoard。",
+      "answer": "MAX_SCORE 在编译期设为 100，owner 在 constructor 中设为 msg.sender；updateScore 要检查 owner 和 score <= MAX_SCORE。",
+      "keyPoint": "固定边界和实例角色分别适合 constant 与 immutable。",
+      "tags": [
+        "constant",
+        "immutable",
+        "写代码"
+      ],
+      "importance": 5,
+      "initialDifficulty": 4,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#constant-and-immutable-state-variables",
+        "locator": "Constant and Immutable State Variables"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "// 完成 ScoreBoard：MAX_SCORE=100，owner=部署者，只有 owner 能更新 score\n",
+        "solutionCode": "contract ScoreBoard {\n    uint256 public constant MAX_SCORE = 100;\n    address public immutable owner;\n    uint256 public score;\n\n    constructor() { owner = msg.sender; }\n\n    function updateScore(uint256 next) external {\n        require(msg.sender == owner, \"not owner\");\n        require(next <= MAX_SCORE, \"too high\");\n        score = next;\n    }\n}",
+        "testInput": "owner 更新 100、101；普通地址更新 80。",
+        "expectedResult": "100 成功，101 和普通地址调用回滚。",
+        "hints": [
+          "上限是 constant。",
+          "部署者是 immutable。"
+        ]
+      }
+    },
+    {
+      "packCardId": "v3-constant-immutable-application",
+      "position": 5,
+      "type": "application",
+      "question": "为什么 immutable 不等同于 private？",
+      "answer": "immutable 约束部署后不能修改，但公开读取仍可通过 getter 或链上数据观察；private 只限制代码标识符访问，不能带来隐私。",
+      "keyPoint": "不可变性、可见性和隐私是三个不同维度。",
+      "tags": [
+        "immutable",
+        "private",
+        "应用"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#constant-and-immutable-state-variables",
+        "locator": "Constant and Immutable State Variables"
+      }
+    },
+    {
+      "packCardId": "v3-constant-immutable-misconception",
+      "position": 6,
+      "type": "misconception",
+      "question": "误区：把经常变化的价格写成 constant 可以节省 gas，为什么不行？",
+      "answer": "constant 不能运行时更新；价格、暂停开关、管理员等动态配置必须使用状态变量，并配合权限、事件和边界检查。",
+      "keyPoint": "优化不能违反配置的生命周期。",
+      "tags": [
+        "constant",
+        "配置",
+        "误区"
+      ],
+      "importance": 4,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#constant-and-immutable-state-variables",
+        "locator": "Constant and Immutable State Variables"
+      }
+    }
+  ]
+}

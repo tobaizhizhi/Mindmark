@@ -1,0 +1,15 @@
+{
+  "chapterId": 7,
+  "position": 7,
+  "slug": "audit-basics",
+  "title": "基础审计与应用",
+  "summary": "用不变量、访问控制和外部调用检查完成基础合约审查。",
+  "estimatedMinutes": 18,
+  "cards": [
+    { "packCardId": "audit-invariant", "position": 0, "type": "concept", "question": "智能合约审计中的不变量是什么？", "answer": "不变量是在所有允许的状态转换后都应成立的业务或会计条件，例如合约记录的总余额等于各用户余额之和。明确不变量能把模糊的代码阅读转化为可验证的安全目标。", "keyPoint": "先写出系统必须始终保持的事实，再检查每条状态转换。", "tags": ["审计", "不变量", "状态转换"], "importance": 5, "initialDifficulty": 3, "sourceReference": { "kind": "pack_reference", "label": "Solidity Security Considerations", "url": "https://docs.soliditylang.org/en/latest/security-considerations.html", "locator": "Security Considerations" } },
+    { "packCardId": "audit-privileged-paths", "position": 1, "type": "qa", "question": "为什么审计时要单独列出所有特权操作？", "answer": "升级、暂停、铸造、提款和参数修改等操作的影响范围很大。列出调用者、权限来源、延迟、多签和撤销路径，可以发现缺失检查、权限过宽和单点失陷风险。", "keyPoint": "权限审计既看谁能调用，也看调用后能改变什么。", "tags": ["访问控制", "权限", "审计"], "importance": 5, "initialDifficulty": 3, "sourceReference": { "kind": "pack_reference", "label": "Solidity Security Considerations", "url": "https://docs.soliditylang.org/en/latest/security-considerations.html#authorized-proxies", "locator": "Authorized Proxies" } },
+    { "packCardId": "audit-review-process", "position": 2, "type": "process", "question": "对一个小型合约做基础审计时，可以采用什么检查顺序？", "answer": "先理解资产和角色，写出关键不变量；再枚举外部入口与权限；跟踪每个入口的状态读写和外部调用；检查错误处理、事件和边界值；最后用单元、模糊和不变量测试验证假设。", "keyPoint": "从资产与不变量出发，比逐行随机阅读更容易覆盖真实风险。", "tags": ["审计流程", "测试", "入口"], "importance": 5, "initialDifficulty": 4, "sourceReference": { "kind": "pack_reference", "label": "Solidity Security Considerations", "url": "https://docs.soliditylang.org/en/latest/security-considerations.html", "locator": "Recommendations" } },
+    { "packCardId": "audit-application-external-call", "position": 3, "type": "application", "question": "看到一处外部 call 时，审计者至少应追问哪些问题？", "answer": "目标地址是否可信或可控，调用前状态是否已稳定，返回值是否检查，失败是否会造成资金或状态卡死，回调能进入哪些函数，gas 和返回数据是否可能导致拒绝服务，以及是否需要限制重入。", "keyPoint": "每个外部调用都是失败、回调和资源消耗的交汇点。", "tags": ["外部调用", "call", "应用"], "importance": 5, "initialDifficulty": 4, "sourceReference": { "kind": "pack_reference", "label": "Solidity Security Considerations", "url": "https://docs.soliditylang.org/en/latest/security-considerations.html#use-the-checks-effects-interactions-pattern", "locator": "Use the Checks-Effects-Interactions Pattern" } },
+    { "packCardId": "audit-misconception-tool-complete", "position": 4, "type": "misconception", "question": "误区：静态分析工具没有报警就表示合约安全，为什么错误？", "answer": "工具擅长识别已建模的代码模式，但难以完整理解业务规则、经济激励、跨合约假设和治理权限。工具结果应作为审计输入，还需人工化的威胁建模与可自动执行的业务不变量测试。", "keyPoint": "没有工具告警只说明规则未命中，不等于安全目标已证明。", "tags": ["静态分析", "工具", "误区"], "importance": 5, "initialDifficulty": 3, "sourceReference": { "kind": "pack_reference", "label": "Solidity Security Considerations", "url": "https://docs.soliditylang.org/en/latest/security-considerations.html", "locator": "Security Considerations" } }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "chapterId": 3,
+  "position": 3,
+  "slug": "errors",
+  "title": "错误处理",
+  "summary": "使用 require、revert、assert 和 custom errors 表达失败。",
+  "estimatedMinutes": 12,
+  "cards": [
+    { "packCardId": "errors-revert-semantics", "position": 0, "type": "concept", "question": "Solidity 执行 revert 时，状态和 gas 会怎样？", "answer": "当前调用及其子调用产生的状态修改会回滚，调用返回错误数据；未消耗的剩余 gas 会退回给调用方，但已执行操作消耗的 gas 不会全部返还。", "keyPoint": "revert 回滚状态，不等于交易没有消耗 gas。", "tags": ["revert", "回滚", "gas"], "importance": 5, "initialDifficulty": 2, "sourceReference": { "kind": "pack_reference", "label": "Solidity Error Handling", "url": "https://docs.soliditylang.org/en/latest/control-structures.html#error-handling-assert-require-revert-and-exceptions", "locator": "Error Handling" } },
+    { "packCardId": "errors-custom-error", "position": 1, "type": "qa", "question": "custom error 相比长错误字符串有什么优势？", "answer": "custom error 能携带结构化参数，并通常比部署和返回长字符串更节省 gas。调用方还可以按错误选择器解码具体失败原因。", "keyPoint": "custom error 兼顾可解释性和 gas 效率。", "tags": ["custom error", "gas", "ABI"], "importance": 4, "initialDifficulty": 2, "sourceReference": { "kind": "pack_reference", "label": "Solidity Custom Errors", "url": "https://docs.soliditylang.org/en/latest/contracts.html#errors-and-the-revert-statement", "locator": "Errors and the Revert Statement" } },
+    { "packCardId": "errors-require-assert-comparison", "position": 2, "type": "comparison", "question": "require 与 assert 应分别用于哪类条件？", "answer": "require 常用于校验用户输入、权限和外部调用前置条件；assert 用于检查按设计不应被破坏的内部不变量。assert 失败通常意味着代码缺陷，而不是普通用户错误。", "keyPoint": "可预期的输入失败用 require，内部不变量用 assert。", "tags": ["require", "assert", "不变量"], "importance": 5, "initialDifficulty": 3, "sourceReference": { "kind": "pack_reference", "label": "Solidity Error Handling", "url": "https://docs.soliditylang.org/en/latest/control-structures.html#error-handling-assert-require-revert-and-exceptions", "locator": "assert and require" } },
+    { "packCardId": "errors-application-withdraw", "position": 3, "type": "application", "question": "提款函数余额不足时，怎样设计一个可解码的错误？", "answer": "可声明 error InsufficientBalance(uint256 available, uint256 requested)，在 requested > balance 时执行 revert InsufficientBalance(balance, requested)。这样前端能展示准确数值，测试也能匹配错误选择器和参数。", "keyPoint": "错误应表达失败事实，并携带调用方真正需要的上下文。", "tags": ["提款", "custom error", "应用"], "importance": 4, "initialDifficulty": 3, "sourceReference": { "kind": "pack_reference", "label": "Solidity Custom Errors", "url": "https://docs.soliditylang.org/en/latest/contracts.html#errors-and-the-revert-statement", "locator": "Custom error example" } },
+    { "packCardId": "errors-misconception-catch", "position": 4, "type": "misconception", "question": "误区：try/catch 能捕获当前函数内任意 revert，为什么错误？", "answer": "Solidity 的 try/catch 只适用于外部函数调用和合约创建表达式，不能像某些语言那样包住任意内部代码。内部调用的 revert 会沿调用栈传播，除非改为可捕获的外部调用路径。", "keyPoint": "try/catch 的捕获范围由调用形式决定。", "tags": ["try catch", "外部调用", "误区"], "importance": 4, "initialDifficulty": 4, "sourceReference": { "kind": "pack_reference", "label": "Solidity try/catch", "url": "https://docs.soliditylang.org/en/latest/control-structures.html#try-catch", "locator": "try/catch" } }
+  ]
+}

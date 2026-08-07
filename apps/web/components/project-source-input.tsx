@@ -98,7 +98,7 @@ export function ProjectSourceInput({
               : `点击选择或拖放到这里 · 最多 ${MAX_SOURCE_PAGES} 页 · 15 MB`}
           </span>
           <span className="mt-1 text-xs text-[var(--muted)]">
-            PDF 只在浏览器中提取文字，原文件不会上传
+            文字用于章节分析，原始 PDF 会加密保存用于后续预览
           </span>
         </label>
       ) : (

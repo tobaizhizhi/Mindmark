@@ -3,7 +3,7 @@ import {
   ChapterStatusSchema,
   ChapterStudyResponseSchema,
   CompleteProjectSessionResponseSchema,
-  KnowledgeCardContentSchema,
+  StudyKnowledgeCardContentSchema,
   ProjectStatusSchema,
   ProjectStudyResponseSchema,
   SubmitReviewResponseSchema,
@@ -92,27 +92,35 @@ export interface ProjectStudyStore {
   completeSession(owner: `0x${string}`, sessionId: string): Promise<unknown>;
 }
 
-export class SupabaseProjectStudyStore implements ProjectStudyStore, ProjectQueueStore {
+class SupabaseProjectStudyStore implements ProjectStudyStore, ProjectQueueStore {
   async loadOwnedChapter(projectId: Hex, chapterId: number, owner: `0x${string}`) {
     const client = getSupabaseAdmin();
-    const projectResult = await client.from("learning_projects")
-      .select("project_id").eq("project_id", projectId).eq("owner_address", owner).maybeSingle();
-    if (projectResult.error) throw new Error(`Could not read Project owner: ${projectResult.error.message}`);
-    if (!projectResult.data) return null;
-    const [chapterResult, cardsResult, statesResult] = await Promise.all([
-      client.from("chapters").select("project_id,chapter_id,status")
-        .eq("project_id", projectId).eq("chapter_id", chapterId).maybeSingle(),
-      client.from("knowledge_cards").select("card_id,position,content")
-        .eq("project_id", projectId).eq("chapter_id", chapterId).order("position"),
+    const [projectResult, statesResult] = await Promise.all([
+      client.from("learning_projects")
+        .select("project_id,chapters!inner(project_id,chapter_id,status,knowledge_cards(card_id,position,content))")
+        .eq("project_id", projectId)
+        .eq("owner_address", owner)
+        .eq("chapters.chapter_id", chapterId)
+        .maybeSingle(),
       client.from("card_learning_states").select("card_id,fsrs_state,due_at,reps,lapses")
         .eq("owner_address", owner).eq("project_id", projectId).eq("chapter_id", chapterId),
     ]);
-    const error = chapterResult.error ?? cardsResult.error ?? statesResult.error;
+    const error = projectResult.error ?? statesResult.error;
     if (error) throw new Error(`Could not read Chapter study data: ${error.message}`);
-    if (!chapterResult.data) return null;
+    if (!projectResult.data) return null;
+    const chapters = projectResult.data.chapters as Array<{
+      project_id: Hex;
+      chapter_id: number;
+      status: string;
+      knowledge_cards: Array<{ card_id: Hex; position: number; content: unknown }>;
+    }>;
+    const chapter = chapters[0];
+    if (!chapter) return null;
     return {
-      chapter: ChapterRowSchema.parse(chapterResult.data),
-      cards: CardRowSchema.array().parse(cardsResult.data ?? []),
+      chapter: ChapterRowSchema.parse(chapter),
+      cards: CardRowSchema.array().parse(
+        [...chapter.knowledge_cards].sort((left, right) => left.position - right.position),
+      ),
       states: StateRowSchema.array().parse(statesResult.data ?? []),
     };
   }
@@ -167,23 +175,43 @@ export class SupabaseProjectStudyStore implements ProjectStudyStore, ProjectQueu
 
   async loadOwnedProject(projectId: Hex, owner: `0x${string}`) {
     const client = getSupabaseAdmin();
-    const [projectResult, chaptersResult, cardsResult, statesResult] = await Promise.all([
-      client.from("learning_projects").select("project_id,status")
-        .eq("project_id", projectId).eq("owner_address", owner).maybeSingle(),
-      client.from("chapters").select("project_id,chapter_id,position,title,status")
-        .eq("project_id", projectId).eq("status", "READY").order("position"),
-      client.from("knowledge_cards").select("card_id,chapter_id,position,content")
-        .eq("project_id", projectId).order("position"),
+    const [projectResult, statesResult] = await Promise.all([
+      client.from("learning_projects")
+        .select("project_id,status,chapters(project_id,chapter_id,position,title,status,knowledge_cards(card_id,chapter_id,position,content))")
+        .eq("project_id", projectId)
+        .eq("owner_address", owner)
+        .eq("chapters.status", "READY")
+        .maybeSingle(),
       client.from("card_learning_states").select("card_id,fsrs_state,due_at,reps,lapses")
         .eq("owner_address", owner).eq("project_id", projectId),
     ]);
-    const error = projectResult.error ?? chaptersResult.error ?? cardsResult.error ?? statesResult.error;
+    const error = projectResult.error ?? statesResult.error;
     if (error) throw new Error(`Could not read Project study data: ${error.message}`);
     if (!projectResult.data) return null;
+    const nestedChapters = projectResult.data.chapters as Array<{
+      project_id: Hex;
+      chapter_id: number;
+      position: number;
+      title: string;
+      status: string;
+      knowledge_cards: Array<{ card_id: Hex; chapter_id: number; position: number; content: unknown }>;
+    }>;
+    const chapters = nestedChapters
+      .map((chapter) => ({
+        project_id: chapter.project_id,
+        chapter_id: chapter.chapter_id,
+        position: chapter.position,
+        title: chapter.title,
+        status: chapter.status,
+      }))
+      .sort((left, right) => left.position - right.position);
+    const cards = nestedChapters
+      .flatMap((chapter) => chapter.knowledge_cards)
+      .sort((left, right) => left.chapter_id - right.chapter_id || left.position - right.position);
     return {
       project: ProjectRowSchema.parse(projectResult.data),
-      chapters: ProjectChapterRowSchema.array().parse(chaptersResult.data ?? []),
-      cards: ProjectCardRowSchema.array().parse(cardsResult.data ?? []),
+      chapters: ProjectChapterRowSchema.array().parse(chapters),
+      cards: ProjectCardRowSchema.array().parse(cards),
       states: StateRowSchema.array().parse(statesResult.data ?? []),
     };
   }
@@ -200,7 +228,7 @@ function studyCard(row: CardRow, states: ReturnType<typeof stateMap>, now: Date)
   const learning = states.get(row.card_id);
   const due = learning?.dueAt ? Date.parse(learning.dueAt) <= now.getTime() : false;
   return {
-    ...KnowledgeCardContentSchema.parse(row.content),
+    ...StudyKnowledgeCardContentSchema.parse(row.content),
     id: row.card_id,
     position: row.position,
     state: !learning || learning.reps === 0 ? "NEW" as const

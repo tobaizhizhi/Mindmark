@@ -11,7 +11,7 @@ export interface OperationsStore {
   loadLearningQualityReport(): Promise<unknown>;
 }
 
-export class SupabaseOperationsStore implements OperationsStore {
+class SupabaseOperationsStore implements OperationsStore {
   async loadSnapshot(): Promise<unknown> {
     const { data, error } = await getSupabaseAdmin().rpc("get_workflow_operations_v2");
     if (error) throw new Error(`Could not load workflow operations: ${error.message}`);

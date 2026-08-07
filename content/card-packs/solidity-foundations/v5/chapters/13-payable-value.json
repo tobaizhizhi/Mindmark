@@ -1,0 +1,296 @@
+{
+  "chapterId": 12,
+  "position": 12,
+  "slug": "payable-value",
+  "title": "13 payable：让 Registry 接收学习押金",
+  "summary": "在权限和事件之后加入 msg.value、payable、余额和安全转账。",
+  "estimatedMinutes": 32,
+  "learningObjectives": [
+    "能接收并记录 msg.value",
+    "能按 checks-effects-interactions 组织提取",
+    "能检查低级 call 的 bool 结果"
+  ],
+  "prerequisiteChapterIds": [
+    11
+  ],
+  "stageId": 3,
+  "stageTitle": "阶段四：建立权限",
+  "newConcepts": [
+    "payable",
+    "msg.value",
+    "address(this).balance",
+    "call value",
+    "checks-effects-interactions"
+  ],
+  "prerequisiteConcepts": [
+    "constructor",
+    "modifier",
+    "events",
+    "require"
+  ],
+  "practiceFocus": "实现 owner 提取学习押金，所有金额和转账失败路径可回滚。",
+  "projectMilestone": "Registry 支持 deposit 和 owner withdraw，并有事件审计。",
+  "cards": [
+    {
+      "packCardId": "v5-v4-payable-value-concept",
+      "position": 0,
+      "type": "concept",
+      "question": "payable 允许什么，不能替你完成什么？",
+      "answer": "payable 允许函数接收 Ether，msg.value 读取本次携带金额；它不会自动记账、验证金额或安全转账。",
+      "keyPoint": "价值转移的每一步都必须显式设计。",
+      "tags": [
+        "payable",
+        "msg.value",
+        "Ether"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#receive-ether-function",
+        "locator": "receive Ether / payable"
+      },
+      "readingBlockId": "payable-value-concept-text"
+    },
+    {
+      "packCardId": "v5-v4-payable-value-check",
+      "position": 1,
+      "type": "qa",
+      "question": "提取 Ether 时为什么先减少内部余额再进行 call？",
+      "answer": "先更新内部状态再外部交互能遵循 checks-effects-interactions，减少重入时重复提取的窗口；call 失败会让整个交易回滚。",
+      "keyPoint": "外部调用是信任边界，状态顺序是安全边界。",
+      "tags": [
+        "CEI",
+        "call",
+        "重入"
+      ],
+      "importance": 5,
+      "initialDifficulty": 2,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#receive-ether-function",
+        "locator": "receive Ether / payable"
+      },
+      "readingBlockId": "payable-value-concept-text"
+    },
+    {
+      "packCardId": "v5-v4-payable-value-read",
+      "position": 2,
+      "type": "code_read",
+      "question": "审查 DepositVault 的存款和提取路径。",
+      "answer": "deposit 检查 msg.value>0 后增加 deposits 和 total；withdraw 先检查 owner/余额，减少 total，再 call，最后检查 ok。",
+      "keyPoint": "本地记账和实际余额必须在同一成功路径。",
+      "tags": [
+        "payable-value",
+        "code_read"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#receive-ether-function",
+        "locator": "receive Ether / payable"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "mapping(address => uint256) public deposits;\nuint256 public total;\nfunction deposit() external payable { require(msg.value > 0); deposits[msg.sender] += msg.value; total += msg.value; }\nfunction withdraw(uint256 amount) external onlyOwner { require(amount <= total); total -= amount; (bool ok,) = payable(owner).call{value: amount}(\"\"); require(ok); }",
+        "solutionCode": "成功 deposit -> 用户和 total 增加；成功 withdraw -> total 减少且 owner 收到 Ether；任何 require/call 失败都回滚。",
+        "testInput": "A 存 2 ether，B 尝试提取，A 提取 1 ether。",
+        "expectedResult": "B 回滚，A 成功，total=1 ether。",
+        "hints": [
+          "看 onlyOwner。",
+          "外部 call 后检查 ok。"
+        ]
+      },
+      "readingBlockId": "payable-value-code-1"
+    },
+    {
+      "packCardId": "v5-v4-payable-value-complete",
+      "position": 3,
+      "type": "code_complete",
+      "question": "补全 deposit，拒绝零金额、累计 deposits 并发出 Deposited。",
+      "answer": "函数标记 payable，require(msg.value > 0)，增加 deposits[msg.sender]，emit Deposited。",
+      "keyPoint": "payable、记账和事件是三个独立动作。",
+      "tags": [
+        "payable-value",
+        "code_complete"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#receive-ether-function",
+        "locator": "receive Ether / payable"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "mapping(address => uint256) public deposits;\nevent Deposited(address indexed user, uint256 amount);\nfunction deposit() external payable {\n    // TODO\n}",
+        "solutionCode": "function deposit() external payable {\n    require(msg.value > 0, \"zero deposit\");\n    deposits[msg.sender] += msg.value;\n    emit Deposited(msg.sender, msg.value);\n}",
+        "testInput": "A 携带 0 和 2 ether 调用。",
+        "expectedResult": "0 回滚；2 ether 记账并发事件。",
+        "hints": [
+          "msg.value 是本次金额。",
+          "事件放在成功写入后。"
+        ]
+      },
+      "readingBlockId": "payable-value-code-2"
+    },
+    {
+      "packCardId": "v5-v4-payable-value-write",
+      "position": 4,
+      "type": "code_write",
+      "question": "写一个 LearningVault：用户 deposit，owner withdraw，使用 CEI 和 Withdrawn 事件。",
+      "answer": "constructor 保存 owner；deposit 记录用户金额；withdraw 先权限和余额检查，再减少 total，call 转账并检查 ok，最后发事件。",
+      "keyPoint": "这是第一个把状态、权限、事件和 Ether 组合起来的里程碑。",
+      "tags": [
+        "payable-value",
+        "code_write"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#receive-ether-function",
+        "locator": "receive Ether / payable"
+      },
+      "code": {
+        "language": "solidity",
+        "starterCode": "// 完成 LearningVault：deposit()、withdraw()、owner、事件",
+        "solutionCode": "pragma solidity ^0.8.20;\ncontract LearningVault {\n    address public immutable owner;\n    mapping(address => uint256) public deposits;\n    uint256 public total;\n    event Deposited(address indexed user, uint256 amount);\n    event Withdrawn(address indexed to, uint256 amount);\n    constructor() { owner = msg.sender; }\n    function deposit() external payable { require(msg.value > 0); deposits[msg.sender] += msg.value; total += msg.value; emit Deposited(msg.sender, msg.value); }\n    function withdraw(uint256 amount) external { require(msg.sender == owner, \"not owner\"); require(amount <= total, \"insufficient\"); total -= amount; (bool ok,) = payable(owner).call{value: amount}(\"\"); require(ok, \"transfer failed\"); emit Withdrawn(owner, amount); }\n}",
+        "testInput": "B 存款 1 ether；B 提取；A 提取 1 ether。",
+        "expectedResult": "B 提取回滚；A 成功，total 清零且发出 Withdrawn。",
+        "hints": [
+          "先检查再减 total。",
+          "低级 call 的 bool 必须检查。"
+        ]
+      },
+      "readingBlockId": "payable-value-code-3"
+    },
+    {
+      "packCardId": "v5-v4-payable-value-application",
+      "position": 5,
+      "type": "application",
+      "question": "为什么 payable 章节放在 events 和 modifier 之后？",
+      "answer": "价值转移同时需要权限、可观察日志和失败路径；先掌握这些基础，才能避免把 payable 当成‘自动收款’。",
+      "keyPoint": "高风险能力应该建立在已学的边界之上。",
+      "tags": [
+        "学习路径",
+        "payable",
+        "安全"
+      ],
+      "importance": 5,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#receive-ether-function",
+        "locator": "receive Ether / payable"
+      },
+      "readingBlockId": "payable-value-practice-text"
+    },
+    {
+      "packCardId": "v5-v4-payable-value-misconception",
+      "position": 6,
+      "type": "misconception",
+      "question": "误区：合约 balance 等于每个用户 deposits 的总和，为什么不一定？",
+      "answer": "合约可能收到直接转账、支付 gas 不影响余额、或存在未记账路径；内部 total 是业务记账，address(this).balance 是实际余额，两者要分别校验。",
+      "keyPoint": "业务账本和 EVM 余额不是同一个来源。",
+      "tags": [
+        "balance",
+        "记账",
+        "误区"
+      ],
+      "importance": 4,
+      "initialDifficulty": 3,
+      "sourceReference": {
+        "kind": "pack_reference",
+        "label": "Solidity 官方文档",
+        "url": "https://docs.soliditylang.org/en/latest/contracts.html#receive-ether-function",
+        "locator": "receive Ether / payable"
+      },
+      "readingBlockId": "payable-value-practice-text"
+    }
+  ],
+  "readingBlocks": [
+    {
+      "blockId": "payable-value-title",
+      "position": 0,
+      "kind": "heading",
+      "text": "13 payable：让 Registry 接收学习押金"
+    },
+    {
+      "blockId": "payable-value-overview",
+      "position": 1,
+      "kind": "paragraph",
+      "text": "在权限和事件之后加入 msg.value、payable、余额和安全转账。"
+    },
+    {
+      "blockId": "payable-value-stage",
+      "position": 2,
+      "kind": "callout",
+      "text": "阶段四：建立权限。练习重点：实现 owner 提取学习押金，所有金额和转账失败路径可回滚。"
+    },
+    {
+      "blockId": "payable-value-objectives",
+      "position": 3,
+      "kind": "heading",
+      "text": "本章学习目标"
+    },
+    {
+      "blockId": "payable-value-objective-text",
+      "position": 4,
+      "kind": "paragraph",
+      "text": "1. 能接收并记录 msg.value\n2. 能按 checks-effects-interactions 组织提取\n3. 能检查低级 call 的 bool 结果"
+    },
+    {
+      "blockId": "payable-value-concepts",
+      "position": 5,
+      "kind": "heading",
+      "text": "关键概念"
+    },
+    {
+      "blockId": "payable-value-concept-text",
+      "position": 6,
+      "kind": "paragraph",
+      "text": "本章引入：payable、msg.value、address(this).balance、call value、checks-effects-interactions。Registry 支持 deposit 和 owner withdraw，并有事件审计。"
+    },
+    {
+      "blockId": "payable-value-code-1",
+      "position": 7,
+      "kind": "code",
+      "text": "mapping(address => uint256) public deposits;\nuint256 public total;\nfunction deposit() external payable { require(msg.value > 0); deposits[msg.sender] += msg.value; total += msg.value; }\nfunction withdraw(uint256 amount) external onlyOwner { require(amount <= total); total -= amount; (bool ok,) = payable(owner).call{value: amount}(\"\"); require(ok); }",
+      "language": "solidity"
+    },
+    {
+      "blockId": "payable-value-code-2",
+      "position": 8,
+      "kind": "code",
+      "text": "mapping(address => uint256) public deposits;\nevent Deposited(address indexed user, uint256 amount);\nfunction deposit() external payable {\n    // TODO\n}",
+      "language": "solidity"
+    },
+    {
+      "blockId": "payable-value-code-3",
+      "position": 9,
+      "kind": "code",
+      "text": "// 完成 LearningVault：deposit()、withdraw()、owner、事件",
+      "language": "solidity"
+    },
+    {
+      "blockId": "payable-value-practice",
+      "position": 10,
+      "kind": "heading",
+      "text": "迁移练习"
+    },
+    {
+      "blockId": "payable-value-practice-text",
+      "position": 11,
+      "kind": "paragraph",
+      "text": "实现 owner 提取学习押金，所有金额和转账失败路径可回滚。\n项目里程碑：Registry 支持 deposit 和 owner withdraw，并有事件审计。"
+    }
+  ]
+}
