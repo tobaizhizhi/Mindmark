@@ -4112,34 +4112,40 @@ button:disabled {
 .outline-review-list-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 0 4px 13px; }
 .outline-review-list-head > span { font-size: 15px; font-weight: 750; }
 .outline-review-list-head small { color: var(--text-secondary); font-family: var(--font-mono); font-size: 13px; }
-.outline-review-chapters { display: grid; gap: 16px; }
+.outline-review-chapters { display: grid; gap: 20px; }
 .outline-review-chapter {
+  --chapter-accent: var(--accent);
+  --chapter-soft: var(--accent-soft);
   position: relative;
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr);
-  gap: 18px;
+  grid-template-columns: 92px minmax(0, 1fr);
   overflow: hidden;
-  border: 1px solid var(--line-strong);
+  border: 1px solid color-mix(in srgb, var(--chapter-accent) 22%, var(--line));
   border-radius: var(--radius-panel);
   background: var(--surface);
-  padding: 22px 24px 18px;
-  box-shadow: 0 7px 18px rgb(29 40 32 / 4%);
+  box-shadow: 0 10px 24px rgb(29 40 32 / 6%);
   transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
 }
-.outline-review-chapter::before {
-  position: absolute;
-  top: 16px;
-  bottom: 16px;
-  left: 0;
-  width: 3px;
-  border-radius: 0 3px 3px 0;
-  background: var(--accent);
-  content: "";
-}
+.outline-review-chapter:nth-child(3n + 2) { --chapter-accent: var(--info); --chapter-soft: var(--info-soft); }
+.outline-review-chapter:nth-child(3n + 3) { --chapter-accent: var(--warning); --chapter-soft: var(--warning-soft); }
 .outline-review-chapter:hover,
-.outline-review-chapter:focus-within { border-color: color-mix(in srgb, var(--accent) 42%, var(--line-strong)); box-shadow: 0 12px 28px rgb(29 40 32 / 8%); transform: translateY(-1px); }
-.outline-review-chapter-index { display: flex; width: 40px; height: 40px; align-items: center; justify-content: center; border: 1px solid var(--success-line); border-radius: var(--radius-control); background: var(--accent-soft); color: var(--accent); font-family: var(--font-mono); font-size: 12px; font-weight: 800; }
-.outline-review-chapter-main { min-width: 0; }
+.outline-review-chapter:focus-within { border-color: color-mix(in srgb, var(--chapter-accent) 58%, var(--line-strong)); box-shadow: 0 16px 34px rgb(29 40 32 / 10%); transform: translateY(-2px); }
+.outline-review-chapter-index {
+  display: flex;
+  min-height: 244px;
+  align-self: stretch;
+  align-items: center;
+  flex-direction: column;
+  border-right: 1px solid color-mix(in srgb, var(--chapter-accent) 20%, var(--line));
+  background: var(--chapter-soft);
+  padding: 23px 10px 18px;
+  color: var(--chapter-accent);
+  font-family: var(--font-mono);
+}
+.outline-review-chapter-index small { font-family: var(--font-body); font-size: 11px; font-weight: 750; white-space: nowrap; }
+.outline-review-chapter-index strong { margin-top: 8px; font-size: 26px; line-height: 1; }
+.outline-review-chapter-index::after { width: 1px; flex: 1; margin-top: 18px; background: color-mix(in srgb, var(--chapter-accent) 28%, transparent); content: ""; }
+.outline-review-chapter-main { min-width: 0; padding: 22px 24px 18px; }
 .outline-review-chapter-fields { display: grid; gap: 16px; }
 .outline-review-chapter-fields label { display: grid; gap: 6px; }
 .outline-review-chapter-fields label > span { color: var(--text-secondary); font-family: var(--font-mono); font-size: 12px; letter-spacing: 0; }
@@ -4148,18 +4154,21 @@ button:disabled {
 .outline-review-chapter-fields input { margin-left: -8px; background: transparent; padding: 5px 8px; font-size: 20px; font-weight: 700; line-height: 1.45; }
 .outline-review-chapter-fields textarea { min-height: 78px; resize: vertical; border-color: var(--line); background: color-mix(in srgb, var(--paper) 70%, var(--surface)); padding: 10px 12px; color: var(--text-secondary); font-size: 15px; line-height: 1.75; }
 .outline-review-chapter-fields input:focus,
-.outline-review-chapter-fields textarea:focus { border-color: var(--accent); background: var(--surface); box-shadow: 0 0 0 3px var(--accent-soft); }
+.outline-review-chapter-fields textarea:focus { border-color: var(--chapter-accent); background: var(--surface); box-shadow: 0 0 0 3px var(--chapter-soft); }
 .outline-review-chapter-fields input:disabled { border-color: transparent; color: var(--ink); cursor: default; }
 .outline-review-chapter-fields textarea:disabled { border-color: var(--line); color: var(--text-secondary); cursor: default; }
 .outline-review-chapter-meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; color: var(--text-secondary); font-family: var(--font-mono); font-size: 12px; }
-.outline-review-chapter-meta span { display: inline-flex; min-height: 28px; align-items: center; border: 1px solid var(--line); border-radius: var(--radius-small); background: var(--paper); padding: 0 9px; }
+.outline-review-chapter-meta span { display: inline-flex; min-height: 28px; align-items: center; border: 1px solid color-mix(in srgb, var(--chapter-accent) 20%, var(--line)); border-radius: var(--radius-small); background: var(--chapter-soft); padding: 0 9px; }
 .outline-review-chapter-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-top: 14px; }
 .outline-review-chapter-actions button { display: inline-flex; min-height: 34px; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: var(--radius-control); background: var(--surface); padding: 0 10px; color: var(--text-secondary); font-size: 13px; }
 .outline-review-chapter-actions button:hover:not(:disabled) { border-color: var(--line-strong); background: var(--surface-hover); color: var(--ink); }
+.outline-review-chapter-actions .outline-review-chapter-command { border-color: color-mix(in srgb, var(--chapter-accent) 24%, var(--line)); background: var(--chapter-soft); color: var(--chapter-accent); font-weight: 700; }
+.outline-review-chapter-actions .outline-review-chapter-command:hover:not(:disabled) { border-color: var(--chapter-accent); background: var(--surface); color: var(--chapter-accent); }
+.outline-review-chapter-actions .outline-review-boundary-button { width: 34px; padding: 0; }
 .outline-review-chapter-actions button:disabled { opacity: .4; }
 .outline-review-chapter-actions svg { width: 14px; height: 14px; }
 .outline-review-merge-icon { font-size: 13px; line-height: 1; }
-.outline-review-chapter-locked { background: linear-gradient(110deg, var(--surface) 72%, var(--success-soft)); }
+.outline-review-chapter-locked { box-shadow: 0 8px 20px rgb(29 40 32 / 4%); }
 .outline-review-sidebar { position: sticky; top: 82px; border: 1px solid var(--line); border-radius: var(--radius-panel); background: var(--surface); padding: 18px; }
 .outline-review-sidebar-heading { display: flex; align-items: center; justify-content: space-between; color: var(--text-secondary); font-family: var(--font-mono); font-size: 14px; font-weight: 800; letter-spacing: 0; text-transform: none; }
 .outline-review-sidebar-heading svg { width: 15px; height: 15px; color: var(--accent); }
@@ -4211,8 +4220,11 @@ button:disabled {
   .outline-review-chapter-fields input { font-size: 18px; }
   .outline-review-chapter-fields textarea { font-size: 14px; }
   .outline-review-chapters { padding: 0; }
-  .outline-review-chapter { grid-template-columns: 38px minmax(0, 1fr); gap: 12px; padding: 18px 16px 16px 18px; }
-  .outline-review-chapter-index { width: 36px; height: 36px; font-size: 11px; }
+  .outline-review-chapter { grid-template-columns: minmax(0, 1fr); }
+  .outline-review-chapter-index { min-height: 0; align-items: baseline; flex-direction: row; gap: 8px; border-right: 0; border-bottom: 1px solid color-mix(in srgb, var(--chapter-accent) 20%, var(--line)); padding: 10px 14px; }
+  .outline-review-chapter-index strong { margin-top: 0; font-size: 18px; }
+  .outline-review-chapter-index::after { display: none; }
+  .outline-review-chapter-main { padding: 17px 16px 16px; }
   .outline-review-loading-card { width: calc(100% - 24px); padding: 30px 20px; }
 }
 

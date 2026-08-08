@@ -633,7 +633,7 @@ export function ProjectCreationWorkbench(props: { mode?: "intake" | "outline" } 
               <div className="outline-review-chapters">
                 {proposals.map((proposal, index) => (
                   <article key={`${index}-${proposal.startBlock}`} className={confirmed ? "outline-review-chapter outline-review-chapter-locked" : "outline-review-chapter"}>
-                    <div className="outline-review-chapter-index">{String(index + 1).padStart(2, "0")}</div>
+                    <div className="outline-review-chapter-index"><small>学习单元</small><strong>{String(index + 1).padStart(2, "0")}</strong></div>
                     <div className="outline-review-chapter-main">
                       <div className="outline-review-chapter-fields">
                         <label><span>章节名称</span><input value={proposal.title} disabled={confirmed} onChange={(event) => updateProposal(index, { title: event.target.value })} /></label>
@@ -644,9 +644,9 @@ export function ProjectCreationWorkbench(props: { mode?: "intake" | "outline" } 
                         <span>重要度 {proposal.importance}/5</span>
                       </div>
                       {!confirmed ? <div className="outline-review-chapter-actions">
-                        <button type="button" onClick={() => splitProposal(index)} disabled={proposal.endBlock <= proposal.startBlock}><Plus />拆分</button>
-                        <button type="button" onClick={() => mergeProposal(index)} disabled={proposals.length <= 1}><span className="outline-review-merge-icon">↔</span>合并</button>
-                        {index < proposals.length - 1 ? <><button type="button" onClick={() => moveBoundary(index, -1)} aria-label="分界向前" title="分界向前"><ArrowLeft /></button><button type="button" onClick={() => moveBoundary(index, 1)} aria-label="分界向后" title="分界向后"><ArrowRight /></button></> : null}
+                        <button type="button" className="outline-review-chapter-command" onClick={() => splitProposal(index)} disabled={proposal.endBlock <= proposal.startBlock}><Plus />拆分</button>
+                        <button type="button" className="outline-review-chapter-command" onClick={() => mergeProposal(index)} disabled={proposals.length <= 1}><span className="outline-review-merge-icon">↔</span>合并</button>
+                        {index < proposals.length - 1 ? <><button type="button" className="outline-review-boundary-button" onClick={() => moveBoundary(index, -1)} aria-label="分界向前" title="分界向前"><ArrowLeft /></button><button type="button" className="outline-review-boundary-button" onClick={() => moveBoundary(index, 1)} aria-label="分界向后" title="分界向后"><ArrowRight /></button></> : null}
                       </div> : null}
                     </div>
                   </article>
