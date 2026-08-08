@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AiGatewayError, OpenAICompatibleGateway } from "../src/index.js";
+import {
+  AiGatewayError,
+  FailoverOpenAICompatibleGateway,
+  OpenAICompatibleGateway,
+} from "../src/index.js";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -107,5 +111,102 @@ describe("OpenAI-compatible AI Gateway", () => {
       code: "invalid_response",
       retryable: false,
     }));
+  });
+
+  it("uses the DeepSeek fallback after a retryable primary failure", async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    fetchMock
+      .mockResolvedValueOnce(new Response("primary unavailable", { status: 503 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        choices: [{ message: { tool_calls: [{
+          id: "call-deepseek",
+          function: { name: "answer", arguments: '{"value":"fallback"}' },
+        }] } }],
+      }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const gateway = new FailoverOpenAICompatibleGateway({
+      primary: {
+        apiKey: "primary-key",
+        model: "primary-model",
+        baseUrl: "https://primary.example/v1",
+      },
+      fallback: {
+        apiKey: "deepseek-key",
+        model: "deepseek-chat",
+        baseUrl: "https://api.deepseek.com/v1",
+        maxTokensParameter: "max_tokens",
+        providerOptions: { thinking: { type: "disabled" } },
+      },
+    });
+
+    await expect(gateway.callTool(input)).resolves.toEqual({
+      id: "call-deepseek",
+      name: "answer",
+      arguments: { value: "fallback" },
+    });
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "https://primary.example/v1/chat/completions",
+      "https://api.deepseek.com/v1/chat/completions",
+    ]);
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toMatchObject({
+      model: "deepseek-chat",
+      max_tokens: 256,
+      thinking: { type: "disabled" },
+    });
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).not.toHaveProperty("max_completion_tokens");
+  });
+
+  it("switches streaming to DeepSeek before the primary emits an answer", async () => {
+    const frame = {
+      choices: [{ delta: { tool_calls: [{
+        index: 0,
+        id: "call-deepseek-stream",
+        function: { name: "answer", arguments: '{"value":"fallback"}' },
+      }] } }],
+    };
+    const payload = new TextEncoder().encode(`data: ${JSON.stringify(frame)}\n\ndata: [DONE]\n\n`);
+    const fetchMock = vi.fn<typeof fetch>();
+    fetchMock
+      .mockResolvedValueOnce(new Response("primary unavailable", { status: 503 }))
+      .mockResolvedValueOnce(new Response(new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(payload);
+          controller.close();
+        },
+      }), { status: 200, headers: { "Content-Type": "text/event-stream" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const gateway = new FailoverOpenAICompatibleGateway({
+      primary: { apiKey: "primary-key", model: "primary-model" },
+      fallback: { apiKey: "deepseek-key", model: "deepseek-chat" },
+    });
+    const events = [];
+
+    for await (const event of gateway.streamTool(input)) events.push(event);
+
+    expect(events.at(-1)).toEqual({
+      type: "result",
+      result: { id: "call-deepseek-stream", name: "answer", arguments: { value: "fallback" } },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not fail over after an invalid primary tool response", async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ choices: [] }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const gateway = new FailoverOpenAICompatibleGateway({
+      primary: { apiKey: "primary-key", model: "primary-model" },
+      fallback: { apiKey: "deepseek-key", model: "deepseek-chat" },
+    });
+
+    await expect(gateway.callTool(input)).rejects.toMatchObject({
+      code: "invalid_response",
+      retryable: false,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,4 +1,5 @@
 import { AddressSchema, mossNetworkSupport } from "@mindmark/shared";
+import type { OpenAICompatibleGatewayConfiguration } from "@mindmark/ai-gateway";
 import { z } from "zod";
 import { parseEther, type Hex } from "viem";
 import { ViemProjectRegistryGatewayV2 } from "./chain-v2.js";
@@ -38,6 +39,9 @@ const RunnerEnvironmentSchema = z.object({
   AI_API_KEY: z.string().min(1),
   AI_MODEL: z.string().min(1),
   AI_BASE_URL: z.string().url().optional(),
+  AI_FALLBACK_API_KEY: z.string().min(1).optional(),
+  AI_FALLBACK_MODEL: z.string().min(1).default("deepseek-chat"),
+  AI_FALLBACK_BASE_URL: z.string().url().default("https://api.deepseek.com/v1"),
   AI_DESIGN_MODEL: z.string().min(1).optional(),
   AI_EVALUATION_MODEL: z.string().min(1).optional(),
   AI_EVALUATION_API_KEY: z.string().min(1).optional(),
@@ -105,10 +109,20 @@ export async function startRunnerFromEnvironment(
     configuration.SUPABASE_SERVICE_ROLE_KEY,
   );
   await persistence.assertSchemaCapabilities();
+  const deepSeekFallback: OpenAICompatibleGatewayConfiguration | undefined = configuration.AI_FALLBACK_API_KEY
+    ? {
+        apiKey: configuration.AI_FALLBACK_API_KEY,
+        model: configuration.AI_FALLBACK_MODEL,
+        baseUrl: configuration.AI_FALLBACK_BASE_URL,
+        maxTokensParameter: "max_tokens",
+        providerOptions: { thinking: { type: "disabled" } },
+      }
+    : undefined;
   const generationModel = new OpenAICompatibleToolModel({
     apiKey: configuration.AI_API_KEY,
     model: configuration.AI_MODEL,
     ...(configuration.AI_BASE_URL ? { baseUrl: configuration.AI_BASE_URL } : {}),
+    ...(deepSeekFallback ? { fallback: deepSeekFallback } : {}),
   });
   const designModelId = configuration.AI_DESIGN_MODEL ?? configuration.AI_MODEL;
   const designModel = designModelId === configuration.AI_MODEL
@@ -117,6 +131,7 @@ export async function startRunnerFromEnvironment(
         apiKey: configuration.AI_API_KEY,
         model: designModelId,
         ...(configuration.AI_BASE_URL ? { baseUrl: configuration.AI_BASE_URL } : {}),
+        ...(deepSeekFallback ? { fallback: deepSeekFallback } : {}),
       });
   const evaluationModelId = configuration.AI_EVALUATION_MODEL ?? configuration.AI_MODEL;
   const evaluationModel = new OpenAICompatibleToolModel({
@@ -125,6 +140,7 @@ export async function startRunnerFromEnvironment(
     ...(configuration.AI_EVALUATION_BASE_URL
       ? { baseUrl: configuration.AI_EVALUATION_BASE_URL }
       : configuration.AI_BASE_URL ? { baseUrl: configuration.AI_BASE_URL } : {}),
+    ...(deepSeekFallback ? { fallback: deepSeekFallback } : {}),
     temperature: 0,
   });
   const embeddings = configuration.AI_EMBEDDING_MODEL

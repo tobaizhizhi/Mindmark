@@ -23,6 +23,13 @@ type LiveConfiguration = {
   apiKey: string;
   model: string;
   baseUrl?: string;
+  fallback?: {
+    apiKey: string;
+    model: string;
+    baseUrl: string;
+    maxTokensParameter: "max_tokens";
+    providerOptions: { thinking: { type: "disabled" } };
+  };
   timeoutMs: number;
   minimumAccuracy: number;
   minimumViolationDetection: number;
@@ -57,10 +64,22 @@ function timeoutMs(): number {
 function configuration(): LiveConfiguration {
   const baseUrl = process.env.AI_EVALUATION_BASE_URL?.trim() ?? process.env.AI_BASE_URL?.trim();
   if (baseUrl) new URL(baseUrl);
+  const fallbackApiKey = process.env.AI_FALLBACK_API_KEY?.trim();
+  const fallbackBaseUrl = process.env.AI_FALLBACK_BASE_URL?.trim() ?? "https://api.deepseek.com/v1";
+  if (fallbackApiKey) new URL(fallbackBaseUrl);
   return {
     apiKey: process.env.AI_EVALUATION_API_KEY?.trim() ?? requiredEnvironment("AI_API_KEY"),
     model: process.env.AI_EVALUATION_MODEL?.trim() ?? requiredEnvironment("AI_MODEL"),
     ...(baseUrl ? { baseUrl } : {}),
+    ...(fallbackApiKey ? {
+      fallback: {
+        apiKey: fallbackApiKey,
+        model: process.env.AI_FALLBACK_MODEL?.trim() ?? "deepseek-chat",
+        baseUrl: fallbackBaseUrl,
+        maxTokensParameter: "max_tokens" as const,
+        providerOptions: { thinking: { type: "disabled" } },
+      },
+    } : {}),
     timeoutMs: timeoutMs(),
     minimumAccuracy: boundedNumber("QUALITY_LIVE_MIN_ACCURACY", 0.9),
     minimumViolationDetection: boundedNumber("QUALITY_LIVE_MIN_VIOLATION_DETECTION", 0.9),
@@ -131,6 +150,7 @@ async function main(): Promise<void> {
     apiKey: live.apiKey,
     model: live.model,
     ...(live.baseUrl ? { baseUrl: live.baseUrl } : {}),
+    ...(live.fallback ? { fallback: live.fallback } : {}),
   });
   const evaluator = new ModelCardQualityEvaluatorV3(model, {
     modelId: live.model,

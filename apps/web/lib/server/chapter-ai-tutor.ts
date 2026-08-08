@@ -6,7 +6,11 @@ import {
   type AskChapterTutorResponse,
   type ChapterReadingResponse,
 } from "@mindmark/shared";
-import { AiGatewayError, OpenAICompatibleGateway } from "@mindmark/ai-gateway";
+import {
+  AiGatewayError,
+  FailoverOpenAICompatibleGateway,
+  type OpenAICompatibleGatewayConfiguration,
+} from "@mindmark/ai-gateway";
 import { z } from "zod";
 import type { Hex } from "viem";
 import { ApiError } from "./http";
@@ -20,6 +24,9 @@ const AiTutorEnvironmentSchema = z.object({
   AI_MODEL: z.string().min(1),
   AI_BASE_URL: z.string().url().optional(),
   AI_TUTOR_MODEL: z.string().min(1).optional(),
+  AI_FALLBACK_API_KEY: z.string().min(1).optional(),
+  AI_FALLBACK_MODEL: z.string().min(1).default("deepseek-chat"),
+  AI_FALLBACK_BASE_URL: z.string().url().default("https://api.deepseek.com/v1"),
 });
 
 export type ChapterTutorModelInput = {
@@ -316,14 +323,22 @@ function tutorModelError(error: unknown): ApiError {
 }
 
 export class OpenAICompatibleChapterTutorModel implements ChapterTutorModel {
-  private readonly gateway: OpenAICompatibleGateway;
+  private readonly gateway: FailoverOpenAICompatibleGateway;
 
   constructor(configuration: {
     apiKey: string;
     model: string;
     baseUrl?: string;
+    fallback?: OpenAICompatibleGatewayConfiguration;
   }) {
-    this.gateway = new OpenAICompatibleGateway(configuration);
+    this.gateway = new FailoverOpenAICompatibleGateway({
+      primary: {
+        apiKey: configuration.apiKey,
+        model: configuration.model,
+        ...(configuration.baseUrl ? { baseUrl: configuration.baseUrl } : {}),
+      },
+      ...(configuration.fallback ? { fallback: configuration.fallback } : {}),
+    });
   }
 
   async answer(input: ChapterTutorModelInput): Promise<AskChapterTutorResponse> {
@@ -379,10 +394,20 @@ function modelFromEnvironment(): ChapterTutorModel {
   if (!parsed.success) {
     throw new ApiError(503, "ai_tutor_not_configured", "AI 导师尚未配置模型服务");
   }
+  const fallback = parsed.data.AI_FALLBACK_API_KEY
+    ? {
+        apiKey: parsed.data.AI_FALLBACK_API_KEY,
+        model: parsed.data.AI_FALLBACK_MODEL,
+        baseUrl: parsed.data.AI_FALLBACK_BASE_URL,
+        maxTokensParameter: "max_tokens" as const,
+        providerOptions: { thinking: { type: "disabled" } },
+      }
+    : undefined;
   return new OpenAICompatibleChapterTutorModel({
     apiKey: parsed.data.AI_API_KEY,
     model: parsed.data.AI_TUTOR_MODEL ?? parsed.data.AI_MODEL,
     ...(parsed.data.AI_BASE_URL ? { baseUrl: parsed.data.AI_BASE_URL } : {}),
+    ...(fallback ? { fallback } : {}),
   });
 }
 

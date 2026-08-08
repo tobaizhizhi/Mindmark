@@ -100,6 +100,10 @@ export type OpenAICompatibleGatewayConfiguration = {
   apiKey: string;
   model: string;
   baseUrl?: string;
+  /** Some OpenAI-compatible providers (including DeepSeek) use max_tokens. */
+  maxTokensParameter?: "max_completion_tokens" | "max_tokens";
+  /** Provider-specific options that cannot override Mindmark's tool contract. */
+  providerOptions?: Record<string, unknown>;
 };
 
 export type CallToolInput = {
@@ -167,6 +171,15 @@ function transportError(error: unknown, timedOut: boolean, callerAborted: boolea
   });
 }
 
+function completionTokenParameter(
+  configuration: OpenAICompatibleGatewayConfiguration,
+  maxCompletionTokens: number,
+): Record<string, number> {
+  return configuration.maxTokensParameter === "max_tokens"
+    ? { max_tokens: maxCompletionTokens }
+    : { max_completion_tokens: maxCompletionTokens };
+}
+
 export class OpenAICompatibleGateway {
   constructor(private readonly configuration: OpenAICompatibleGatewayConfiguration) {}
 
@@ -220,9 +233,10 @@ export class OpenAICompatibleGateway {
             Accept: "text/event-stream",
           },
           body: JSON.stringify({
+            ...this.configuration.providerOptions,
             model: this.configuration.model,
             temperature: input.temperature ?? 0.2,
-            max_completion_tokens: input.maxCompletionTokens,
+            ...completionTokenParameter(this.configuration, input.maxCompletionTokens),
             parallel_tool_calls: false,
             stream: true,
             stream_options: { include_usage: true },
@@ -407,9 +421,10 @@ export class OpenAICompatibleGateway {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
+          ...this.configuration.providerOptions,
           model: this.configuration.model,
           temperature: input.temperature ?? 0.2,
-          max_completion_tokens: input.maxCompletionTokens,
+          ...completionTokenParameter(this.configuration, input.maxCompletionTokens),
           parallel_tool_calls: false,
           tool_choice: input.toolChoice ?? "required",
           messages: input.messages,
@@ -442,4 +457,50 @@ export class OpenAICompatibleGateway {
 
 export function isRetryableAiGatewayError(error: unknown): boolean {
   return error instanceof AiGatewayError && error.retryable;
+}
+
+export type FailoverOpenAICompatibleGatewayConfiguration = {
+  primary: OpenAICompatibleGatewayConfiguration;
+  fallback?: OpenAICompatibleGatewayConfiguration;
+};
+
+/**
+ * Tries a secondary OpenAI-compatible provider only for transient failures.
+ * Invalid tool/schema responses are deliberately not failed over: accepting a
+ * malformed response from another model would hide a prompt or contract bug.
+ * Streaming only fails over before the primary has emitted any user-visible
+ * arguments, so a partial answer is never silently duplicated.
+ */
+export class FailoverOpenAICompatibleGateway {
+  private readonly primary: OpenAICompatibleGateway;
+  private readonly fallback: OpenAICompatibleGateway | undefined;
+
+  constructor(configuration: FailoverOpenAICompatibleGatewayConfiguration) {
+    this.primary = new OpenAICompatibleGateway(configuration.primary);
+    this.fallback = configuration.fallback
+      ? new OpenAICompatibleGateway(configuration.fallback)
+      : undefined;
+  }
+
+  async callTool(input: CallToolInput): Promise<AiToolCallResult> {
+    try {
+      return await this.primary.callTool(input);
+    } catch (error) {
+      if (!this.fallback || !isRetryableAiGatewayError(error)) throw error;
+      return this.fallback.callTool(input);
+    }
+  }
+
+  async *streamTool(input: CallToolInput): AsyncGenerator<AiToolCallStreamEvent> {
+    let emitted = false;
+    try {
+      for await (const event of this.primary.streamTool(input)) {
+        emitted = true;
+        yield event;
+      }
+    } catch (error) {
+      if (!this.fallback || emitted || !isRetryableAiGatewayError(error)) throw error;
+      yield* this.fallback.streamTool(input);
+    }
+  }
 }

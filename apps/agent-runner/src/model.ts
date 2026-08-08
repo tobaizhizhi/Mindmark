@@ -1,7 +1,8 @@
 import {
-  OpenAICompatibleGateway,
+  FailoverOpenAICompatibleGateway,
   isRetryableAiGatewayError,
   type AiChatMessage,
+  type OpenAICompatibleGatewayConfiguration,
 } from "@mindmark/ai-gateway";
 import type {
   AgentToolCall,
@@ -84,18 +85,32 @@ export async function nextToolWithTransientRetry(
 }
 
 export class OpenAICompatibleToolModel implements ToolCallingModel {
-  private readonly gateway: OpenAICompatibleGateway;
+  private readonly gateway: FailoverOpenAICompatibleGateway;
 
   constructor(
     private readonly configuration: {
       apiKey: string;
       model: string;
       baseUrl?: string;
+      maxTokensParameter?: "max_completion_tokens" | "max_tokens";
+      providerOptions?: Record<string, unknown>;
+      fallback?: OpenAICompatibleGatewayConfiguration;
       temperature?: number;
       maxCompletionTokens?: number;
     },
   ) {
-    this.gateway = new OpenAICompatibleGateway(configuration);
+    this.gateway = new FailoverOpenAICompatibleGateway({
+      primary: {
+        apiKey: configuration.apiKey,
+        model: configuration.model,
+        ...(configuration.baseUrl ? { baseUrl: configuration.baseUrl } : {}),
+        ...(configuration.maxTokensParameter
+          ? { maxTokensParameter: configuration.maxTokensParameter }
+          : {}),
+        ...(configuration.providerOptions ? { providerOptions: configuration.providerOptions } : {}),
+      },
+      ...(configuration.fallback ? { fallback: configuration.fallback } : {}),
+    });
   }
 
   async nextTool(input: Parameters<ToolCallingModel["nextTool"]>[0]): Promise<AgentToolCall> {
