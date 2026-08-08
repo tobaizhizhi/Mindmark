@@ -61,16 +61,29 @@ export class ProjectWorkflowDispatcherV2 {
     return (await this.runNextDetailed()) !== null;
   }
 
-  async runNextDetailed(): Promise<WorkflowJobKindV2 | null> {
-    const job = await this.repository.claimNextWorkflowJob([...dispatchKinds]);
+  async runNextDetailed(
+    kinds: readonly WorkflowJobKindV2[] = dispatchKinds,
+  ): Promise<WorkflowJobKindV2 | null> {
+    const job = await this.repository.claimNextWorkflowJob([...kinds]);
     if (!job) return null;
+    await this.processClaimedJob(job);
+    return job.kind;
+  }
+
+  async runNextGenerationForWorker(workerIndex: number): Promise<WorkflowJobKindV2 | null> {
+    const job = await this.repository.claimNextGenerationWorkflowJob(workerIndex);
+    if (!job) return null;
+    await this.processClaimedJob(job);
+    return job.kind;
+  }
+
+  private async processClaimedJob(job: Awaited<ReturnType<WorkflowDispatchRepositoryV2["claimNextWorkflowJob"]>> extends infer T ? Exclude<T, null> : never): Promise<void> {
     try {
       const output = await this.dispatch(job);
       await this.repository.completeWorkflowJob(job.jobId, output);
     } catch (error) {
       await this.repository.retryWorkflowJob(job.jobId, errorMessage(error));
     }
-    return job.kind;
   }
 
   private async dispatch(job: Awaited<ReturnType<WorkflowDispatchRepositoryV2["claimNextWorkflowJob"]>> extends infer T ? Exclude<T, null> : never) {

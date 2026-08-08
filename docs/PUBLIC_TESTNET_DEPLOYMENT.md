@@ -27,6 +27,7 @@ Browser -> Mindmark Web -> Supabase / Monad Testnet / AI Tutor
 supabase/migrations/20260807000200_generation_failure_recovery.sql
 supabase/migrations/20260807000300_dynamic_work_unit_pricing.sql
 supabase/migrations/20260807000400_legacy_escrow_pricing_recovery.sql
+supabase/migrations/20260808000100_parallel_worker_dispatch.sql
 ```
 
 生产数据不可丢弃时，不要清空 `public` schema。执行 migration 后刷新 PostgREST Schema Cache，并在 SQL Editor 检查：
@@ -38,8 +39,8 @@ select public.get_workflow_operations_v2();
 
 要求：
 
-- `schemaVersion = 2026-08-07.2`
-- 六项 capability 全部为 `true`
+- `schemaVersion = 2026-08-08.1`
+- 七项 capability 全部为 `true`（包括 `parallelWorkerDispatch`）
 - `missing = []`
 - 首次开放时 `staleJobs = 0`、`failedJobs = 0`
 
@@ -125,6 +126,10 @@ RUNNER_POLL_INTERVAL_MS=5000
 ```
 
 Registry、Escrow、Chain ID、Supabase URL 和 Service Role Key 必须与 Web 完全一致。Runner 启动时会核对数据库 capability、Escrow 引用的 Registry、钱包分工和 Moss 网络支持；失败时进程退出，由 Railway 标记部署失败或重启。
+
+Runner 会固定启用三个安全的生成 lane：Worker 0/1/2 可并行生成不同的 Work Unit，
+但同一 Worker 钱包同一时刻只会处理一个任务；质量检查、章节装配、最终确认与奖励结算仍串行。
+不需要新增 Railway 并发变量。
 
 部署后请在 Runner Service 的 **Deployments -> View Logs** 中确认先出现
 `Mindmark Agent Runner: 6 isolated roles configured`。如果看到

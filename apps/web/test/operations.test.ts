@@ -135,7 +135,7 @@ describe("HTTP errors", () => {
     await expect(response.json()).resolves.toMatchObject({
       error: {
         code: "deployment_schema_outdated",
-        message: expect.stringContaining("20260807000200_generation_failure_recovery.sql"),
+        message: expect.stringContaining("20260808000100_parallel_worker_dispatch.sql"),
       },
     });
   });

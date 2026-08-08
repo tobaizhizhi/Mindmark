@@ -13,6 +13,7 @@ const allCapabilities = {
   originalPdfStorage: true,
   learnerProgress: true,
   sponsorEscrow: true,
+  parallelWorkerDispatch: true,
 };
 
 describe("deployment schema capabilities", () => {

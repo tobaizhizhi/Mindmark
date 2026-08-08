@@ -5,7 +5,7 @@ describe("Web schema capability preflight", () => {
   it("loads and validates the database contract", async () => {
     const rpc = vi.fn().mockResolvedValue({
       data: {
-        schemaVersion: "2026-08-07.2",
+        schemaVersion: "2026-08-08.1",
         capabilities: {
           coreLearningV2: true,
           learningDesignV3: true,
@@ -13,13 +13,14 @@ describe("Web schema capability preflight", () => {
           originalPdfStorage: true,
           learnerProgress: true,
           sponsorEscrow: true,
+          parallelWorkerDispatch: true,
         },
         missing: [],
       },
       error: null,
     });
     await expect(loadSchemaCapabilities({ rpc } as never)).resolves.toMatchObject({
-      schemaVersion: "2026-08-07.2",
+      schemaVersion: "2026-08-08.1",
     });
   });
 

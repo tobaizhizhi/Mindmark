@@ -5,7 +5,7 @@ describe("Runner schema capability preflight", () => {
   it("fails before workflow polling when the deployed schema is incomplete", async () => {
     const rpc = vi.fn().mockResolvedValue({
       data: {
-        schemaVersion: "2026-08-07.2",
+        schemaVersion: "2026-08-08.1",
         capabilities: {
           coreLearningV2: true,
           learningDesignV3: false,
@@ -13,6 +13,7 @@ describe("Runner schema capability preflight", () => {
           originalPdfStorage: true,
           learnerProgress: true,
           sponsorEscrow: true,
+          parallelWorkerDispatch: true,
         },
         missing: ["learning_design_v3"],
       },

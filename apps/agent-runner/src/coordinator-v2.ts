@@ -4,6 +4,7 @@ import type { WorkflowJobKindV2 } from "./types-v2.js";
 type CoordinatorOptions = {
   pollIntervalMs?: number;
   maxWorkflowJobsPerRun?: number;
+  generationConcurrency?: number;
   startupRetryDelayMs?: number;
 };
 
@@ -17,8 +18,20 @@ export type ProjectRunnerTick = {
 /** The only seam the coordinator needs for the recover-and-dispatch loop. */
 export interface WorkflowQueueRunnerV2 {
   recoverStaleJobs(): Promise<number>;
-  runNextDetailed(): Promise<WorkflowJobKindV2 | null>;
+  runNextDetailed(kinds?: readonly WorkflowJobKindV2[]): Promise<WorkflowJobKindV2 | null>;
+  runNextGenerationForWorker(workerIndex: number): Promise<WorkflowJobKindV2 | null>;
 }
+
+const CONTROL_JOB_KINDS: readonly WorkflowJobKindV2[] = [
+  "PLAN_OUTLINE",
+  "DESIGN_CHAPTER",
+  "FREEZE_PROJECT_DESIGN",
+  "RECONCILE_PROJECT",
+  "QUALITY_CHECK_CHAPTER",
+  "ASSEMBLE_CHAPTER",
+  "FINALIZE_PROJECT",
+  "SETTLE_WORK_UNIT_REWARD",
+];
 
 export class ProjectCoordinatorV2 {
   private pollTimer: NodeJS.Timeout | null = null;
@@ -58,17 +71,38 @@ export class ProjectCoordinatorV2 {
     } catch (error) {
       tick.errors.push(error);
     }
-    // All Workflow Jobs, including PLAN_OUTLINE, use the same claim/complete/retry path.
-    for (let index = 0; index < (this.options.maxWorkflowJobsPerRun ?? 64); index += 1) {
-      try {
-        const kind: WorkflowJobKindV2 | null = await this.workflowDispatcher.runNextDetailed();
-        if (!kind) break;
-        if (kind === "PLAN_OUTLINE") tick.plannedOutlines += 1;
+    const maxJobs = this.options.maxWorkflowJobsPerRun ?? 64;
+    const generationConcurrency = Math.max(1, Math.min(3, this.options.generationConcurrency ?? 3));
+    while (tick.processedWorkflowJobs < maxJobs) {
+      const slots = Math.min(generationConcurrency, maxJobs - tick.processedWorkflowJobs);
+      const generationResults = await Promise.allSettled(
+        Array.from({ length: slots }, (_, workerIndex) =>
+          this.workflowDispatcher.runNextGenerationForWorker(workerIndex),
+        ),
+      );
+      let progressed = false;
+      for (const result of generationResults) {
+        if (result.status === "rejected") {
+          tick.errors.push(result.reason);
+          continue;
+        }
+        if (!result.value) continue;
+        progressed = true;
         tick.processedWorkflowJobs += 1;
+      }
+      if (tick.processedWorkflowJobs >= maxJobs) break;
+
+      try {
+        const kind = await this.workflowDispatcher.runNextDetailed(CONTROL_JOB_KINDS);
+        if (kind) {
+          progressed = true;
+          if (kind === "PLAN_OUTLINE") tick.plannedOutlines += 1;
+          tick.processedWorkflowJobs += 1;
+        }
       } catch (error) {
         tick.errors.push(error);
-        break;
       }
+      if (!progressed) break;
     }
     return tick;
   }

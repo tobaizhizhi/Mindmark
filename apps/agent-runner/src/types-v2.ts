@@ -328,6 +328,7 @@ export interface ProjectDesignFreezeRepositoryV3 {
 }
 
 export interface WorkflowDispatchRepositoryV2 extends WorkflowJobRepositoryV2 {
+  claimNextGenerationWorkflowJob(workerIndex: number): Promise<WorkflowJobV2 | null>;
   getWorkUnit(projectId: Hex, workUnitId: number): Promise<RunnerWorkUnitV2>;
   claimWorkflowWorkUnit(
     projectId: Hex,

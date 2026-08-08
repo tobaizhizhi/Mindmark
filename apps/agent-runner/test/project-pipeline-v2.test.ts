@@ -319,8 +319,24 @@ class InMemoryWorkflowRepositoryV2 extends InMemoryProjectRepositoryV2 implement
   async recoverStaleWorkflowJobs() { return 0; }
 
   async claimNextWorkflowJob(kinds: WorkflowJobV2["kind"][]) {
+    return this.claimNextWorkflowJobForWorker(kinds);
+  }
+
+  async claimNextGenerationWorkflowJob(workerIndex: number) {
+    return this.claimNextWorkflowJobForWorker(["GENERATE_WORK_UNIT"], workerIndex);
+  }
+
+  private async claimNextWorkflowJobForWorker(
+    kinds: WorkflowJobV2["kind"][],
+    workerIndex?: number,
+  ) {
     const job = this.jobs.find((candidate) =>
-      kinds.includes(candidate.kind) && ["QUEUED", "RETRYABLE"].includes(candidate.status),
+      kinds.includes(candidate.kind)
+      && ["QUEUED", "RETRYABLE"].includes(candidate.status)
+      && (workerIndex === undefined
+        || (candidate.kind === "GENERATE_WORK_UNIT"
+          && candidate.workUnitId !== null
+          && candidate.workUnitId % 3 === workerIndex)),
     );
     if (!job) return null;
     job.status = "RUNNING";

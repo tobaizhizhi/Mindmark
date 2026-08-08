@@ -30,6 +30,15 @@ export class SupabaseWorkflowRepositoryV2 implements WorkflowDispatchRepositoryV
     return row ? workflowJobFromRow(row) : null;
   }
 
+  async claimNextGenerationWorkflowJob(workerIndex: number): Promise<WorkflowJobV2 | null> {
+    const { data, error } = await this.client.rpc("claim_next_generation_workflow_job_for_worker_v2", {
+      p_worker_index: workerIndex,
+    });
+    if (error) throw new Error(persistenceError(error, "claim next generation workflow job for worker"));
+    const row = Array.isArray(data) ? data[0] : data;
+    return row ? workflowJobFromRow(row) : null;
+  }
+
   async completeWorkflowJob(jobId: string, output: Record<string, unknown>): Promise<void> {
     const { error } = await this.client.rpc("complete_workflow_job_v2", { p_job_id: jobId, p_output: output });
     if (error) throw new Error(persistenceError(error, "complete workflow job"));

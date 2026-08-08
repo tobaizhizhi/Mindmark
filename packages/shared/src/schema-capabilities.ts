@@ -1,7 +1,7 @@
 import { z } from "zod";
 
-export const REQUIRED_SCHEMA_MIGRATION = "20260807000200_generation_failure_recovery.sql";
-export const REQUIRED_SCHEMA_VERSION = "2026-08-07.2";
+export const REQUIRED_SCHEMA_MIGRATION = "20260808000100_parallel_worker_dispatch.sql";
+export const REQUIRED_SCHEMA_VERSION = "2026-08-08.1";
 
 export const SchemaCapabilitySetSchema = z.object({
   coreLearningV2: z.boolean(),
@@ -10,6 +10,7 @@ export const SchemaCapabilitySetSchema = z.object({
   originalPdfStorage: z.boolean(),
   learnerProgress: z.boolean(),
   sponsorEscrow: z.boolean(),
+  parallelWorkerDispatch: z.boolean(),
 }).strict();
 
 export const SchemaCapabilitiesSchema = z.object({

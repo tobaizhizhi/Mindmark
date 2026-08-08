@@ -78,6 +78,7 @@ beforeAll(async () => {
     "20260807000200_generation_failure_recovery.sql",
     "20260807000300_dynamic_work_unit_pricing.sql",
     "20260807000400_legacy_escrow_pricing_recovery.sql",
+    "20260808000100_parallel_worker_dispatch.sql",
   ]) {
     await database.exec(await readFile(path.join(root, "supabase/migrations", migration), "utf8"));
   }
@@ -117,7 +118,7 @@ describe("V2 database baseline", () => {
       "select public.get_schema_capabilities_v1() as capabilities",
     );
     expect(capabilityResult.rows[0]?.capabilities).toEqual({
-      schemaVersion: "2026-08-07.2",
+      schemaVersion: "2026-08-08.1",
       capabilities: {
         coreLearningV2: true,
         learningDesignV3: true,
@@ -125,6 +126,7 @@ describe("V2 database baseline", () => {
         originalPdfStorage: true,
         learnerProgress: true,
         sponsorEscrow: true,
+        parallelWorkerDispatch: true,
       },
       missing: [],
     });
@@ -135,6 +137,21 @@ describe("V2 database baseline", () => {
       where namespaces.nspname = 'public' and functions.proname = 'get_schema_capabilities_v1'
     `);
     expect(signature.rows).toEqual([{ arguments: "" }]);
+  });
+
+  it("adds a worker-lane claim RPC for safe parallel generation", async () => {
+    const result = await database.query<{ arguments: string; definition: string }>(`
+      select pg_get_function_identity_arguments(functions.oid) as arguments,
+             pg_get_functiondef(functions.oid) as definition
+      from pg_proc as functions
+      join pg_namespace as namespaces on namespaces.oid = functions.pronamespace
+      where namespaces.nspname = 'public'
+        and functions.proname = 'claim_next_generation_workflow_job_for_worker_v2'
+    `);
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]?.arguments).toBe("p_worker_index integer");
+    expect(result.rows[0]?.definition).toMatch(/mod\(work_unit_id,\s*3\)\s*=\s*p_worker_index/iu);
+    expect(result.rows[0]?.definition).toMatch(/for update skip locked/iu);
   });
 
   it("derives Escrow Reward terms from the funded Project instead of confirmation input", async () => {

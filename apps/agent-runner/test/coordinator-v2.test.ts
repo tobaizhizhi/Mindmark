@@ -14,6 +14,7 @@ describe("ProjectCoordinatorV2", () => {
       {
         recoverStaleJobs: async () => 0,
         runNextDetailed: async () => null,
+        runNextGenerationForWorker: async () => null,
       } as never,
       { pollIntervalMs: 1_000, startupRetryDelayMs: 0 },
     );
@@ -30,6 +31,7 @@ describe("ProjectCoordinatorV2", () => {
       {
         recoverStaleJobs: async () => 0,
         runNextDetailed: async () => null,
+        runNextGenerationForWorker: async () => null,
       } as never,
       { pollIntervalMs: 1_000 },
     );
@@ -39,5 +41,33 @@ describe("ProjectCoordinatorV2", () => {
 
     expect(pollTimer?.hasRef()).toBe(true);
     coordinator.stop();
+  });
+
+  it("dispatches one generation job per worker concurrently", async () => {
+    let active = 0;
+    let peak = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const coordinator = new ProjectCoordinatorV2(
+      { assertConfiguredWallets: async () => undefined },
+      {
+        recoverStaleJobs: async () => 0,
+        runNextDetailed: async () => null,
+        runNextGenerationForWorker: async () => {
+          active += 1;
+          peak = Math.max(peak, active);
+          await gate;
+          active -= 1;
+          return "GENERATE_WORK_UNIT";
+        },
+      },
+      { maxWorkflowJobsPerRun: 3 },
+    );
+
+    const run = coordinator.runOnce();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(peak).toBe(3);
+    release();
+    await expect(run).resolves.toMatchObject({ processedWorkflowJobs: 3, errors: [] });
   });
 });

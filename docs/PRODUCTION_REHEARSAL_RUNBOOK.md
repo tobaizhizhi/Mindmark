@@ -39,9 +39,9 @@ Shared build 必须先完成，再构建 Runner/Web，避免 Shared 清理 `dist
 2. 在目标 Supabase 项目中记录 `learning_projects` 数量，再次确认数据可以清空。
 3. 导出一次加密备份，仅用于事故回看。
 4. 清空目标项目的 `public` schema 和旧 migration history。
-5. 按文件名顺序执行 `supabase/migrations` 中的全部 migration，最后一份必须是 `20260807000200_generation_failure_recovery.sql`。该文件可重复执行；已有环境需要重新执行更新后的完整文件，以修正 V3 已接受候选卡的 Work Unit 确认判断。
-6. 刷新 PostgREST Schema Cache；最后一份 migration 已包含 `notify pgrst, 'reload schema'`，远端控制台执行后仍需等待 Cache 生效。
-7. 使用 service role 调用 `get_schema_capabilities_v1()`，要求 `schemaVersion = 2026-08-07.2`，六项 capability（包括动态定价 `sponsorEscrow`）全部为 `true`、`missing = []`。`originalPdfStorage=true` 同时表示 `learning-source-files` 为私有 bucket、上限 15 MB 且只允许 `application/pdf`。
+5. 按文件名顺序执行 `supabase/migrations` 中尚未应用的全部 migration，最后一份必须是 `20260808000100_parallel_worker_dispatch.sql`。不要重复执行已经应用的 migration。
+6. 刷新 PostgREST Schema Cache；并行 Worker migration 已包含 `notify pgrst, 'reload schema'`，远端控制台执行后仍需等待 Cache 生效。
+7. 使用 service role 调用 `get_schema_capabilities_v1()`，要求 `schemaVersion = 2026-08-08.1`，七项 capability（包括动态定价 `sponsorEscrow` 和并行 Worker 调度 `parallelWorkerDispatch`）全部为 `true`、`missing = []`。`originalPdfStorage=true` 同时表示 `learning-source-files` 为私有 bucket、上限 15 MB 且只允许 `application/pdf`。
 8. 核对最终 schema 包含 `workflow_jobs`、`workflow_events`、`get_workflow_operations_v2()` 和 `retry_failed_project_generation_v2(text,text)`，且不包含 V1 Journey/Chunk 表或扫描式 `claim_next_*` RPC。
 9. 使用 service role 调用一次 `get_workflow_operations_v2()`；初始结果应满足 `staleJobs = 0`、`failedJobs = 0`。
 
@@ -126,7 +126,7 @@ PACK 卡片必须显示外部或作者参考来源，不显示伪造 PDF 页码�
 | 质量修复 | 让两个 Work Unit 返回重复问题 | Quality Gate 请求修复，不提交不满足最小卡数的 commitment。 |
 | 奖励验证失败 | 使用与 commitment 不一致的收款意图 | Reward 进入 `BLOCKED`，学习内容保持 `READY`。 |
 | 重复评分 | 重发同一 session/card 请求 | ReviewLog 与 FSRS 只推进一次。 |
-| Schema 落后 | 在未执行最终 capability migration 的测试库启动 Web/Runner | 启动或请求明确失败为 `deployment_schema_outdated`，日志指向 `20260803000100_schema_capabilities.sql`，不进入 AI/Monad 工作。 |
+| Schema 落后 | 在未执行最终 capability migration 的测试库启动 Web/Runner | 启动或请求明确失败为 `deployment_schema_outdated`，日志指向 `20260808000100_parallel_worker_dispatch.sql`，不进入 AI/Monad 工作。 |
 
 ## 8. 运营阈值
 
