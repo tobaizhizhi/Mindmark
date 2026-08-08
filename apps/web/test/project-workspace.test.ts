@@ -33,6 +33,7 @@ const row: ProjectWorkspaceRow = {
       page_end: 3,
       importance: 5,
       status: "READY",
+      card_blueprint_slots: [],
       knowledge_cards: [
         {
           card_id: `0x${"01".repeat(32)}`,
@@ -55,6 +56,7 @@ const row: ProjectWorkspaceRow = {
       page_end: 7,
       importance: 4,
       status: "GENERATING",
+      card_blueprint_slots: [],
       knowledge_cards: [{ card_id: `0x${"03".repeat(32)}`, card_learning_states: [] }],
     },
   ],
@@ -70,6 +72,11 @@ const row: ProjectWorkspaceRow = {
     { chapter_id: 0, status: "COMPLETED" },
     { chapter_id: 1, status: "COMPLETED" },
   ],
+  work_units: [
+    { work_unit_id: 0, chapter_id: 0, status: "CONFIRMED", attempt: 1 },
+    { work_unit_id: 1, chapter_id: 1, status: "GENERATING", attempt: 1 },
+  ],
+  card_quality_evaluations: [],
 };
 
 describe("Project workspace", () => {
@@ -108,6 +115,11 @@ describe("Project workspace", () => {
       stage: "GENERATING_CARDS",
       currentChapter: { chapterId: 1, title: "函数" },
       completedChapters: 1,
+      phaseCounts: {
+        generation: { completed: 1, total: 2 },
+        qualityCheck: { completed: 1, total: 2 },
+        assembly: { completed: 1, total: 2 },
+      },
     });
   });
 });

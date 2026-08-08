@@ -5,11 +5,14 @@ import {
   ArrowRight,
   Check,
   ChevronRight,
+  FileText,
   LoaderCircle,
   Plus,
   Sparkles,
   Wallet,
 } from "lucide-react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
@@ -76,7 +79,8 @@ function storedTransactionHash(value: string | null): `0x${string}` | null {
   return value && /^0x[0-9a-f]{64}$/u.test(value) ? value as `0x${string}` : null;
 }
 
-export function ProjectCreationWorkbench() {
+export function ProjectCreationWorkbench(props: { mode?: "intake" | "outline" } = {}) {
+  const outlineOnly = props.mode === "outline";
   const [title, setTitle] = useState("");
   const [goal, setGoal] = useState("");
   const [text, setText] = useState("");
@@ -99,6 +103,7 @@ export function ProjectCreationWorkbench() {
   const outlineRequestsRef = useRef(createLatestRequestGate());
   const hasLocalSourceInteractionRef = useRef(false);
   const queryClient = useQueryClient();
+  const router = useRouter();
   const { address, chainId, connector, isConnected } = useAccount();
   const { connectors, connectAsync } = useConnect();
   const { signMessageAsync } = useSignMessage();
@@ -415,7 +420,11 @@ export function ProjectCreationWorkbench() {
         setProject(null);
         setProposals([]);
         setOutlineOperation(operation);
-        window.history.replaceState(null, "", `?project=${operation.projectId}${folderId ? `&folder=${folderId}` : ""}`);
+        if (outlineOnly) {
+          window.history.replaceState(null, "", `?project=${operation.projectId}${folderId ? `&folder=${folderId}` : ""}`);
+        } else {
+          router.replace(`/learn/projects/new/outline?project=${operation.projectId}${folderId ? `&folder=${folderId}` : ""}`);
+        }
         setConfirmation(null);
       });
     } catch (caught) {
@@ -560,6 +569,117 @@ export function ProjectCreationWorkbench() {
       setBusy(null);
     }
   }
+
+  function renderOutlineReview() {
+    if (!project) {
+      return (
+        <main className="outline-review-page outline-review-page-loading">
+          <header className="outline-review-header">
+            <Link href="/learn/projects/new" className="outline-review-back"><ArrowLeft />返回资料分析</Link>
+            <div className="outline-review-stepper" aria-label="创建步骤">
+              <span>01 资料</span><i /><strong>02 章节结构</strong><i /><span>03 创建项目</span>
+            </div>
+            <button type="button" onClick={() => void connectAndSignIn()} disabled={Boolean(busy)} className="outline-review-wallet">
+              {busy === "login" ? <LoaderCircle className="animate-spin" /> : <Wallet />}
+              {loggedIn ? "已登录" : isConnected ? "完成登录" : "连接钱包"}
+            </button>
+          </header>
+          <section className="outline-review-loading-card" aria-live="polite">
+            <span className="outline-review-loading-icon"><LoaderCircle className="animate-spin" /></span>
+            <p className="section-kicker">AI CHAPTER PLANNER</p>
+            <h1>正在整理章节结构</h1>
+            <p>{!sessionAddress
+              ? "请先完成钱包登录，以恢复这份章节草稿。"
+              : outlinePlanningActive
+                ? `生成服务正在分析资料（第 ${outlineOperation?.attempt ?? 0} 次）。`
+                : "正在从服务端恢复章节草稿，请稍候。"}</p>
+            {projectProgress ? <ProjectProgressIndicator progress={projectProgress} compact /> : null}
+            {error ? <div className="outline-review-error">{error}</div> : null}
+          </section>
+        </main>
+      );
+    }
+
+    const sourceRange = proposals.length > 0
+      ? `${proposals[0]?.startBlock ?? 0}–${proposals[proposals.length - 1]?.endBlock ?? 0}`
+      : "—";
+    const confirmed = Boolean(confirmation || designingCards);
+    return (
+      <main className="outline-review-page">
+        <header className="outline-review-header">
+          <Link href="/learn/projects/new" className="outline-review-back"><ArrowLeft />返回资料分析</Link>
+          <div className="outline-review-stepper" aria-label="创建步骤">
+            <span>01 资料</span><i /><strong>02 章节结构</strong><i /><span>03 创建项目</span>
+          </div>
+          <button type="button" onClick={() => void connectAndSignIn()} disabled={Boolean(busy)} className="outline-review-wallet">
+            {busy === "login" ? <LoaderCircle className="animate-spin" /> : <Wallet />}
+            {loggedIn ? "已登录" : isConnected ? "完成登录" : "连接钱包"}
+          </button>
+        </header>
+        <div className="outline-review-content">
+          <div className="outline-review-heading">
+            <div>
+              <p className="section-kicker">CHAPTER STRUCTURE</p>
+              <h1>确认学习章节</h1>
+              <p>AI 已将「{title || "这份资料"}」整理为可学习的章节。你可以调整标题、摘要和章节边界。</p>
+            </div>
+            <div className="outline-review-count"><strong>{proposals.length}</strong><span>个章节</span></div>
+          </div>
+          {error ? <div className="outline-review-error">{error}</div> : null}
+          {projectProgress ? <ProjectProgressIndicator progress={projectProgress} compact /> : null}
+          <div className="outline-review-layout">
+            <section className="outline-review-list" aria-label="章节结构编辑器">
+              <div className="outline-review-list-head"><span>章节目录</span><small>资料段落 {sourceRange} · 版本 {project.outlineVersion}</small></div>
+              <div className="outline-review-chapters">
+                {proposals.map((proposal, index) => (
+                  <article key={`${index}-${proposal.startBlock}`} className={confirmed ? "outline-review-chapter outline-review-chapter-locked" : "outline-review-chapter"}>
+                    <div className="outline-review-chapter-index">{String(index + 1).padStart(2, "0")}</div>
+                    <div className="outline-review-chapter-main">
+                      <div className="outline-review-chapter-fields">
+                        <label><span>章节名称</span><input value={proposal.title} disabled={confirmed} onChange={(event) => updateProposal(index, { title: event.target.value })} /></label>
+                        <label><span>章节摘要</span><textarea rows={2} value={proposal.summary} disabled={confirmed} onChange={(event) => updateProposal(index, { summary: event.target.value })} /></label>
+                      </div>
+                      <div className="outline-review-chapter-meta">
+                        <span>资料段落 {proposal.startBlock}–{proposal.endBlock}</span>
+                        <span>重要度 {proposal.importance}/5</span>
+                      </div>
+                      {!confirmed ? <div className="outline-review-chapter-actions">
+                        <button type="button" onClick={() => splitProposal(index)} disabled={proposal.endBlock <= proposal.startBlock}><Plus />拆分</button>
+                        <button type="button" onClick={() => mergeProposal(index)} disabled={proposals.length <= 1}><span className="outline-review-merge-icon">↔</span>合并</button>
+                        {index < proposals.length - 1 ? <><button type="button" onClick={() => moveBoundary(index, -1)} aria-label="分界向前" title="分界向前"><ArrowLeft /></button><button type="button" onClick={() => moveBoundary(index, 1)} aria-label="分界向后" title="分界向后"><ArrowRight /></button></> : null}
+                      </div> : null}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </section>
+            <aside className="outline-review-sidebar">
+              <div className="outline-review-sidebar-heading"><span>结构摘要</span><FileText /></div>
+              <div className="outline-review-stat"><strong>{proposals.length}</strong><span>学习章节</span></div>
+              <div className="outline-review-stat"><strong>{sourceRange}</strong><span>覆盖资料段落</span></div>
+              <p className="outline-review-note">章节会保持原资料顺序，确认后才会开始设计知识卡。</p>
+              {project.excludedRanges?.length ? <div className="outline-review-exclusions"><strong>{project.excludedRanges.length}</strong><span>段非知识内容已排除</span></div> : null}
+              <div className="outline-review-sidebar-action">
+                {confirmation ? <MonadRegistrationCard
+                  projectId={confirmation.projectId}
+                  chainId={monadChain.id}
+                  registryAddress={registryV2Address}
+                  explorerUrl={monadChain.blockExplorers.default.url}
+                  busy={busy === "create"}
+                  onCreate={() => void createOnMonad()}
+                /> : <button type="button" onClick={() => void confirmOutline()} disabled={Boolean(busy) || proposals.length === 0 || designingCards} className="command-button command-button-dark w-full">
+                  {busy === "confirm" || designingCards ? <LoaderCircle className="size-4 animate-spin" /> : <Check className="size-4" />}
+                  {designingCards ? "正在设计知识卡" : "确认章节并继续"}
+                </button>}
+              </div>
+            </aside>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  if (outlineOnly && !createdProjectId) return renderOutlineReview();
 
   if (createdProjectId) {
     return (

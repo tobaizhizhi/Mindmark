@@ -12,6 +12,13 @@ const progress: LearnerProjectProgress = {
   currentChapter: null,
   completedChapters: 0,
   totalChapters: 4,
+  phaseCounts: {
+    generation: { completed: 0, total: 4 },
+    qualityCheck: { completed: 0, total: 4 },
+    automaticRepair: { completed: 0, total: 0, active: 0 },
+    assembly: { completed: 0, total: 4 },
+    completion: { completed: 0, total: 1 },
+  },
   retrying: false,
   updatedAt: "2026-08-07T00:00:00.000Z",
   operationId: null,

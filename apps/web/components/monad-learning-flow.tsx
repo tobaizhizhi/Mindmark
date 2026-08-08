@@ -5,13 +5,13 @@ type FlowState = "pending" | "active" | "complete" | "error";
 
 function chainState(stage: LearnerProjectProgress["stage"]): FlowState {
   if (stage === "AWAITING_MONAD") return "active";
-  return ["GENERATING_CARDS", "CHECKING_QUALITY", "READY", "ACTION_REQUIRED", "FAILED"].includes(stage)
+  return ["GENERATING_CARDS", "CHECKING_QUALITY", "REPAIRING_CARDS", "ASSEMBLING_CHAPTERS", "READY", "ACTION_REQUIRED", "FAILED"].includes(stage)
     ? "complete"
     : "pending";
 }
 
 function workerState(stage: LearnerProjectProgress["stage"]): FlowState {
-  if (["GENERATING_CARDS", "CHECKING_QUALITY"].includes(stage)) return "active";
+  if (["GENERATING_CARDS", "CHECKING_QUALITY", "REPAIRING_CARDS", "ASSEMBLING_CHAPTERS"].includes(stage)) return "active";
   if (["ACTION_REQUIRED", "FAILED"].includes(stage)) return "error";
   if (["READY"].includes(stage)) return "complete";
   return "pending";
@@ -19,7 +19,7 @@ function workerState(stage: LearnerProjectProgress["stage"]): FlowState {
 
 function escrowState(stage: LearnerProjectProgress["stage"]): FlowState {
   if (stage === "AWAITING_MONAD") return "active";
-  return ["GENERATING_CARDS", "CHECKING_QUALITY", "READY", "ACTION_REQUIRED", "FAILED"].includes(stage)
+  return ["GENERATING_CARDS", "CHECKING_QUALITY", "REPAIRING_CARDS", "ASSEMBLING_CHAPTERS", "READY", "ACTION_REQUIRED", "FAILED"].includes(stage)
     ? "complete"
     : "pending";
 }

@@ -12,6 +12,13 @@ const progress = (stage: LearnerProjectProgress["stage"], retrying = false) => (
   currentChapter: null,
   completedChapters: 0,
   totalChapters: 1,
+  phaseCounts: {
+    generation: { completed: 0, total: 1 },
+    qualityCheck: { completed: 0, total: 1 },
+    automaticRepair: { completed: 0, total: 0, active: 0 },
+    assembly: { completed: 0, total: 1 },
+    completion: { completed: 0, total: 1 },
+  },
   retrying,
   updatedAt: "2026-08-03T00:00:00.000Z",
   operationId: null,
@@ -22,6 +29,8 @@ describe("Learner Project progress polling", () => {
   it("polls only automatic work and active retries", () => {
     expect(shouldPollProjectProgress(progress("DESIGNING_CARDS"))).toBe(true);
     expect(shouldPollProjectProgress(progress("CHECKING_QUALITY"))).toBe(true);
+    expect(shouldPollProjectProgress(progress("REPAIRING_CARDS"))).toBe(true);
+    expect(shouldPollProjectProgress(progress("ASSEMBLING_CHAPTERS"))).toBe(true);
     expect(shouldPollProjectProgress(progress("ACTION_REQUIRED"))).toBe(false);
     expect(shouldPollProjectProgress(progress("OUTLINE_READY"))).toBe(false);
     expect(shouldPollProjectProgress(progress("AWAITING_MONAD"))).toBe(false);

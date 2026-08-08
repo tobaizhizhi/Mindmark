@@ -34,6 +34,7 @@ type WorkspaceChapterRow = {
   importance: number;
   status: string;
   knowledge_cards: WorkspaceCardRow[];
+  card_blueprint_slots: WorkspaceBlueprintSlotRow[];
 };
 
 type WorkspaceJobRow = {
@@ -48,6 +49,24 @@ type WorkspaceJobRow = {
 type WorkspaceDesignRunRow = {
   chapter_id: number;
   status: string;
+};
+
+type WorkspaceWorkUnitRow = {
+  work_unit_id: number;
+  chapter_id: number;
+  status: string;
+  attempt: number;
+};
+
+type WorkspaceBlueprintSlotRow = {
+  chapter_id: number;
+  assigned_work_unit_id: number | null;
+  status: string;
+};
+
+type WorkspaceQualityEvaluationRow = {
+  chapter_id: number;
+  verdict: string;
 };
 
 export type ProjectWorkspaceRow = {
@@ -68,6 +87,8 @@ export type ProjectWorkspaceRow = {
   chapters: WorkspaceChapterRow[];
   workflow_jobs: WorkspaceJobRow[];
   chapter_design_runs: WorkspaceDesignRunRow[];
+  work_units: WorkspaceWorkUnitRow[];
+  card_quality_evaluations: WorkspaceQualityEvaluationRow[];
 };
 
 export type ProjectWorkspaceResponse = {
@@ -83,10 +104,11 @@ export interface ProjectWorkspaceStore {
 class SupabaseProjectWorkspaceStore implements ProjectWorkspaceStore {
   async load(projectId: Hex, owner: `0x${string}`): Promise<ProjectWorkspaceRow | null> {
     const { data, error } = await getSupabaseAdmin().from("learning_projects").select(
-      "project_id,title,goal,status,project_kind,pack_version_id,registry_version,updated_at,source_filename,source_storage_bucket,source_storage_path,source_file_sha256,source_file_size,source_file_status,chapters(chapter_id,position,title,summary,page_start,page_end,importance,status,knowledge_cards(card_id,card_learning_states(reps,lapses,due_at,last_reviewed_at))),workflow_jobs(job_id,kind,chapter_id,status,attempt,last_error,created_at),chapter_design_runs(chapter_id,status)",
+      "project_id,title,goal,status,project_kind,pack_version_id,registry_version,updated_at,source_filename,source_storage_bucket,source_storage_path,source_file_sha256,source_file_size,source_file_status,chapters(chapter_id,position,title,summary,page_start,page_end,importance,status,knowledge_cards(card_id,card_learning_states(reps,lapses,due_at,last_reviewed_at)),card_blueprint_slots(chapter_id,assigned_work_unit_id,status)),workflow_jobs(job_id,kind,chapter_id,status,attempt,last_error,created_at),chapter_design_runs(chapter_id,status),work_units(work_unit_id,chapter_id,status,attempt),card_quality_evaluations(chapter_id,verdict)",
     )
       .eq("project_id", projectId)
       .eq("owner_address", owner)
+      .eq("card_quality_evaluations.verdict", "REPAIR_REQUESTED")
       .eq("chapters.knowledge_cards.card_learning_states.owner_address", owner)
       .neq("workflow_jobs.kind", "SETTLE_WORK_UNIT_REWARD")
       .in("workflow_jobs.status", ["QUEUED", "RUNNING", "RETRYABLE", "FAILED"])
@@ -193,6 +215,23 @@ function projectWorkspaceFromRow(
     designRuns: row.chapter_design_runs.map((run) => ({
       chapterId: Number(run.chapter_id),
       status: run.status,
+    })),
+    workUnits: row.work_units.map((unit) => ({
+      workUnitId: Number(unit.work_unit_id),
+      chapterId: Number(unit.chapter_id),
+      status: unit.status,
+      attempt: Number(unit.attempt),
+    })),
+    blueprintSlots: row.chapters.flatMap((chapter) => chapter.card_blueprint_slots).map((slot) => ({
+      chapterId: Number(slot.chapter_id),
+      assignedWorkUnitId: slot.assigned_work_unit_id === null
+        ? null
+        : Number(slot.assigned_work_unit_id),
+      status: slot.status,
+    })),
+    qualityEvaluations: row.card_quality_evaluations.map((evaluation) => ({
+      chapterId: Number(evaluation.chapter_id),
+      verdict: evaluation.verdict,
     })),
   });
   return { project, chapters, progress };

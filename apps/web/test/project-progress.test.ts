@@ -133,4 +133,70 @@ describe("Learner Project Progress", () => {
     }).progressPercent);
     expect(percentages).toEqual([55, 79, 91, 100]);
   });
+
+  it("reports automatic repair as its own stage with real work counts", () => {
+    const progress = projectProgressFromState({
+      project: { projectId, status: "GENERATING", updatedAt },
+      chapters: [
+        { chapterId: 0, title: "变量", status: "GENERATING" },
+        { chapterId: 1, title: "函数", status: "QUALITY_CHECK" },
+      ],
+      workUnits: [
+        { workUnitId: 0, chapterId: 0, status: "REPAIRING", attempt: 2 },
+        { workUnitId: 1, chapterId: 1, status: "CONFIRMED", attempt: 1 },
+        { workUnitId: 2, chapterId: 1, status: "CONFIRMED", attempt: 1 },
+      ],
+      blueprintSlots: [
+        { chapterId: 0, assignedWorkUnitId: 0, status: "REPAIR_REQUESTED" },
+      ],
+      qualityEvaluations: [
+        { chapterId: 0, verdict: "REPAIR_REQUESTED" },
+      ],
+      latestJob: {
+        jobId: "00000000-0000-4000-8000-000000000007",
+        kind: "GENERATE_WORK_UNIT",
+        chapterId: 0,
+        status: "RUNNING",
+        attempt: 1,
+        lastError: null,
+      },
+    });
+
+    expect(progress).toMatchObject({
+      stage: "REPAIRING_CARDS",
+      phaseCounts: {
+        generation: { completed: 3, total: 3 },
+        qualityCheck: { completed: 0, total: 2 },
+        automaticRepair: { completed: 0, total: 1, active: 1 },
+        assembly: { completed: 0, total: 2 },
+        completion: { completed: 0, total: 1 },
+      },
+    });
+  });
+
+  it("uses completed quantities instead of a progress percentage", () => {
+    const progress = projectProgressFromState({
+      project: { projectId, status: "FINALIZING", updatedAt },
+      chapters: [
+        { chapterId: 0, title: "变量", status: "READY" },
+        { chapterId: 1, title: "函数", status: "ASSEMBLING" },
+      ],
+      workUnits: [
+        { workUnitId: 0, chapterId: 0, status: "CONFIRMED", attempt: 1 },
+        { workUnitId: 1, chapterId: 1, status: "CONFIRMED", attempt: 1 },
+      ],
+      latestJob: null,
+    });
+
+    expect(progress).toMatchObject({
+      stage: "ASSEMBLING_CHAPTERS",
+      phaseCounts: {
+        generation: { completed: 2, total: 2 },
+        qualityCheck: { completed: 2, total: 2 },
+        automaticRepair: { completed: 0, total: 0, active: 0 },
+        assembly: { completed: 1, total: 2 },
+        completion: { completed: 0, total: 1 },
+      },
+    });
+  });
 });

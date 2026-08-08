@@ -238,6 +238,13 @@ describe("Learning Workspace views", () => {
       currentChapter: { chapterId: 0, title: "Solidity 变量" },
       completedChapters: 0,
       totalChapters: 1,
+      phaseCounts: {
+        generation: { completed: 1, total: 1 },
+        qualityCheck: { completed: 0, total: 1 },
+        automaticRepair: { completed: 0, total: 0, active: 0 },
+        assembly: { completed: 0, total: 1 },
+        completion: { completed: 0, total: 1 },
+      },
       retrying: false,
       updatedAt: "2026-08-03T00:00:00.000Z",
       operationId: "00000000-0000-4000-8000-000000000123",
@@ -250,5 +257,35 @@ describe("Learning Workspace views", () => {
     expect(markup).toContain("继续处理");
     expect(markup).toContain("Monad Registry");
     expect(markup).toContain("Moss Agent");
+  });
+
+  it("shows five concrete lifecycle phases and does not render a vague percentage", () => {
+    const progress: LearnerProjectProgress = {
+      projectId,
+      stage: "REPAIRING_CARDS",
+      progressPercent: 61,
+      currentChapter: { chapterId: 0, title: "Solidity 变量" },
+      completedChapters: 0,
+      totalChapters: 2,
+      retrying: false,
+      updatedAt: "2026-08-03T00:00:00.000Z",
+      operationId: null,
+      code: null,
+      phaseCounts: {
+        generation: { completed: 3, total: 3 },
+        qualityCheck: { completed: 0, total: 2 },
+        automaticRepair: { completed: 0, total: 1, active: 1 },
+        assembly: { completed: 0, total: 2 },
+        completion: { completed: 0, total: 1 },
+      },
+    };
+    const markup = renderToStaticMarkup(<ProjectProgressIndicator progress={progress} />);
+    expect(markup).toContain("知识卡生成");
+    expect(markup).toContain("质量检查");
+    expect(markup).toContain("自动修复");
+    expect(markup).toContain("章节整理");
+    expect(markup).toContain("项目完成");
+    expect(markup).toContain("3/3");
+    expect(markup).not.toContain("61%");
   });
 });

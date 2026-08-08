@@ -5,6 +5,8 @@ const AUTO_REFRESH_STAGES = new Set<LearnerProjectProgress["stage"]>([
   "DESIGNING_CARDS",
   "GENERATING_CARDS",
   "CHECKING_QUALITY",
+  "REPAIRING_CARDS",
+  "ASSEMBLING_CHAPTERS",
 ]);
 
 export function shouldPollProjectProgress(

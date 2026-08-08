@@ -39,6 +39,26 @@ const chapterStatusLabels: Record<string, string> = {
   ASSEMBLING: "正在整理卡片", READY: "可以学习", FAILED_RETRYABLE: "正在恢复",
 };
 
+const activeChapterStageLabels: Partial<Record<LearnerProjectProgress["stage"], string>> = {
+  GENERATING_CARDS: "知识卡生成中",
+  CHECKING_QUALITY: "质量检查中",
+  REPAIRING_CARDS: "自动修复中",
+  ASSEMBLING_CHAPTERS: "章节整理中",
+  READY: "已完成",
+};
+
+function chapterStatusLabel(
+  chapterId: number,
+  status: string,
+  progress: LearnerProjectProgress | null,
+) {
+  if (progress?.currentChapter?.chapterId === chapterId) {
+    const stageLabel = activeChapterStageLabels[progress.stage];
+    if (stageLabel) return stageLabel;
+  }
+  return chapterStatusLabels[status] ?? status;
+}
+
 function statusTone(status: string) {
   return status === "READY" ? "text-[var(--success)]" : status === "FAILED_RETRYABLE" ? "text-[var(--danger)]" : "text-[var(--muted)]";
 }
@@ -81,7 +101,7 @@ export function ProjectOverviewView(props: { projectId: `0x${string}`; project: 
     {props.progress ? <ProjectProgressIndicator progress={props.progress} retryBusy={props.generationRetrying} onRetry={props.onRetryGeneration} /> : null}
     {props.project.projectKind === "UPLOAD" && props.project.status === "READY" ? <LearningCompletionClaim projectId={props.projectId} cardCount={props.project.cardCount} masteredCount={masteredCount} /> : null}
     <div className="document-section-heading"><div><span>目录</span><h2>章节</h2></div><button type="button" onClick={props.onRefresh} className="icon-button" title="刷新" aria-label="刷新"><RefreshCw className="size-4" /></button></div>
-    {props.chapters.length === 0 ? <EmptyState title="尚未确认章节" detail="请先完成资料结构确认。" /> : <div className="document-chapter-list">{props.chapters.map((chapter) => <button key={chapter.chapterId} type="button" onClick={() => props.onNavigate(`/learn/projects/${props.projectId}/chapters/${chapter.chapterId}`)} className="document-chapter-row"><span className="document-chapter-number">{String(chapter.position + 1).padStart(2, "0")}</span><span className="document-chapter-copy"><strong>{chapter.title}</strong><small>{chapter.summary}</small></span><span className="document-chapter-meta"><b>{chapter.cardCount} 卡片</b><small>{chapter.dueCount ? `${chapter.dueCount} 待复习` : chapterStatusLabels[chapter.status] ?? chapter.status}</small></span><span className="document-chapter-progress"><i><b style={{ width: `${chapter.progressPercent}%` }} /></i><small>{chapter.progressPercent}%</small></span><ChevronRight /></button>)}</div>}
+    {props.chapters.length === 0 ? <EmptyState title="尚未确认章节" detail="请先完成资料结构确认。" /> : <div className="document-chapter-list">{props.chapters.map((chapter) => <button key={chapter.chapterId} type="button" onClick={() => props.onNavigate(`/learn/projects/${props.projectId}/chapters/${chapter.chapterId}`)} className="document-chapter-row"><span className="document-chapter-number">{String(chapter.position + 1).padStart(2, "0")}</span><span className="document-chapter-copy"><strong>{chapter.title}</strong><small>{chapter.summary}</small></span><span className="document-chapter-meta"><b>{chapter.cardCount} 卡片</b><small>{chapter.dueCount ? `${chapter.dueCount} 待复习` : chapterStatusLabel(chapter.chapterId, chapter.status, props.progress)}</small></span><span className="document-chapter-progress"><i><b style={{ width: `${chapter.progressPercent}%` }} /></i><small>{chapter.progressPercent}%</small></span><ChevronRight /></button>)}</div>}
   </section></div>;
 }
 
@@ -102,7 +122,7 @@ export function ChapterLearningView(props: { projectId: `0x${string}`; project: 
           <button type="button" onClick={props.onRefresh} className="reader-study-command"><RefreshCw /><span>刷新</span></button>
         </div>
         {props.progress ? <ProjectProgressIndicator progress={props.progress} compact retryBusy={props.generationRetrying} onRetry={props.onRetryGeneration} /> : null}
-        <div className="ui-state ui-state-working"><span className="ui-state-icon"><Sparkles /></span><h2>{chapterStatusLabels[props.detail.status]}</h2><p>知识卡会在生成完成后自动出现在这里。</p><div className="ui-state-action"><button type="button" onClick={props.onRefresh} className="command-button command-button-quiet"><RefreshCw className="size-4" />刷新状态</button></div></div>
+        <div className="ui-state ui-state-working"><span className="ui-state-icon"><Sparkles /></span><h2>{chapterStatusLabel(props.chapter.chapterId, props.detail.status, props.progress)}</h2><p>知识卡会在生成完成后自动出现在这里。</p><div className="ui-state-action"><button type="button" onClick={props.onRefresh} className="command-button command-button-quiet"><RefreshCw className="size-4" />刷新状态</button></div></div>
       </> : <ChapterBrowser {...props} onOpenProject={openProject} onStudy={props.onStudy} />}
     </section>
   </div>;

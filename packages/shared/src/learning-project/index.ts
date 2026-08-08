@@ -28,7 +28,9 @@ export { intakeSource } from "../source-intake.js";
 export { hashGoal } from "../hash-v2.js";
 export {
   LearnerProjectProgressSchema,
+  LearnerProjectPhaseCountsSchema,
   LearnerProjectStageSchema,
+  type LearnerProjectPhaseCounts,
   type LearnerProjectProgress,
   type LearnerProjectStage,
 } from "../project-progress.js";
