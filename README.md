@@ -1,17 +1,19 @@
 # Mindmark AI 学习与 Monad Agent 支付平台
 
-Mindmark 把长资料整理成带原文依据的 Chapter 和 Knowledge Card，让学习者通过主动回忆与 FSRS 复习真正掌握知识；AI Work Unit 的预算在生成前锁定到 Monad Project Escrow，质量通过后再由 Moss Verification 完成 Worker Reward 结算。
+Mindmark 将书籍、论文、课程讲义等长资料整理为有章节顺序、带原文依据的知识卡，并通过主动回忆与 FSRS 复习调度算法帮助学习者持续复习。对于 AI 生成部分，Monad 负责登记 Project、锁定 Sponsor 预算和结算 Worker Reward，Moss 在 Treasury 签名前审阅资金操作。
 
-**一句话简介**：Mindmark 用 AI 生成有来源的学习卡片，用主动回忆提高学习效果，并借助 Monad 上的 Escrow 为 AI Agent 的细粒度工作提供受约束的预算与支付流程。
+**一句话简介**：Mindmark 用 AI 将长资料整理成带原文依据的知识卡片，通过主动回忆与 FSRS 复习调度算法帮助学习者复习，并利用 Monad 为 AI 工作单元锁定预算、验收质量和结算奖励。
 
 ## 项目简介
 
-上传资料并得到总结，不等于形成了可以持续学习的路径。Mindmark 先把资料拆成有顺序的 Chapter，再把每个 Chapter 设计成带引用的 Knowledge Card。学习者需要先回答问题、再揭晓答案，FSRS 根据实际回忆表现安排下一次复习，而不是只记录阅读次数。对于需要 AI 生成的项目，学习内容之外的 Project 身份、预算和 Reward 规则由 Monad 统一约束。
+Mindmark 同时处理两个相互连接的问题：如何让 AI 生成的内容真正成为可学习、可复习的材料，以及如何让 AI 代理的工作量对应到可预先约束、事后可核验的支付。系统先把资料整理成有顺序的章节，再把每章划分为几个独立的内容片段，作为不同的生成任务。AI 针对每个任务生成知识卡片候选，质量检查会核对卡片是否引用原文、难度是否合适、是否覆盖章节重点；每个任务的预算在生成前就按预估工作量锁定，只有质量检查通过并完成对应的链上结果登记后，才会向工作代理释放奖励。
+
+作为 Monad Hackathon 项目，Mindmark 将 Monad 用作这条支付链路的执行层：利用 EVM 兼容性复用 Solidity、Foundry 和现有钱包，利用低成本、高吞吐和较快确认支持细粒度工作结算。PDF、卡片正文和 FSRS 复习调度算法的明文状态仍保存在链下，Monad 只处理需要共享约束的 Project 身份、预算和结算状态。
 
 当前支持两种内容来源：
 
-- **UPLOAD Learning Project**：上传文本型 PDF，由 AI 规划 Chapter、生成并检查 Knowledge Card。
-- **PACK Learning Project**：安装经过校验的版本化 Card Pack，直接阅读和复习，不经过 AI 生成或 Monad 工作流。
+- **上传型学习项目（UPLOAD）**：上传文本型 PDF，由 AI 规划章节、生成并检查知识卡片。
+- **卡包学习项目（PACK）**：安装经过校验的版本化卡包，直接阅读和复习，不经过 AI 生成或 Monad 工作流。
 
 ## 应用场景
 
@@ -25,38 +27,38 @@ Mindmark 把长资料整理成带原文依据的 Chapter 和 Knowledge Card，�
 
 ```text
 上传 PDF / 文本
-  -> AI 规划 Chapter
+  -> AI 规划章节
   -> 学习者确认大纲
   -> 钱包登记 Monad Project
-  -> Sponsor Treasury 锁定 Work Unit 预算
-  -> Worker 生成候选卡片
-  -> Quality Gate 验收引用、难度和覆盖率
-  -> 提交 Work Unit commitment
-  -> Chapter / Project READY
-  -> Moss Verification 后结算 Worker Reward
+  -> 赞助方资金库锁定工作单元预算
+  -> 工作代理生成候选卡片
+  -> 质量检查验收引用、难度和覆盖率
+  -> 提交工作单元承诺
+  -> 章节 / 项目 READY
+  -> Moss 审阅后结算工作奖励
 ```
 
-### Card Pack
+### 卡包内容
 
 ```text
-浏览版本 -> 预览 Chapter -> 安装到自己的 Learning Project -> 阅读与复习
+浏览版本 -> 预览章节 -> 安装到自己的学习项目 -> 阅读与复习
 ```
 
 ## 产品思路
 
 Mindmark 同时处理学习效果和 AI 执行成本。被动重读容易产生熟悉感，却难以检验掌握度；主动回忆要求学习者在没有答案提示时提取知识，再用评分和间隔复习巩固记忆。
 
-AI 生成也需要类似的约束。不同 Work Unit 的复杂度不同，不能简单使用一个固定价格；生成前直接付款无法约束质量，生成后按 Worker 自报 Token 或耗时结算又缺少稳定标准。因此 Mindmark 在生成前根据原文规模、Blueprint Slot 类型和难度冻结 S/M/L/XL 报价，先锁定项目预算，再在质量通过后付款。
+AI 生成也需要类似的约束。不同工作单元的复杂度不同，不能简单使用一个固定价格；生成前直接付款无法约束质量，生成后按工作代理自报 Token 或耗时结算又缺少稳定标准。因此 Mindmark 在生成前根据原文规模、Blueprint Slot 类型和难度冻结 S/M/L/XL 报价，先锁定项目预算，再在质量通过后付款。Monad 的低交易成本和高吞吐特性，使这种按工作单元拆分预算、逐笔提交承诺并结算奖励的方式具备实际可行性，而不必把所有 AI 工作合并成一笔难以核验的固定付款。
 
-AI 负责提出内容候选，Quality Gate 决定内容能否采用，Supabase 保存可恢复的学习与工作流状态，Monad Escrow 管理预算和 Reward 规则，Moss 在 Treasury 签名之前检查 Agent 提出的资金动作。
+AI 负责提出内容候选，质量检查决定内容能否采用，Supabase 保存可恢复的学习与工作流状态，Monad Escrow 管理预算和奖励规则，Moss 在资金库签名之前检查 AI 代理提出的资金动作。
 
 ## 核心特性
 
-- **Chapter-first + 原文引用**：每个 Chapter 对应连续的 Source Block 范围，Knowledge Card 可以回到真实原文或 PDF 页面。
-- **主动回忆 + FSRS**：答案在揭晓前隐藏，学习者先作答；只有实际完成回忆和评分才会更新掌握度与复习计划。
-- **动态 AI Work Unit 报价**：在 Monad Project Escrow 中生成前冻结 S/M/L/XL Quote 和 Sponsor Budget，重试不会抬高报价，质量未通过不会创建 Reward。
-- **可恢复的 AI Pipeline**：Runner 使用 Supabase Workflow Job、租约和有限重试，支持 Outline、Design、Generation、Quality、Assembly 和 Finalization。
-- **受约束的 Agent 支付**：Moss 限制 Escrow capability 并模拟交易，Mindmark 核对 recipient、amount、calldata 和 effects，最终由独立 Treasury 签名。
+- **章节优先与原文引用**：每个章节对应连续的原文区块范围，知识卡片可以回到真实原文或 PDF 页面。
+- **主动回忆 + FSRS 复习调度算法**：答案在揭晓前隐藏，学习者先作答；只有实际完成回忆和评分才会更新掌握度与复习计划。
+- **动态 AI 工作单元报价**：在 Monad Project Escrow 中生成前冻结 S/M/L/XL 报价和赞助预算，重试不会抬高报价，质量未通过不会创建奖励。
+- **可恢复的 AI 生成流程**：Runner 使用 Supabase 工作流任务、租约和有限重试，支持大纲、设计、生成、质量检查、组装和最终确认。
+- **受约束的 AI 代理支付**：Moss 限制 Escrow capability 并模拟交易，Mindmark 核对收款人、金额、calldata 和资产变化，最终由独立资金库签名。
 
 ## AI 费用与支付
 
@@ -73,8 +75,8 @@ Project Escrow 支付的是 Worker Reward，不是 OpenAI-compatible Provider �
 支付流程如下：
 
 ```text
-Chapter Blueprint
-  -> 计算 Work Unit Quote
+章节蓝图
+  -> 计算工作单元报价
   -> Sponsor 锁定全部 Quote 之和
   -> AI Worker 生成与质量检查
   -> 创建冻结金额的 Reward entitlement
@@ -86,20 +88,12 @@ Chapter Blueprint
 
 当前三个 Worker 仍由同一个 Runner 管理，这是一套受约束的 AI Agent 工作结算原型，不是开放竞价的去中心化 Worker 市场。模型 Provider 的发票也不会被伪装成链上 Reward。
 
-## Monad 与 Moss
+## 后续计划
 
-Monad 在 Mindmark 中主要承担 AI 工作的可编程支付：它的 EVM 兼容性让项目可以复用 Solidity、Foundry、viem 和现有钱包体系；Registry V2 记录 Project/Work Unit 身份，Project Escrow 在生成前锁定预算，并限制每个 Work Unit 只能按冻结报价释放一次。
-
-Moss 位于 Reward Intent 和 Treasury 签名之间。它先发现并加载受限的 Escrow capability，生成 sealed Plan，再模拟 revert、Warning、gas 和资产变化；Mindmark 还会独立核对 calldata、recipient 和 amount。Moss 不持有私钥、不签名、不广播，Treasury 保留最终资金控制权。
-
-AI 内容、Prompt、PDF、Knowledge Card 正文和 FSRS 明文状态仍保存在链下。Monad 只处理预算、commitment 和 Reward release 等需要共享规则与资金约束的部分。
-
-当前网络状态：
-
-| Chain ID | 状态 |
-|----------|------|
-| `10143` | Mindmark 实验性 Monad Testnet 兼容模式 |
-| `143` | Moss 官方目标 Monad Mainnet |
+- **更多资料类型**：在文本型 PDF 之外接入 Markdown、网页和 EPUB，并为不同格式保留稳定的章节定位与原文引用，让生成的卡片仍然可以回到证据位置。
+- **更灵活的费用模式**：在 Sponsor 预先锁定预算的基础上，增加用户自付、额度抵扣和混合支付，让项目创建者可以按课程、组织或活动配置 AI 生成费用的承担方式与预算上限。
+- **团队协作与课程管理**：支持教师或培训者共享课程内容、分配学习任务和查看整体进度，同时保持每位学习者独立的阅读、答题与 FSRS 复习调度算法记录。
+- **学习效果分析**：基于主动回忆结果和 FSRS 复习调度算法数据，提供章节掌握度、遗忘风险和复习效果分析，帮助学习者和课程组织者发现需要加强的内容。
 
 ## 项目架构
 
@@ -111,7 +105,7 @@ AI 内容、Prompt、PDF、Knowledge Card 正文和 FSRS 明文状态仍保存�
                              │ HTTPS / RPC
 ┌────────────────────────────▼───────────────────────────────┐
 │ Supabase                                                   │
-│ Learning Data · FSRS · Workflow Jobs · Reward Intents      │
+│ Learning Data · FSRS 复习调度算法 · Workflow Jobs · Reward Intents      │
 │ Private PDF Storage                                        │
 └────────────────────────────┬───────────────────────────────┘
                              │ leased jobs
@@ -219,7 +213,7 @@ pnpm packs:publish
 | 层 | 技术 |
 |----|------|
 | Web | Next.js 16、React 19、TypeScript、wagmi、viem、SIWE |
-| Data | Supabase PostgreSQL、Storage、Workflow Jobs、FSRS |
+| Data | Supabase PostgreSQL、Storage、Workflow Jobs、FSRS 复习调度算法 |
 | AI | OpenAI-compatible AI Gateway、Tool calling、Quality Evaluator |
 | Agent | Node.js Runner、Moss Core、Moss Simulator |
 | Chain | Solidity、Foundry、OpenZeppelin、Monad Registry V2、Project Escrow |

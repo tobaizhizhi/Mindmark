@@ -29,7 +29,22 @@ const PrivateKeySchema = z
   .regex(/^0x[0-9a-fA-F]{64}$/u, "Expected a 32-byte private key")
   .transform((value) => value as Hex);
 
-const RunnerEnvironmentSchema = z.object({
+const OptionalUrlSchema = z.preprocess(
+  (value) => typeof value === "string" && value.trim() === "" ? undefined : value,
+  z.string().url().optional(),
+);
+
+const OptionalStringSchema = z.preprocess(
+  (value) => typeof value === "string" && value.trim() === "" ? undefined : value,
+  z.string().trim().min(1).optional(),
+);
+
+const DefaultStringSchema = (fallback: string) => z.preprocess(
+  (value) => typeof value === "string" && value.trim() === "" ? undefined : value,
+  z.string().trim().min(1).default(fallback),
+);
+
+export const RunnerEnvironmentSchema = z.object({
   MONAD_RPC_URL: z.string().url(),
   MONAD_CHAIN_ID: z.coerce.number().int().positive().default(10143),
   REGISTRY_V2_ADDRESS: AddressSchema,
@@ -38,17 +53,20 @@ const RunnerEnvironmentSchema = z.object({
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
   AI_API_KEY: z.string().min(1),
   AI_MODEL: z.string().min(1),
-  AI_BASE_URL: z.string().url().optional(),
-  AI_FALLBACK_API_KEY: z.string().min(1).optional(),
-  AI_FALLBACK_MODEL: z.string().min(1).default("deepseek-chat"),
-  AI_FALLBACK_BASE_URL: z.string().url().default("https://api.deepseek.com/v1"),
-  AI_DESIGN_MODEL: z.string().min(1).optional(),
-  AI_EVALUATION_MODEL: z.string().min(1).optional(),
-  AI_EVALUATION_API_KEY: z.string().min(1).optional(),
-  AI_EVALUATION_BASE_URL: z.string().url().optional(),
-  AI_EMBEDDING_MODEL: z.string().min(1).optional(),
-  AI_EMBEDDING_API_KEY: z.string().min(1).optional(),
-  AI_EMBEDDING_BASE_URL: z.string().url().optional(),
+  AI_BASE_URL: OptionalUrlSchema,
+  AI_FALLBACK_API_KEY: OptionalStringSchema,
+  AI_FALLBACK_MODEL: DefaultStringSchema("deepseek-chat"),
+  AI_FALLBACK_BASE_URL: z.preprocess(
+    (value) => typeof value === "string" && value.trim() === "" ? undefined : value,
+    z.string().url().default("https://api.deepseek.com/v1"),
+  ),
+  AI_DESIGN_MODEL: OptionalStringSchema,
+  AI_EVALUATION_MODEL: OptionalStringSchema,
+  AI_EVALUATION_API_KEY: OptionalStringSchema,
+  AI_EVALUATION_BASE_URL: OptionalUrlSchema,
+  AI_EMBEDDING_MODEL: OptionalStringSchema,
+  AI_EMBEDDING_API_KEY: OptionalStringSchema,
+  AI_EMBEDDING_BASE_URL: OptionalUrlSchema,
   AI_TOOL_TIMEOUT_MS: z.coerce.number().int().min(45_000).max(600_000).default(DEFAULT_AI_TOOL_TIMEOUT_MS),
   AI_CHAPTER_DESIGN_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(120_000).default(20_000),
   COORDINATOR_PRIVATE_KEY: PrivateKeySchema,
@@ -199,4 +217,29 @@ export async function startRunnerFromEnvironment(
   );
   await coordinator.start();
   return coordinator;
+}
+
+/**
+ * Keep deployment logs actionable without printing secret values. Zod v4's
+ * default Error.message is a JSON array, which is difficult to read in Railway
+ * and can be interleaved when the service restarts repeatedly.
+ */
+export function formatRunnerEnvironmentError(error: unknown): string {
+  if (!(error instanceof z.ZodError)) {
+    return error instanceof Error ? error.message : "Agent Runner failed to start";
+  }
+
+  const issues = error.issues.map((issue) => {
+    const path = issue.path.join(".") || "environment";
+    const message = issue.code === "invalid_type" && /received undefined$/u.test(issue.message)
+      ? "required"
+      : issue.message;
+    return `${path}: ${message}`;
+  });
+  return [
+    "Agent Runner environment is invalid.",
+    ...issues.map((issue) => `- ${issue}`),
+    "Set these variables on Railway in the Mindmark Runner service (not only in .env.local or the Web service).",
+    "Reference: docs/PUBLIC_TESTNET_DEPLOYMENT.md, section 4 (Runner Variables).",
+  ].join("\n");
 }

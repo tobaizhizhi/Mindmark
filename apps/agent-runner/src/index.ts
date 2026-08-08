@@ -19,7 +19,7 @@ export function isDirectExecution(
 }
 
 if (isDirectExecution(import.meta.url, process.argv[1])) {
-  const { startRunnerFromEnvironment } = await import("./runtime.js");
+  const { formatRunnerEnvironmentError, startRunnerFromEnvironment } = await import("./runtime.js");
   try {
     const coordinator = await startRunnerFromEnvironment();
     console.log(describeRunner());
@@ -30,7 +30,7 @@ if (isDirectExecution(import.meta.url, process.argv[1])) {
     process.once("SIGINT", stop);
     process.once("SIGTERM", stop);
   } catch (error) {
-    console.error(error instanceof Error ? error.message : "Agent Runner failed to start");
+    console.error(formatRunnerEnvironmentError(error));
     process.exitCode = 1;
   }
 }

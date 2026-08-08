@@ -91,6 +91,12 @@ AI_MODEL=<tool-calling-model>
 
 ### Runner Variables
 
+这些变量必须添加到 Railway 的 **Mindmark Runner Service -> Variables**。本地的
+`.env` / `.env.local` 文件不会上传到 Railway，也不会被 Runner 的生产启动命令读取。
+如果变量只添加到了 Web Service，Runner 仍会看到 `undefined` 并在启动预检阶段退出。
+不要把下面的尖括号占位符原样粘贴进去，必须替换为真实值；可选变量如果没有值就删除，
+不要创建空的 URL 变量。
+
 ```dotenv
 MONAD_RPC_URL=https://testnet-rpc.monad.xyz
 MONAD_CHAIN_ID=10143
@@ -119,6 +125,12 @@ RUNNER_POLL_INTERVAL_MS=5000
 ```
 
 Registry、Escrow、Chain ID、Supabase URL 和 Service Role Key 必须与 Web 完全一致。Runner 启动时会核对数据库 capability、Escrow 引用的 Registry、钱包分工和 Moss 网络支持；失败时进程退出，由 Railway 标记部署失败或重启。
+
+部署后请在 Runner Service 的 **Deployments -> View Logs** 中确认先出现
+`Mindmark Agent Runner: 6 isolated roles configured`。如果看到
+`Agent Runner environment is invalid`，按日志列出的变量名回到该 Service 的 Variables 修正，
+然后点击 **Redeploy**。Runner 是后台进程，没有 HTTP 页面；访问它的域名会显示
+`Application failed to respond`，这是正常的，浏览器应访问 Web Service 的域名。
 
 ## 5. 钱包和资金
 
