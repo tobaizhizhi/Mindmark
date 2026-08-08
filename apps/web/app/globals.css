@@ -4021,12 +4021,12 @@ button:disabled {
 }
 
 .project-progress-copy { min-width: 0; }
-.project-progress-copy > span { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 700; }
+.project-progress-copy > span { display: flex; align-items: center; gap: 7px; color: var(--ink); font-size: 14px; font-weight: 750; }
 .project-progress-copy svg { width: 14px; height: 14px; flex: 0 0 auto; }
-.project-progress-copy small { display: block; overflow: hidden; margin-top: 5px; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.project-progress-copy small { display: block; overflow: hidden; margin-top: 5px; color: var(--text-secondary); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .project-progress-phases {
   display: grid;
-  grid-template-columns: repeat(5, minmax(116px, 1fr));
+  grid-template-columns: repeat(5, minmax(136px, 1fr));
   gap: 7px;
   overflow-x: auto;
   padding-bottom: 2px;
@@ -4037,8 +4037,8 @@ button:disabled {
   grid-template-columns: 24px minmax(0, 1fr);
   grid-template-rows: auto auto;
   align-items: center;
-  min-height: 54px;
-  padding: 8px 10px;
+  min-height: 60px;
+  padding: 9px 11px;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: color-mix(in srgb, var(--surface) 84%, var(--paper));
@@ -4047,15 +4047,15 @@ button:disabled {
   display: grid;
   grid-row: 1 / 3;
   place-items: center;
-  width: 19px;
-  height: 19px;
+  width: 21px;
+  height: 21px;
   border: 1px solid var(--line-strong);
   border-radius: 50%;
   color: var(--text-tertiary);
 }
-.project-progress-phase svg { width: 11px; height: 11px; }
-.project-progress-phase > strong { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
-.project-progress-phase > small { color: var(--muted); font-family: var(--font-mono); font-size: 9px; line-height: 1.4; }
+.project-progress-phase svg { width: 12px; height: 12px; }
+.project-progress-phase > strong { overflow: hidden; color: var(--ink); font-size: 12px; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
+.project-progress-phase > small { color: var(--text-secondary); font-family: var(--font-mono); font-size: 11px; line-height: 1.45; }
 .project-progress-phase[data-state="active"] { border-color: var(--warning-line); background: var(--warning-soft); }
 .project-progress-phase[data-state="active"] > span { border-color: var(--warning-line); color: var(--warning); }
 .project-progress-phase[data-state="active"] > strong,
@@ -4066,7 +4066,7 @@ button:disabled {
 .project-progress-retry { justify-self: start; min-height: 32px; padding: 0 12px; }
 .project-progress-retry svg { width: 14px; height: 14px; }
 .project-progress-indicator-compact { gap: 10px; padding: 14px 0; background: transparent; }
-.project-progress-indicator-compact .project-progress-phase { min-height: 48px; padding: 6px 8px; }
+.project-progress-indicator-compact .project-progress-phase { min-height: 56px; padding: 8px 9px; }
 
 .outline-review-page {
   min-height: 100vh;
@@ -4096,9 +4096,9 @@ button:disabled {
 .outline-review-wallet svg { width: 15px; height: 15px; }
 .outline-review-wallet { justify-self: end; border: 1px solid var(--line-strong); border-radius: var(--radius-control); background: var(--surface); padding: 7px 11px; color: var(--ink); }
 .outline-review-wallet:hover { border-color: var(--accent); color: var(--accent); }
-.outline-review-stepper { display: flex; align-items: center; gap: 10px; color: var(--text-tertiary); font-family: var(--font-mono); font-size: 9px; letter-spacing: .03em; white-space: nowrap; }
+.outline-review-stepper { display: flex; align-items: center; gap: 12px; color: var(--text-secondary); font-family: var(--font-mono); font-size: 12px; font-weight: 650; letter-spacing: .01em; white-space: nowrap; }
 .outline-review-stepper strong { color: var(--accent); font-weight: 800; }
-.outline-review-stepper i { display: block; width: 24px; height: 1px; background: var(--line-strong); }
+.outline-review-stepper i { display: block; width: 30px; height: 1px; background: var(--line-strong); }
 .outline-review-content { width: min(1180px, calc(100% - 40px)); margin: 0 auto; padding: 54px 0 72px; }
 .outline-review-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 28px; margin-bottom: 32px; }
 .outline-review-heading h1 { margin: 7px 0 9px; font-family: var(--font-heading); font-size: clamp(28px, 4vw, 42px); font-weight: 680; letter-spacing: -.03em; line-height: 1.15; }
@@ -4127,7 +4127,7 @@ button:disabled {
 .outline-review-chapter-fields textarea:focus { border-color: var(--accent); }
 .outline-review-chapter-fields input:disabled,
 .outline-review-chapter-fields textarea:disabled { border-color: transparent; color: var(--muted); cursor: not-allowed; }
-.outline-review-chapter-meta { display: flex; flex-wrap: wrap; gap: 7px 16px; margin-top: 12px; color: var(--text-tertiary); font-family: var(--font-mono); font-size: 11px; }
+.outline-review-chapter-meta { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 13px; color: var(--text-secondary); font-family: var(--font-mono); font-size: 12px; }
 .outline-review-chapter-actions { display: flex; align-items: center; gap: 7px; margin-top: 15px; }
 .outline-review-chapter-actions button { display: inline-flex; min-height: 30px; align-items: center; gap: 5px; border: 1px solid transparent; border-radius: var(--radius-control); background: transparent; padding: 0 9px; color: var(--muted); font-size: 12px; }
 .outline-review-chapter-actions button:hover:not(:disabled) { border-color: var(--line); background: var(--surface-hover); color: var(--ink); }
