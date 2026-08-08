@@ -707,7 +707,7 @@ export function ProjectCreationWorkbench(props: { mode?: "intake" | "outline" } 
           </button>
         </div>
       </header>
-      <div className="mx-auto grid max-w-6xl gap-8 px-5 py-8 md:px-8 lg:grid-cols-[minmax(0,1fr)_320px] lg:py-10">
+      <div className={`mx-auto grid max-w-6xl gap-8 px-5 py-8 md:px-8 ${project ? "lg:grid-cols-[minmax(0,1fr)_320px]" : "lg:grid-cols-1"} lg:py-10`}>
         <section>
           <p className="section-kicker">分章节生成</p>
           <h1 className="font-display mt-2 text-3xl font-semibold leading-10">先整理章节，再生成知识卡</h1>
@@ -737,30 +737,26 @@ export function ProjectCreationWorkbench(props: { mode?: "intake" | "outline" } 
             {outlinePlanningActive ? <p className="text-sm leading-6 text-[var(--muted)]">生成服务正在整理章节结构（第 {outlineOperation?.attempt ?? 0} 次）。</p> : null}
           </div>
         </section>
-        <aside className="border-t border-[var(--line)] bg-[var(--paper)] p-5 lg:border-l lg:border-t-0 lg:p-6">
+        {project ? <aside className="border-t border-[var(--line)] bg-[var(--paper)] p-5 lg:border-l lg:border-t-0 lg:p-6">
           <div className="outline-intake-draft-heading"><p className="section-kicker outline-intake-draft-kicker">章节草稿</p>{project ? <span className="outline-intake-draft-version">版本 {project.outlineVersion}</span> : null}</div>
-          {!project ? <p className="mt-8 text-sm leading-7 text-[var(--muted)]">章节草稿会显示在这里。你可以重命名、拆分或删除章节，但必须覆盖全部资料范围。</p> : (
-            <>
-              <div className="mt-6 space-y-3">
-                {proposals.map((proposal, index) => (
-                  <div key={`${index}-${proposal.startBlock}`} className="outline-intake-draft-card rounded-lg border border-[var(--line-strong)] bg-white p-4">
-                    <div className="flex items-start gap-3"><span className="outline-intake-draft-index">{String(index + 1).padStart(2, "0")}</span><div className="min-w-0 flex-1 space-y-2"><input className="outline-intake-draft-title w-full border-0 border-b border-[var(--line)] bg-transparent px-0 py-1 font-semibold outline-none" value={proposal.title} onChange={(event) => updateProposal(index, { title: event.target.value })} /><textarea className="outline-intake-draft-summary w-full resize-none border-0 bg-transparent px-0 py-1 outline-none" rows={2} value={proposal.summary} onChange={(event) => updateProposal(index, { summary: event.target.value })} /><p className="outline-intake-draft-range">资料段落 {proposal.startBlock}–{proposal.endBlock}</p></div></div>
-                    <div className="outline-intake-draft-actions"><button type="button" onClick={() => splitProposal(index)} className="text-command"><Plus className="size-3.5" />拆分</button><button type="button" onClick={() => mergeProposal(index)} disabled={proposals.length <= 1} className="text-command">合并</button>{index < proposals.length - 1 ? <><button type="button" onClick={() => moveBoundary(index, -1)} className="icon-button" aria-label="分界向前" title="分界向前"><ArrowLeft className="size-3.5" /></button><button type="button" onClick={() => moveBoundary(index, 1)} className="icon-button" aria-label="分界向后" title="分界向后"><ArrowRight className="size-3.5" /></button></> : null}</div>
-                  </div>
-                ))}
+          <div className="mt-6 space-y-3">
+            {proposals.map((proposal, index) => (
+              <div key={`${index}-${proposal.startBlock}`} className="outline-intake-draft-card rounded-lg border border-[var(--line-strong)] bg-white p-4">
+                <div className="flex items-start gap-3"><span className="outline-intake-draft-index">{String(index + 1).padStart(2, "0")}</span><div className="min-w-0 flex-1 space-y-2"><input className="outline-intake-draft-title w-full border-0 border-b border-[var(--line)] bg-transparent px-0 py-1 font-semibold outline-none" value={proposal.title} onChange={(event) => updateProposal(index, { title: event.target.value })} /><textarea className="outline-intake-draft-summary w-full resize-none border-0 bg-transparent px-0 py-1 outline-none" rows={2} value={proposal.summary} onChange={(event) => updateProposal(index, { summary: event.target.value })} /><p className="outline-intake-draft-range">资料段落 {proposal.startBlock}–{proposal.endBlock}</p></div></div>
+                <div className="outline-intake-draft-actions"><button type="button" onClick={() => splitProposal(index)} className="text-command"><Plus className="size-3.5" />拆分</button><button type="button" onClick={() => mergeProposal(index)} disabled={proposals.length <= 1} className="text-command">合并</button>{index < proposals.length - 1 ? <><button type="button" onClick={() => moveBoundary(index, -1)} className="icon-button" aria-label="分界向前" title="分界向前"><ArrowLeft className="size-3.5" /></button><button type="button" onClick={() => moveBoundary(index, 1)} className="icon-button" aria-label="分界向后" title="分界向后"><ArrowRight className="size-3.5" /></button></> : null}</div>
               </div>
-              <div className="mt-6 border-t border-[var(--line)] pt-5"><button type="button" onClick={() => void confirmOutline()} disabled={Boolean(busy) || proposals.length === 0 || Boolean(confirmation) || designingCards} className="command-button command-button-dark w-full">{busy === "confirm" || designingCards ? <LoaderCircle className="size-4 animate-spin" /> : <Check className="size-4" />}{confirmation ? "章节已确认" : designingCards ? "正在设计知识卡" : "确认章节"}</button></div>
-              {confirmation ? <MonadRegistrationCard
-                projectId={confirmation.projectId}
-                chainId={monadChain.id}
-                registryAddress={registryV2Address}
-                explorerUrl={monadChain.blockExplorers.default.url}
-                busy={busy === "create"}
-                onCreate={() => void createOnMonad()}
-              /> : null}
-            </>
-          )}
-        </aside>
+            ))}
+          </div>
+          <div className="mt-6 border-t border-[var(--line)] pt-5"><button type="button" onClick={() => void confirmOutline()} disabled={Boolean(busy) || proposals.length === 0 || Boolean(confirmation) || designingCards} className="command-button command-button-dark w-full">{busy === "confirm" || designingCards ? <LoaderCircle className="size-4 animate-spin" /> : <Check className="size-4" />}{confirmation ? "章节已确认" : designingCards ? "正在设计知识卡" : "确认章节"}</button></div>
+          {confirmation ? <MonadRegistrationCard
+            projectId={confirmation.projectId}
+            chainId={monadChain.id}
+            registryAddress={registryV2Address}
+            explorerUrl={monadChain.blockExplorers.default.url}
+            busy={busy === "create"}
+            onCreate={() => void createOnMonad()}
+          /> : null}
+        </aside> : null}
       </div>
     </main>
   );
