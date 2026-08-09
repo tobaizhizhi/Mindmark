@@ -1,5 +1,7 @@
 # Mindmark AI 学习与 Monad Agent 支付平台
 
+演示视频链接:https://youtu.be/hMycbpAJkhk
+
 Mindmark 将书籍、论文、课程讲义等长资料整理为有章节顺序、带原文依据的知识卡，并通过主动回忆与 FSRS 复习调度算法帮助学习者持续复习。对于 AI 生成部分，Monad 负责登记 Project、锁定 Sponsor 预算和结算 Worker Reward，Moss 在 Treasury 签名前审阅资金操作。
 
 **一句话简介**：Mindmark 用 AI 将长资料整理成带原文依据的知识卡片，通过主动回忆与 FSRS 复习调度算法帮助学习者复习，并利用 Monad 为每项 AI 生成任务锁定预算、验收质量和结算奖励。

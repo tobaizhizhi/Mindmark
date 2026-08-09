@@ -682,15 +682,19 @@ export function ProjectCreationWorkbench(props: { mode?: "intake" | "outline" } 
   if (outlineOnly && !createdProjectId) return renderOutlineReview();
 
   if (createdProjectId) {
+    const knowledgeCardsReady = projectProgress?.stage === "READY";
     return (
       <main className="min-h-screen bg-[var(--background)] px-5 py-12 text-[var(--ink)] md:px-8">
         <div className="mx-auto max-w-2xl rounded-lg border border-[var(--success-line)] bg-[var(--success-soft)] p-8">
           <Check className="size-8 text-[var(--success)]" />
-          <p className="section-kicker mt-6">项目创建完成</p>
-          <h1 className="font-display mt-2 text-3xl font-semibold">章节已经登记，生成服务即将开始工作</h1>
-          <p className="mt-4 text-sm leading-7 text-[var(--muted)]">你可以先回到项目列表。每个章节会独立进入可学习状态。</p>
+          <p className="section-kicker mt-6">{knowledgeCardsReady ? "知识卡生成完成" : "项目创建完成"}</p>
+          <h1 className="font-display mt-2 text-3xl font-semibold">{knowledgeCardsReady ? "全部知识卡已经准备好" : "章节已经登记，生成服务即将开始工作"}</h1>
+          <p className="mt-4 text-sm leading-7 text-[var(--muted)]">{knowledgeCardsReady ? "现在可以开始学习，也可以返回资料库查看其他资料。" : "每个章节会独立进入可学习状态，你可以随时打开项目查看进度。"}</p>
           {projectProgress ? <div className="mt-6"><ProjectProgressIndicator progress={projectProgress} /></div> : null}
-          <a href={`/learn/projects/${createdProjectId}`} className="command-button command-button-dark mt-7">打开项目 <ChevronRight className="size-4" /></a>
+          <div className="mt-7 flex flex-wrap gap-3">
+            <a href={`/learn/projects/${createdProjectId}`} className="command-button command-button-dark">{knowledgeCardsReady ? "开始学习" : "打开项目"} <ChevronRight className="size-4" /></a>
+            {knowledgeCardsReady ? <Link href="/learn" className="command-button command-button-quiet"><ArrowLeft className="size-4" />返回资料库</Link> : null}
+          </div>
         </div>
       </main>
     );
