@@ -287,15 +287,31 @@ export async function getProjectStudyForOwner(
       chapterTitle: chapter.title,
     }];
   });
-  const due = cards.filter((card) => card.state === "DUE")
-    .sort((left, right) =>
-      Date.parse(left.dueAt!) - Date.parse(right.dueAt!)
-      || right.importance - left.importance
-      || left.chapterPosition - right.chapterPosition
-      || left.position - right.position);
-  const freshByChapter = loaded.chapters.map((chapter) => cards
-    .filter((card) => card.chapterId === chapter.chapter_id && card.state === "NEW")
-    .sort((left, right) => right.importance - left.importance || left.position - right.position));
+  const due: typeof cards = [];
+  const freshByChapterMap = new Map<number, typeof cards>();
+  for (const card of cards) {
+    if (card.state === "DUE") {
+      due.push(card);
+      continue;
+    }
+    if (card.state !== "NEW") continue;
+    const chapterCards = freshByChapterMap.get(card.chapterId);
+    if (chapterCards) {
+      chapterCards.push(card);
+    } else {
+      freshByChapterMap.set(card.chapterId, [card]);
+    }
+  }
+  due.sort((left, right) =>
+    Date.parse(left.dueAt!) - Date.parse(right.dueAt!)
+    || right.importance - left.importance
+    || left.chapterPosition - right.chapterPosition
+    || left.position - right.position);
+  const freshByChapter = loaded.chapters.map((chapter) => {
+    const chapterCards = freshByChapterMap.get(chapter.chapter_id) ?? [];
+    chapterCards.sort((left, right) => right.importance - left.importance || left.position - right.position);
+    return chapterCards;
+  });
   const fresh: typeof cards = [];
   for (let offset = 0; ; offset += 1) {
     let added = false;
@@ -314,7 +330,7 @@ export async function getProjectStudyForOwner(
     readyChapterCount: loaded.chapters.length,
     queue,
     dueCount: due.length,
-    newCount: cards.filter((card) => card.state === "NEW").length,
+    newCount: fresh.length,
   });
 }
 
