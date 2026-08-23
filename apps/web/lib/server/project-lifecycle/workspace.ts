@@ -144,15 +144,23 @@ function projectWorkspaceFromRow(
   const chapterSummaries = row.chapters.map((chapter) => {
     const states = chapter.knowledge_cards.map(learningState);
     const cardCount = chapter.knowledge_cards.length;
-    const studiedCount = states.filter((state) => state && state.reps > 0).length;
-    const dueCount = states.filter((state) => dueAtOrBefore(state, nowMs)).length;
-    const masteredCount = states.filter((state) => state && state.reps >= 3 && state.lapses === 0).length;
-    const lastReviewedAt = states.reduce<string | null>((latest, state) => {
-      if (!state?.last_reviewed_at) return latest;
-      return !latest || Date.parse(state.last_reviewed_at) > Date.parse(latest)
-        ? state.last_reviewed_at
-        : latest;
-    }, null);
+    let studiedCount = 0;
+    let dueCount = 0;
+    let masteredCount = 0;
+    let lastReviewedAt: string | null = null;
+    let lastReviewedAtMs = Number.NaN;
+    for (const state of states) {
+      if (state && state.reps > 0) studiedCount += 1;
+      if (dueAtOrBefore(state, nowMs)) dueCount += 1;
+      if (state && state.reps >= 3 && state.lapses === 0) masteredCount += 1;
+      if (state?.last_reviewed_at) {
+        const reviewedAtMs = Date.parse(state.last_reviewed_at);
+        if (!lastReviewedAt || reviewedAtMs > lastReviewedAtMs) {
+          lastReviewedAt = state.last_reviewed_at;
+          lastReviewedAtMs = reviewedAtMs;
+        }
+      }
+    }
     return {
       projectId: row.project_id,
       chapterId: Number(chapter.chapter_id),
