@@ -184,17 +184,30 @@ function normalizedCitation(value: string): string {
 }
 
 function uploadCardLinks(blocks: ChapterReadingBlock[], cards: ReadingCardRow[]) {
+  type IndexedBlock = { block: ChapterReadingBlock; normalizedText: string };
+  const blocksByPage = new Map<number, IndexedBlock[]>();
+  for (const block of blocks) {
+    if (block.pageNumber === null) continue;
+    const pageBlocks = blocksByPage.get(block.pageNumber);
+    const indexed = { block, normalizedText: normalizedCitation(block.text) };
+    if (pageBlocks) {
+      pageBlocks.push(indexed);
+    } else {
+      blocksByPage.set(block.pageNumber, [indexed]);
+    }
+  }
+
   return cards.flatMap((row) => {
     const card = KnowledgeCardContentSchema.safeParse(row.content);
     if (!card.success) return [];
-    const samePage = blocks.filter((block) => block.pageNumber === card.data.source.page);
+    const samePage = blocksByPage.get(card.data.source.page) ?? [];
     const quote = normalizedCitation(card.data.source.quote);
-    const exact = samePage.filter((block) => normalizedCitation(block.text).includes(quote));
+    const exact = samePage.filter((entry) => entry.normalizedText.includes(quote));
     const target = exact.length === 1 ? exact[0] : samePage[0];
     if (!target) return [];
     return [{
       cardId: row.card_id,
-      blockId: target.blockId,
+      blockId: target.block.blockId,
       match: exact.length === 1 ? "QUOTE" as const : "PAGE_FALLBACK" as const,
     }];
   });
