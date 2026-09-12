@@ -1,5 +1,5 @@
 # Document Library Architecture
-pnpm --filter @mindmark/agent-runner dev
+pnpm --filter @mindmark/workflow-runner dev
 pnpm --filter @mindmark/web dev
 ## Product model
 

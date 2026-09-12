@@ -5,10 +5,8 @@ import type { NextConfig } from "next";
 
 const rootEnvironmentPath = resolve(process.cwd(), "../../.env");
 const rootAiEnvironmentKeys = [
-  "AI_API_KEY",
-  "AI_MODEL",
-  "AI_BASE_URL",
-  "AI_TUTOR_MODEL",
+  "AI_GATEWAY_URL",
+  "AI_GATEWAY_INTERNAL_TOKEN",
 ] as const;
 
 if (existsSync(rootEnvironmentPath)) {

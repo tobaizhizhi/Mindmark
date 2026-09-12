@@ -12,24 +12,17 @@ import {
   type QualityCorpusFixture,
   type WorkerKnowledgeCardV2,
 } from "../packages/shared/src/index.ts";
-import { OpenAICompatibleToolModel } from "../apps/agent-runner/src/model.ts";
-import { ModelCardQualityEvaluatorV3 } from "../apps/agent-runner/src/quality-evaluator-v3.ts";
+import { RemoteAgentToolModel } from "../apps/workflow-runner/src/model.ts";
+import { ModelCardQualityEvaluatorV3 } from "../apps/workflow-runner/src/quality-evaluator-v3.ts";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const corpusRoot = path.join(root, "fixtures", "ai-quality");
 const liveProjectId = `0x${"ab".repeat(32)}` as const;
 
 type LiveConfiguration = {
-  apiKey: string;
-  model: string;
-  baseUrl?: string;
-  fallback?: {
-    apiKey: string;
-    model: string;
-    baseUrl: string;
-    maxTokensParameter: "max_tokens";
-    providerOptions: { thinking: { type: "disabled" } };
-  };
+  baseUrl: string;
+  internalToken: string;
+  modelLabel: string;
   timeoutMs: number;
   minimumAccuracy: number;
   minimumViolationDetection: number;
@@ -62,24 +55,12 @@ function timeoutMs(): number {
 }
 
 function configuration(): LiveConfiguration {
-  const baseUrl = process.env.AI_EVALUATION_BASE_URL?.trim() ?? process.env.AI_BASE_URL?.trim();
-  if (baseUrl) new URL(baseUrl);
-  const fallbackApiKey = process.env.AI_FALLBACK_API_KEY?.trim();
-  const fallbackBaseUrl = process.env.AI_FALLBACK_BASE_URL?.trim() ?? "https://api.deepseek.com/v1";
-  if (fallbackApiKey) new URL(fallbackBaseUrl);
+  const baseUrl = requiredEnvironment("AGENT_RUNNER_URL");
+  new URL(baseUrl);
   return {
-    apiKey: process.env.AI_EVALUATION_API_KEY?.trim() ?? requiredEnvironment("AI_API_KEY"),
-    model: process.env.AI_EVALUATION_MODEL?.trim() ?? requiredEnvironment("AI_MODEL"),
-    ...(baseUrl ? { baseUrl } : {}),
-    ...(fallbackApiKey ? {
-      fallback: {
-        apiKey: fallbackApiKey,
-        model: process.env.AI_FALLBACK_MODEL?.trim() ?? "deepseek-chat",
-        baseUrl: fallbackBaseUrl,
-        maxTokensParameter: "max_tokens" as const,
-        providerOptions: { thinking: { type: "disabled" } },
-      },
-    } : {}),
+    baseUrl,
+    internalToken: requiredEnvironment("AGENT_RUNNER_INTERNAL_TOKEN"),
+    modelLabel: "agent-runner:evaluation",
     timeoutMs: timeoutMs(),
     minimumAccuracy: boundedNumber("QUALITY_LIVE_MIN_ACCURACY", 0.9),
     minimumViolationDetection: boundedNumber("QUALITY_LIVE_MIN_VIOLATION_DETECTION", 0.9),
@@ -146,14 +127,14 @@ async function main(): Promise<void> {
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
     .sort();
-  const model = new OpenAICompatibleToolModel({
-    apiKey: live.apiKey,
-    model: live.model,
-    ...(live.baseUrl ? { baseUrl: live.baseUrl } : {}),
-    ...(live.fallback ? { fallback: live.fallback } : {}),
+  const model = new RemoteAgentToolModel({
+    baseUrl: live.baseUrl,
+    internalToken: live.internalToken,
+    profile: "evaluation",
+    timeoutMs: live.timeoutMs,
   });
   const evaluator = new ModelCardQualityEvaluatorV3(model, {
-    modelId: live.model,
+    modelId: live.modelLabel,
     promptVersion: "card-rubric-v3-live-corpus-1",
     timeoutMs: live.timeoutMs,
   });
@@ -216,7 +197,7 @@ async function main(): Promise<void> {
   const expectationAccuracy = cases.filter((item) => item.predictedDecision === item.expectedDecision).length / cases.length;
   const violationDetectionRate = expectedViolations.length === 0 ? 1 : detectedViolations / expectedViolations.length;
   const report = {
-    model: live.model,
+    model: live.modelLabel,
     fixtureCount: reports.length,
     totalCases: cases.length,
     expectationAccuracy,

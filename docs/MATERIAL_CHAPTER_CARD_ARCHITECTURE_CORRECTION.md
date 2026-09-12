@@ -45,11 +45,11 @@ AI Planner 可在模型正常时缓解这个问题，但模型不可用或输出
 
 | 位置 | 当前规则 |
 | --- | --- |
-| `apps/agent-runner/src/worker-v2.ts:19` | Worker 草稿 `min(1)` |
-| `apps/agent-runner/src/worker-v2.ts:153` | 提示词是 `at most cardBudget` |
-| `apps/agent-runner/src/validation-v2.ts:58` | 卡片数组 `min(1)` |
-| `apps/agent-runner/src/validation-v2.ts:65` | 只检查不能超过 `cardBudget` |
-| `apps/agent-runner/src/chapter-assembler.ts:61` | 去重后只要求不为 0 |
+| `apps/workflow-runner/src/worker-v2.ts:19` | Worker 草稿 `min(1)` |
+| `apps/workflow-runner/src/worker-v2.ts:153` | 提示词是 `at most cardBudget` |
+| `apps/workflow-runner/src/validation-v2.ts:58` | 卡片数组 `min(1)` |
+| `apps/workflow-runner/src/validation-v2.ts:65` | 只检查不能超过 `cardBudget` |
+| `apps/workflow-runner/src/chapter-assembler.ts:61` | 去重后只要求不为 0 |
 | `supabase/migrations/20260726000100_v2_runner_pipeline.sql:238` | Chapter 允许 1 到 30 张卡 |
 
 `packages/shared/src/work-planning.ts:90` 虽然为每个 Chapter 计算至少 3 张的预算，但预算只是上限分配，不是交付要求。模型返回 1 张时，整个流水线仍可成功。
@@ -543,7 +543,7 @@ Project 列表
 - `lib/server/registry-v2.ts`：增加 ProjectCreated 事件 Reconciliation Adapter。
 - `lib/server/project-study.ts`：显式创建 `PROJECT` 或 `CHAPTER` Session，再接受评分。
 
-### `apps/agent-runner`
+### `apps/workflow-runner`
 
 - `src/worker-v2.ts`：生成候选卡并等待 Chapter 级批准。
 - `src/chapter-planner.ts`：删除重复 Planning 实现，或改成只调用 shared Chapter Planning Module 的 Adapter。

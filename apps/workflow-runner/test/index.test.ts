@@ -16,16 +16,16 @@ describe("runner workspace", () => {
   it("recognizes a relative tsx watch entry path as direct execution", () => {
     expect(
       isDirectExecution(
-        "file:///workspace/apps/agent-runner/src/index.ts",
+        "file:///workspace/apps/workflow-runner/src/index.ts",
         "src/index.ts",
-        "/workspace/apps/agent-runner",
+        "/workspace/apps/workflow-runner",
       ),
     ).toBe(true);
     expect(
       isDirectExecution(
-        "file:///workspace/apps/agent-runner/src/index.ts",
+        "file:///workspace/apps/workflow-runner/src/index.ts",
         "node_modules/vitest/vitest.mjs",
-        "/workspace/apps/agent-runner",
+        "/workspace/apps/workflow-runner",
       ),
     ).toBe(false);
   });
@@ -54,11 +54,11 @@ describe("runner workspace", () => {
     const message = formatRunnerEnvironmentError(result.success ? undefined : result.error);
     expect(message).toContain("MONAD_RPC_URL");
     expect(message).toContain("COORDINATOR_PRIVATE_KEY");
-    expect(message).toContain("Mindmark Runner service");
+    expect(message).toContain("Mindmark Workflow Runner service");
     expect(message).not.toContain("undefined");
   });
 
-  it("treats blank optional model endpoints as omitted", () => {
+  it("accepts only internal Agent Runner configuration", () => {
     const result = RunnerEnvironmentSchema.safeParse({
       MONAD_RPC_URL: "https://testnet-rpc.monad.xyz",
       MONAD_CHAIN_ID: "10143",
@@ -66,12 +66,9 @@ describe("runner workspace", () => {
       PROJECT_ESCROW_ADDRESS: "0x2222222222222222222222222222222222222222",
       SUPABASE_URL: "https://example.supabase.co",
       SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
-      AI_API_KEY: "ai-key",
-      AI_MODEL: "model",
-      AI_BASE_URL: "",
-      AI_FALLBACK_API_KEY: "",
-      AI_FALLBACK_MODEL: "",
-      AI_FALLBACK_BASE_URL: "",
+      AGENT_RUNNER_URL: "https://agents.example.internal",
+      AGENT_RUNNER_INTERNAL_TOKEN: "test-internal-token",
+      AI_EMBEDDING_ENABLED: "false",
       COORDINATOR_PRIVATE_KEY: `0x${"1".repeat(64)}`,
       WORKER_0_PRIVATE_KEY: `0x${"2".repeat(64)}`,
       WORKER_1_PRIVATE_KEY: `0x${"3".repeat(64)}`,
@@ -80,9 +77,9 @@ describe("runner workspace", () => {
     });
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.AI_BASE_URL).toBeUndefined();
-      expect(result.data.AI_FALLBACK_API_KEY).toBeUndefined();
-      expect(result.data.AI_FALLBACK_BASE_URL).toBe("https://api.deepseek.com/v1");
+      expect(result.data.AGENT_RUNNER_URL).toBe("https://agents.example.internal");
+      expect(result.data.AI_EMBEDDING_ENABLED).toBe(false);
+      expect(result.data).not.toHaveProperty("AI_API_KEY");
     }
   });
 });

@@ -30,7 +30,7 @@ Mindmark 不需要微服务化。目标架构继续保持一个 Next.js Web、�
 | Phase | 状态 | 结果 |
 | --- | --- | --- |
 | 0 | 完成 | 冻结测试基线、错误分类和关联标识约束 |
-| 1 | 完成 | 新增 `@mindmark/ai-gateway`，Runner 与 Chapter AI Tutor 共用 Transport |
+| 1 | 完成 | 新增 `@mindmark/ai-client`，Runner 与 Chapter AI Tutor 共用 Transport |
 | 2 | 完成 | Learning Workspace 按 Wallet、Query、PDF/Tutor、Study Session 拆分，顶层约 275 行 |
 | 3 | 完成 | Runner Persistence 拆为 Workflow、Design、Generation、Commitment、Reward Adapter |
 | 4 | 完成 | Project Lifecycle 拆分；创建页和学习页共用 Learner Project Progress |
@@ -187,7 +187,7 @@ Wallet Session
 新增 server-only package：
 
 ```text
-packages/ai-gateway/
+packages/ai-client/
   src/
     chat-completions.ts
     tool-call.ts
@@ -308,7 +308,7 @@ apps/web/features/learning-workspace/
 `ProjectWorkflowDispatcherV2` 保持唯一 job 分发 Interface，但 Handler 与持久化 Adapter 按领域拆分：
 
 ```text
-apps/agent-runner/src/workflow/
+apps/workflow-runner/src/workflow/
   dispatcher.ts
   job-queue-adapter.ts
   handlers/
@@ -322,7 +322,7 @@ apps/agent-runner/src/workflow/
     finalize-project.ts
     settle-reward.ts
 
-apps/agent-runner/src/persistence/
+apps/workflow-runner/src/persistence/
   workflow-repository.ts
   outline-repository.ts
   design-repository.ts
@@ -519,7 +519,7 @@ Web 响应、Runner Event 和 Operations 页面都应保留可用的关联标识
 
 ## 11. 安全与隐私
 
-- `AI_API_KEY`、Supabase Service Role、私钥只存在 server/Runner 环境，禁止 `NEXT_PUBLIC_*`。
+- `AI_API_KEY` 只存在 Python AI Gateway；Supabase Service Role 和链上私钥只存在 TypeScript Workflow Runner，全部禁止 `NEXT_PUBLIC_*`。
 - Web 读取根 `.env` 时只加载明确白名单的 AI 配置，不能覆盖 Web `.env.local`。
 - Tutor 和 Runner Prompt 将 Source Block 标记为不可信资料，忽略其中指令。
 - Tutor 上下文限制 24,000 字符、最近 8 条消息；不发送整个 PDF 或其他 Chapter。
@@ -573,7 +573,7 @@ git diff --check
 
 ### Phase 1：AI Gateway 收敛（1 天，P0）
 
-- 新建 `packages/ai-gateway` server-only package。
+- 新建 `packages/ai-client` server-only package。
 - Runner Tool Model 与 Web Chapter Tutor 改用同一 Transport。
 - 保持各自 Prompt、Schema、上下文和重试预算独立。
 - 增加 Adapter contract tests 和 telemetry。

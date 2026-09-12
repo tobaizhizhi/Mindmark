@@ -1,28 +1,23 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { OpenAICompatibleToolModel } from "../src/model.js";
+import { RemoteAgentToolModel } from "../src/model.js";
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("OpenAI-compatible tool model", () => {
-  it("caps completion tokens so compatible gateways do not reason indefinitely", async () => {
+describe("remote Agent Runner tool model", () => {
+  it("caps completion tokens so remote agents do not reason indefinitely", async () => {
     const fetchMock = vi.fn<typeof fetch>();
     fetchMock.mockResolvedValue(new Response(JSON.stringify({
-      choices: [{
-        message: {
-          tool_calls: [{
-            id: "call-1",
-            function: { name: "submit", arguments: "{}" },
-          }],
-        },
-      }],
+      id: "call-1",
+      name: "submit",
+      arguments: {},
     }), { status: 200, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const model = new OpenAICompatibleToolModel({
-      apiKey: "test-key",
-      model: "test-model",
-      baseUrl: "https://models.example/v1/",
+    const model = new RemoteAgentToolModel({
+      internalToken: "test-internal-token",
+      profile: "generation",
+      baseUrl: "https://agents.example/",
     });
 
     await model.nextTool({
@@ -38,26 +33,24 @@ describe("OpenAI-compatible tool model", () => {
     });
 
     expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toMatchObject({
-      model: "test-model",
+      profile: "generation",
       max_completion_tokens: 4096,
-      tool_choice: "required",
     });
   });
 
   it("honors a smaller per-call budget for deterministic workflow steps", async () => {
     const fetchMock = vi.fn<typeof fetch>();
     fetchMock.mockResolvedValue(new Response(JSON.stringify({
-      choices: [{
-        message: {
-          tool_calls: [{
-            id: "call-1",
-            function: { name: "read", arguments: "{}" },
-          }],
-        },
-      }],
+      id: "call-1",
+      name: "read",
+      arguments: {},
     }), { status: 200, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const model = new OpenAICompatibleToolModel({ apiKey: "test-key", model: "test-model" });
+    const model = new RemoteAgentToolModel({
+      baseUrl: "https://agents.example",
+      internalToken: "test-internal-token",
+      profile: "design",
+    });
 
     await model.nextTool({
       system: "Read first.",

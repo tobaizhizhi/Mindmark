@@ -4,8 +4,8 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   resolve: {
     alias: {
-      "@mindmark/ai-gateway": fileURLToPath(
-        new URL("../../packages/ai-gateway/src/index.ts", import.meta.url),
+      "@mindmark/ai-client": fileURLToPath(
+        new URL("../../packages/ai-client/src/index.ts", import.meta.url),
       ),
       "@mindmark/shared/learning-project": fileURLToPath(
         new URL("../../packages/shared/src/learning-project/index.ts", import.meta.url),

@@ -9,7 +9,7 @@ import {
   askChapterTutorForOwner,
   buildChapterTutorContext,
   extractPartialJsonStringProperty,
-  OpenAICompatibleChapterTutorModel,
+  GatewayChapterTutorModel,
   streamChapterTutorForOwner,
   type ChapterTutorModel,
 } from "@/lib/server/chapter-ai-tutor";
@@ -150,7 +150,10 @@ describe("Chapter AI Tutor", () => {
       status: 200,
       headers: { "Content-Type": "application/json" },
     })));
-    const model = new OpenAICompatibleChapterTutorModel({ apiKey: "test-key", model: "test-model" });
+    const model = new GatewayChapterTutorModel({
+      baseUrl: "https://gateway.example",
+      internalToken: "test-internal-token",
+    });
 
     await expect(model.answer({
       question: request.question,
@@ -163,7 +166,10 @@ describe("Chapter AI Tutor", () => {
 
   it("reports model connectivity failures without leaking transport details", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("secret upstream detail")));
-    const model = new OpenAICompatibleChapterTutorModel({ apiKey: "test-key", model: "test-model" });
+    const model = new GatewayChapterTutorModel({
+      baseUrl: "https://gateway.example",
+      internalToken: "test-internal-token",
+    });
 
     await expect(model.answer({
       question: request.question,

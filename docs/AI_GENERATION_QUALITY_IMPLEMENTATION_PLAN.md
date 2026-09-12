@@ -295,22 +295,22 @@ packages/shared/src/index.ts
 Add or consolidate:
 
 ```text
-apps/agent-runner/src/model/prompt-registry.ts
-apps/agent-runner/src/model/chapter-design-graph.ts
-apps/agent-runner/src/model/chapter-evaluation-graph.ts
-apps/agent-runner/src/model/quality-evaluator.ts
-apps/agent-runner/src/model/embedding-gateway.ts
+apps/workflow-runner/src/model/prompt-registry.ts
+apps/workflow-runner/src/model/chapter-design-graph.ts
+apps/workflow-runner/src/model/chapter-evaluation-graph.ts
+apps/workflow-runner/src/model/quality-evaluator.ts
+apps/workflow-runner/src/model/embedding-gateway.ts
 ```
 
 Update:
 
 ```text
-apps/agent-runner/src/outline-planning-agent.ts
-apps/agent-runner/src/worker-v2.ts
-apps/agent-runner/src/chapter-quality-gate.ts
-apps/agent-runner/src/workflow-dispatcher-v2.ts
-apps/agent-runner/src/repository-v2.ts
-apps/agent-runner/src/types-v2.ts
+apps/workflow-runner/src/outline-planning-agent.ts
+apps/workflow-runner/src/worker-v2.ts
+apps/workflow-runner/src/chapter-quality-gate.ts
+apps/workflow-runner/src/workflow-dispatcher-v2.ts
+apps/workflow-runner/src/repository-v2.ts
+apps/workflow-runner/src/types-v2.ts
 ```
 
 The existing OpenAI-compatible model Adapter can remain the transport Adapter. LangGraph and LangChain packages must not leak into Shared Domain Module or Web.

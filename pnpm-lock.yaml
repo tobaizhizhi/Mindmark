@@ -39,11 +39,11 @@ importers:
         specifier: 4.1.10
         version: 4.1.10(@types/node@24.10.9)(vite@8.1.5(@types/node@24.10.9)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.1))
 
-  apps/agent-runner:
+  apps/workflow-runner:
     dependencies:
-      '@mindmark/ai-gateway':
+      '@mindmark/ai-client':
         specifier: workspace:*
-        version: link:../../packages/ai-gateway
+        version: link:../../packages/ai-client
       '@mindmark/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -65,9 +65,9 @@ importers:
 
   apps/web:
     dependencies:
-      '@mindmark/ai-gateway':
+      '@mindmark/ai-client':
         specifier: workspace:*
-        version: link:../../packages/ai-gateway
+        version: link:../../packages/ai-client
       '@mindmark/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -136,7 +136,7 @@ importers:
         specifier: 4.3.3
         version: 4.3.3
 
-  packages/ai-gateway:
+  packages/ai-client:
     dependencies:
       zod:
         specifier: 4.4.3

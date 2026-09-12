@@ -1,5 +1,4 @@
 import { AddressSchema, mossNetworkSupport } from "@mindmark/shared";
-import type { OpenAICompatibleGatewayConfiguration } from "@mindmark/ai-gateway";
 import { z } from "zod";
 import { parseEther, type Hex } from "viem";
 import { ViemProjectRegistryGatewayV2 } from "./chain-v2.js";
@@ -9,12 +8,12 @@ import { ChapterQualityGate } from "./chapter-quality-gate.js";
 import { ProjectCoordinatorV2 } from "./coordinator-v2.js";
 import {
   DeterministicCardEmbeddingGatewayV3,
-  OpenAICompatibleCardEmbeddingGatewayV3,
+  RemoteAgentEmbeddingGatewayV3,
 } from "./embedding-v3.js";
 import { ProjectFinalizerV2 } from "./project-finalizer-v2.js";
 import { ProjectDesignFreezer } from "./project-design-freezer.js";
 import { ModelCardQualityEvaluatorV3 } from "./quality-evaluator-v3.js";
-import { OpenAICompatibleToolModel } from "./model.js";
+import { RemoteAgentToolModel } from "./model.js";
 import { OutlinePlanningAgent } from "./outline-planning-agent.js";
 import { connectRunnerPersistence } from "./persistence/index.js";
 import { MossViemRewardGateway } from "./reward.js";
@@ -29,19 +28,11 @@ const PrivateKeySchema = z
   .regex(/^0x[0-9a-fA-F]{64}$/u, "Expected a 32-byte private key")
   .transform((value) => value as Hex);
 
-const OptionalUrlSchema = z.preprocess(
-  (value) => typeof value === "string" && value.trim() === "" ? undefined : value,
-  z.string().url().optional(),
-);
-
-const OptionalStringSchema = z.preprocess(
-  (value) => typeof value === "string" && value.trim() === "" ? undefined : value,
-  z.string().trim().min(1).optional(),
-);
-
-const DefaultStringSchema = (fallback: string) => z.preprocess(
-  (value) => typeof value === "string" && value.trim() === "" ? undefined : value,
-  z.string().trim().min(1).default(fallback),
+const EnvironmentBooleanSchema = z.preprocess(
+  (value) => typeof value === "string" ? value.trim().toLowerCase() : value,
+  z.union([z.literal("true"), z.literal("false"), z.boolean()])
+    .transform((value) => value === true || value === "true")
+    .default(false),
 );
 
 export const RunnerEnvironmentSchema = z.object({
@@ -51,22 +42,9 @@ export const RunnerEnvironmentSchema = z.object({
   PROJECT_ESCROW_ADDRESS: AddressSchema,
   SUPABASE_URL: z.string().url(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
-  AI_API_KEY: z.string().min(1),
-  AI_MODEL: z.string().min(1),
-  AI_BASE_URL: OptionalUrlSchema,
-  AI_FALLBACK_API_KEY: OptionalStringSchema,
-  AI_FALLBACK_MODEL: DefaultStringSchema("deepseek-chat"),
-  AI_FALLBACK_BASE_URL: z.preprocess(
-    (value) => typeof value === "string" && value.trim() === "" ? undefined : value,
-    z.string().url().default("https://api.deepseek.com/v1"),
-  ),
-  AI_DESIGN_MODEL: OptionalStringSchema,
-  AI_EVALUATION_MODEL: OptionalStringSchema,
-  AI_EVALUATION_API_KEY: OptionalStringSchema,
-  AI_EVALUATION_BASE_URL: OptionalUrlSchema,
-  AI_EMBEDDING_MODEL: OptionalStringSchema,
-  AI_EMBEDDING_API_KEY: OptionalStringSchema,
-  AI_EMBEDDING_BASE_URL: OptionalUrlSchema,
+  AGENT_RUNNER_URL: z.string().url(),
+  AGENT_RUNNER_INTERNAL_TOKEN: z.string().min(16),
+  AI_EMBEDDING_ENABLED: EnvironmentBooleanSchema,
   AI_TOOL_TIMEOUT_MS: z.coerce.number().int().min(45_000).max(600_000).default(DEFAULT_AI_TOOL_TIMEOUT_MS),
   AI_CHAPTER_DESIGN_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(120_000).default(20_000),
   COORDINATOR_PRIVATE_KEY: PrivateKeySchema,
@@ -127,47 +105,28 @@ export async function startRunnerFromEnvironment(
     configuration.SUPABASE_SERVICE_ROLE_KEY,
   );
   await persistence.assertSchemaCapabilities();
-  const deepSeekFallback: OpenAICompatibleGatewayConfiguration | undefined = configuration.AI_FALLBACK_API_KEY
-    ? {
-        apiKey: configuration.AI_FALLBACK_API_KEY,
-        model: configuration.AI_FALLBACK_MODEL,
-        baseUrl: configuration.AI_FALLBACK_BASE_URL,
-        maxTokensParameter: "max_tokens",
-        providerOptions: { thinking: { type: "disabled" } },
-      }
-    : undefined;
-  const generationModel = new OpenAICompatibleToolModel({
-    apiKey: configuration.AI_API_KEY,
-    model: configuration.AI_MODEL,
-    ...(configuration.AI_BASE_URL ? { baseUrl: configuration.AI_BASE_URL } : {}),
-    ...(deepSeekFallback ? { fallback: deepSeekFallback } : {}),
+  const generationModel = new RemoteAgentToolModel({
+    baseUrl: configuration.AGENT_RUNNER_URL,
+    internalToken: configuration.AGENT_RUNNER_INTERNAL_TOKEN,
+    profile: "generation",
+    timeoutMs: configuration.AI_TOOL_TIMEOUT_MS,
   });
-  const designModelId = configuration.AI_DESIGN_MODEL ?? configuration.AI_MODEL;
-  const designModel = designModelId === configuration.AI_MODEL
-    ? generationModel
-    : new OpenAICompatibleToolModel({
-        apiKey: configuration.AI_API_KEY,
-        model: designModelId,
-        ...(configuration.AI_BASE_URL ? { baseUrl: configuration.AI_BASE_URL } : {}),
-        ...(deepSeekFallback ? { fallback: deepSeekFallback } : {}),
-      });
-  const evaluationModelId = configuration.AI_EVALUATION_MODEL ?? configuration.AI_MODEL;
-  const evaluationModel = new OpenAICompatibleToolModel({
-    apiKey: configuration.AI_EVALUATION_API_KEY ?? configuration.AI_API_KEY,
-    model: evaluationModelId,
-    ...(configuration.AI_EVALUATION_BASE_URL
-      ? { baseUrl: configuration.AI_EVALUATION_BASE_URL }
-      : configuration.AI_BASE_URL ? { baseUrl: configuration.AI_BASE_URL } : {}),
-    ...(deepSeekFallback ? { fallback: deepSeekFallback } : {}),
-    temperature: 0,
+  const designModel = new RemoteAgentToolModel({
+    baseUrl: configuration.AGENT_RUNNER_URL,
+    internalToken: configuration.AGENT_RUNNER_INTERNAL_TOKEN,
+    profile: "design",
+    timeoutMs: configuration.AI_TOOL_TIMEOUT_MS,
   });
-  const embeddings = configuration.AI_EMBEDDING_MODEL
-    ? new OpenAICompatibleCardEmbeddingGatewayV3({
-        apiKey: configuration.AI_EMBEDDING_API_KEY ?? configuration.AI_API_KEY,
-        model: configuration.AI_EMBEDDING_MODEL,
-        ...(configuration.AI_EMBEDDING_BASE_URL
-          ? { baseUrl: configuration.AI_EMBEDDING_BASE_URL }
-          : configuration.AI_BASE_URL ? { baseUrl: configuration.AI_BASE_URL } : {}),
+  const evaluationModel = new RemoteAgentToolModel({
+    baseUrl: configuration.AGENT_RUNNER_URL,
+    internalToken: configuration.AGENT_RUNNER_INTERNAL_TOKEN,
+    profile: "evaluation",
+    timeoutMs: configuration.AI_TOOL_TIMEOUT_MS,
+  });
+  const embeddings = configuration.AI_EMBEDDING_ENABLED
+    ? new RemoteAgentEmbeddingGatewayV3({
+        baseUrl: configuration.AGENT_RUNNER_URL,
+        internalToken: configuration.AGENT_RUNNER_INTERNAL_TOKEN,
         timeoutMs: configuration.AI_TOOL_TIMEOUT_MS,
       })
     : new DeterministicCardEmbeddingGatewayV3();
@@ -196,7 +155,7 @@ export async function startRunnerFromEnvironment(
       persistence.generation,
       embeddings,
       new ModelCardQualityEvaluatorV3(evaluationModel, {
-        modelId: evaluationModelId,
+        modelId: "agent-runner:evaluation",
         timeoutMs: configuration.AI_TOOL_TIMEOUT_MS,
       }),
     ),
@@ -205,7 +164,7 @@ export async function startRunnerFromEnvironment(
     settlement,
     new ChapterDesignWorkflowAgent(persistence.design, designModel, {
       timeoutMs: configuration.AI_CHAPTER_DESIGN_TIMEOUT_MS,
-      modelId: designModelId,
+      modelId: "agent-runner:design",
     }),
     new ProjectDesignFreezer(persistence.design),
     outlinePlanner,
@@ -226,7 +185,7 @@ export async function startRunnerFromEnvironment(
  */
 export function formatRunnerEnvironmentError(error: unknown): string {
   if (!(error instanceof z.ZodError)) {
-    return error instanceof Error ? error.message : "Agent Runner failed to start";
+    return error instanceof Error ? error.message : "Workflow Runner failed to start";
   }
 
   const issues = error.issues.map((issue) => {
@@ -237,9 +196,9 @@ export function formatRunnerEnvironmentError(error: unknown): string {
     return `${path}: ${message}`;
   });
   return [
-    "Agent Runner environment is invalid.",
+    "Workflow Runner environment is invalid.",
     ...issues.map((issue) => `- ${issue}`),
-    "Set these variables on Railway in the Mindmark Runner service (not only in .env.local or the Web service).",
+    "Set these variables on Railway in the Mindmark Workflow Runner service (not only in .env.local or the Web service).",
     "Reference: docs/PUBLIC_TESTNET_DEPLOYMENT.md, section 4 (Runner Variables).",
   ].join("\n");
 }

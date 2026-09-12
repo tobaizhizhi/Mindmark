@@ -1,12 +1,12 @@
 {
-  "name": "@mindmark/agent-runner",
+  "name": "@mindmark/workflow-runner",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
-    "predev": "pnpm --filter @mindmark/shared build && pnpm --filter @mindmark/ai-gateway build",
+    "predev": "pnpm --filter @mindmark/shared build && pnpm --filter @mindmark/ai-client build",
     "dev": "node --env-file-if-exists=../../.env --import tsx --watch src/index.ts",
     "lint": "eslint src test",
     "prebuild": "pnpm clean",
@@ -15,7 +15,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@mindmark/ai-gateway": "workspace:*",
+    "@mindmark/ai-client": "workspace:*",
     "@mindmark/shared": "workspace:*",
     "@supabase/supabase-js": "2.110.8",
     "@themoss/core": "0.1.0",

@@ -12,5 +12,9 @@ contracts/out/
 !.env.example
 *.log
 *.tsbuildinfo
-/apps/agent-runner/artifacts/
+/apps/workflow-runner/artifacts/
 /apps/web/app/generated-globals.css
+**/__pycache__/
+**/.pytest_cache/
+**/*.egg-info/
+.venv/

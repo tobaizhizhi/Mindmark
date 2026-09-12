@@ -1,16 +1,9 @@
-import { z } from "zod";
+import { requestEmbeddings } from "@mindmark/ai-client";
 
 export interface CardEmbeddingGatewayV3 {
   readonly modelId: string;
   embed(texts: string[]): Promise<number[][]>;
 }
-
-const EmbeddingResponseSchema = z.object({
-  data: z.array(z.object({
-    index: z.number().int().nonnegative(),
-    embedding: z.array(z.number().finite()).min(1),
-  })).min(1),
-}).passthrough();
 
 function featureHash(value: string): number {
   let hash = 2_166_136_261;
@@ -53,46 +46,32 @@ export class DeterministicCardEmbeddingGatewayV3 implements CardEmbeddingGateway
   }
 }
 
-export class OpenAICompatibleCardEmbeddingGatewayV3 implements CardEmbeddingGatewayV3 {
-  readonly modelId: string;
+export class RemoteAgentEmbeddingGatewayV3 implements CardEmbeddingGatewayV3 {
+  readonly modelId = "agent-runner:embedding";
 
   constructor(private readonly configuration: {
-    apiKey: string;
-    model: string;
-    baseUrl?: string;
+    baseUrl: string;
+    internalToken: string;
     timeoutMs?: number;
-  }) {
-    this.modelId = configuration.model;
-  }
+  }) {}
 
   async embed(texts: string[]): Promise<number[][]> {
     if (texts.length === 0) return [];
-    const baseUrl = (this.configuration.baseUrl ?? "https://api.openai.com/v1").replace(/\/$/u, "");
-    const response = await fetch(`${baseUrl}/embeddings`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${this.configuration.apiKey}`,
-        "Content-Type": "application/json",
+    const result = await requestEmbeddings(
+      {
+        baseUrl: this.configuration.baseUrl,
+        internalToken: this.configuration.internalToken,
       },
-      body: JSON.stringify({
-        model: this.configuration.model,
-        input: texts,
-        encoding_format: "float",
-      }),
-      signal: AbortSignal.timeout(this.configuration.timeoutMs ?? 60_000),
-    });
-    if (!response.ok) {
-      throw new Error(`Embedding model request failed with status ${response.status}`);
-    }
-    const parsed = EmbeddingResponseSchema.parse(await response.json());
-    const ordered = [...parsed.data].sort((left, right) => left.index - right.index);
-    if (ordered.length !== texts.length || ordered.some((item, index) => item.index !== index)) {
+      texts,
+      this.configuration.timeoutMs ?? 60_000,
+    );
+    if (result.embeddings.length !== texts.length) {
       throw new Error("Embedding model returned incomplete or unordered indexes");
     }
-    const dimensions = ordered[0]!.embedding.length;
-    if (ordered.some((item) => item.embedding.length !== dimensions)) {
+    const dimensions = result.embeddings[0]!.length;
+    if (result.embeddings.some((item) => item.length !== dimensions)) {
       throw new Error("Embedding model returned inconsistent vector dimensions");
     }
-    return ordered.map((item) => item.embedding);
+    return result.embeddings;
   }
 }

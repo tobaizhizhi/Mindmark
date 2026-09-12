@@ -9,8 +9,8 @@
   "scripts": {
     "lint": "pnpm -r --if-present lint",
     "typecheck": "pnpm -r --if-present typecheck",
-    "test": "pnpm -r --if-present test",
-    "build": "pnpm -r --if-present build",
+    "test": "pnpm -r --if-present test && pnpm test:python",
+    "build": "pnpm -r --if-present build && python3 -m compileall -q apps/ai-gateway/src apps/agent-runner/src",
     "fixtures:demo": "node scripts/generate-demo-fixtures.mjs",
     "packs:generate:solidity:v4": "tsx scripts/generate-solidity-curriculum-v4.ts",
     "packs:generate:solidity:v5": "tsx scripts/generate-solidity-curriculum-v5.ts",
@@ -18,9 +18,10 @@
     "packs:artifact": "tsx scripts/validate-card-packs.ts --write",
     "packs:publish": "tsx --env-file-if-exists=.env scripts/publish-card-packs.ts",
     "quality:replay": "tsx scripts/replay-ai-quality.ts",
-    "quality:evaluator-live": "tsx --tsconfig apps/agent-runner/tsconfig.json --env-file-if-exists=.env scripts/replay-live-ai-quality.ts",
+    "quality:evaluator-live": "tsx --tsconfig apps/workflow-runner/tsconfig.json --env-file-if-exists=.env scripts/replay-live-ai-quality.ts",
     "quality:live": "pnpm quality:evaluator-live",
-    "quality:canary": "pnpm quality:replay && pnpm exec vitest run packages/shared/test/learning-design-v3.test.ts packages/shared/test/quality-corpus.test.ts apps/agent-runner/test/project-pipeline-v2.test.ts apps/agent-runner/test/quality-evaluator-v3.test.ts apps/agent-runner/test/embedding-v3.test.ts && pnpm quality:evaluator-live"
+    "quality:canary": "pnpm quality:replay && pnpm exec vitest run packages/shared/test/learning-design-v3.test.ts packages/shared/test/quality-corpus.test.ts apps/workflow-runner/test/project-pipeline-v2.test.ts apps/workflow-runner/test/quality-evaluator-v3.test.ts apps/workflow-runner/test/embedding-v3.test.ts && pnpm quality:evaluator-live",
+    "test:python": "PYTHONPATH=apps/ai-gateway/src python3 -m unittest discover -s apps/ai-gateway/tests && PYTHONPATH=apps/agent-runner/src python3 -m unittest discover -s apps/agent-runner/tests"
   },
   "devDependencies": {
     "@eslint/js": "9.39.5",

@@ -19,7 +19,7 @@ const implementationDetails = [
     index: "01",
     title: "把 AI 输出变成可验收的工作流",
     description: "从大纲、章节设计到 Worker 生成、质量门禁和最终组装，每一步都可恢复、可重试、可观察。",
-    path: "apps/agent-runner/src / workflow-dispatcher-v2.ts",
+    path: "apps/workflow-runner/src / workflow-dispatcher-v2.ts",
     icon: Workflow,
   },
   {

@@ -2,7 +2,7 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 export const runnerIdentity = Object.freeze({
-  name: "Mindmark Agent Runner",
+  name: "Mindmark Workflow Runner",
   roles: ["coordinator", "worker-0", "worker-1", "worker-2", "finalizer", "settlement"],
 });
 

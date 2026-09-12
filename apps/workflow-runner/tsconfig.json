@@ -4,7 +4,7 @@
     "noEmit": true,
     "baseUrl": ".",
     "paths": {
-      "@mindmark/ai-gateway": ["../../packages/ai-gateway/src/index.ts"],
+      "@mindmark/ai-client": ["../../packages/ai-client/src/index.ts"],
       "@mindmark/shared": ["../../packages/shared/src/index.ts"],
       "@mindmark/shared/schemas": ["../../packages/shared/src/schemas.ts"],
       "@mindmark/shared/learning-project": ["../../packages/shared/src/learning-project/index.ts"],

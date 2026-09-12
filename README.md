@@ -111,15 +111,19 @@ Project Escrow 支付的是 AI 工作奖励，不是 OpenAI 兼容服务商的 A
 └────────────────────────────┬───────────────────────────────┘
                              │ leased jobs
 ┌────────────────────────────▼───────────────────────────────┐
-│ Node.js Agent Runner                                      │
-│ Outline · Design · Workers · Quality · Assembly · Reward   │
+│ TypeScript Workflow Runner                                │
+│ Queue · Validation · Assembly · Monad · Moss               │
 └───────────────┬──────────────────────┬─────────────────────┘
-                │                      │
-                │ AI Gateway           │ Monad JSON-RPC
+                │ private HTTP         │ Monad JSON-RPC
 ┌───────────────▼──────────────┐  ┌────▼─────────────────────┐
-│ OpenAI-compatible Model API  │  │ Registry V2 / Project    │
-│ Generation · Evaluation      │  │ Escrow / Completion      │
-└──────────────────────────────┘  └──────────────────────────┘
+│ Python Agent Runner         │  │ Registry V2 / Project    │
+│ Tool loops · retry          │  │ Escrow / Completion      │
+└───────────────┬──────────────┘  └──────────────────────────┘
+                │ private HTTP
+┌───────────────▼────────────────────────────────────────────┐
+│ Python AI Gateway -> OpenAI-compatible Model APIs          │
+│ Profiles · credentials · failover · streaming · embeddings│
+└────────────────────────────────────────────────────────────┘
 ```
 
 Supabase 是学习状态和 Workflow 的权威来源；Monad Registry 和 Escrow 是 Project 身份、预算和 Reward 规则的权威来源；Moss 是签名前的 Agent 交易审阅层。
@@ -130,7 +134,7 @@ Supabase 是学习状态和 Workflow 的权威来源；Monad Registry 和 Escrow
 
 | 环境 | 要求 |
 |------|------|
-| 运行环境 | Node.js 22+、pnpm 10+ |
+| 运行环境 | Node.js 22+、pnpm 10+、Python 3.12+ |
 | 合约工具 | `forge`、`cast` |
 | Supabase | 项目地址和 Service Role 密钥 |
 | Monad | 测试网 RPC、Registry 和 Escrow 合约地址 |
@@ -153,9 +157,11 @@ cp .env.example .env
 pnpm lint
 pnpm typecheck
 pnpm test
+PYTHONPATH=apps/ai-gateway/src python3 -m unittest discover -s apps/ai-gateway/tests
+PYTHONPATH=apps/agent-runner/src python3 -m unittest discover -s apps/agent-runner/tests
 pnpm --filter @mindmark/shared build
-pnpm --filter @mindmark/ai-gateway build
-pnpm --filter @mindmark/agent-runner build
+pnpm --filter @mindmark/ai-client build
+pnpm --filter @mindmark/workflow-runner build
 pnpm --filter @mindmark/web build
 forge test
 git diff --check
@@ -163,14 +169,16 @@ git diff --check
 
 ### 启动服务
 
-在两个终端分别启动网页端和后台运行器：
+在四个终端分别启动两个 Python 服务、工作流进程和网页端：
 
 ```bash
+PYTHONPATH=apps/ai-gateway/src PORT=8101 python3 -m mindmark_ai_gateway.app
+PYTHONPATH=apps/agent-runner/src PORT=8102 python3 -m mindmark_agent_runner.app
 pnpm --filter @mindmark/web dev
-pnpm --filter @mindmark/agent-runner dev
+pnpm --filter @mindmark/workflow-runner dev
 ```
 
-网页端默认地址为 `http://localhost:3000`。Runner 是常驻后台进程，会从 Supabase 领取工作流任务，并访问 AI、Monad 和 Moss。
+网页端默认地址为 `http://localhost:3000`。Workflow Runner 从 Supabase 领取任务，通过私有 HTTP 调用 Python Agent Runner，并继续负责确定性校验、Monad 和 Moss。
 
 ### 发布卡包
 
@@ -196,12 +204,15 @@ pnpm packs:publish
 
 ## 公网测试网部署
 
-推荐在一个 Railway 项目中部署两个服务：
+推荐在一个 Railway 项目中部署四个服务：
 
 - 网页端：使用 `/deploy/railway/web.railway.json`，生成公网 HTTPS 域名。
-- 后台运行器：使用 `/deploy/railway/runner.railway.json`，保持单实例常驻，不需要公网域名。
+- AI Gateway：使用 `/deploy/railway/ai-gateway.railway.json`，只开放 Railway 私有网络。
+- Agent Runner：使用 `/deploy/railway/agent-runner.railway.json`，只开放 Railway 私有网络。
+- Workflow Runner：使用 `/deploy/railway/workflow-runner.railway.json`，保持单实例常驻，不需要公网域名。
 
-两个服务的根目录都必须是仓库根目录，不能设置为 `apps/web` 或 `apps/agent-runner`。详细环境变量和冒烟测试见[公网测试网部署手册](docs/PUBLIC_TESTNET_DEPLOYMENT.md)。
+四个服务的根目录都必须是仓库根目录。详细环境变量和冒烟测试见[公网测试网部署手册](docs/PUBLIC_TESTNET_DEPLOYMENT.md)。
+Python 服务的迁移边界见[Python AI 服务迁移边界](docs/PYTHON_SERVICE_MIGRATION.md)。
 
 ## 运营与安全
 
@@ -217,8 +228,8 @@ pnpm packs:publish
 |----|------|
 | 网页端 | Next.js 16、React 19、TypeScript、wagmi、viem、SIWE |
 | 数据 | Supabase PostgreSQL、Storage、工作流任务、FSRS 复习调度算法 |
-| AI | OpenAI 兼容 AI 网关、工具调用、质量评估器 |
-| 代理运行器 | Node.js Runner、Moss Core、Moss Simulator |
+| AI | Python 标准库 HTTP AI Gateway、Python Agent Runner、OpenAI-compatible API |
+| 工作流运行器 | TypeScript、Supabase Workflow Job、Moss Core、Moss Simulator |
 | 区块链 | Solidity、Foundry、OpenZeppelin、Monad Registry V2、Project Escrow |
 
 ## 相关文档

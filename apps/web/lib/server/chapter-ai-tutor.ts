@@ -8,9 +8,8 @@ import {
 } from "@mindmark/shared";
 import {
   AiGatewayError,
-  FailoverOpenAICompatibleGateway,
-  type OpenAICompatibleGatewayConfiguration,
-} from "@mindmark/ai-gateway";
+  HttpAiGatewayClient,
+} from "@mindmark/ai-client";
 import { z } from "zod";
 import type { Hex } from "viem";
 import { ApiError } from "./http";
@@ -20,13 +19,8 @@ const MAX_TUTOR_CONTEXT_CHARACTERS = 24_000;
 const MODEL_TIMEOUT_MS = 45_000;
 
 const AiTutorEnvironmentSchema = z.object({
-  AI_API_KEY: z.string().min(1),
-  AI_MODEL: z.string().min(1),
-  AI_BASE_URL: z.string().url().optional(),
-  AI_TUTOR_MODEL: z.string().min(1).optional(),
-  AI_FALLBACK_API_KEY: z.string().min(1).optional(),
-  AI_FALLBACK_MODEL: z.string().min(1).default("deepseek-chat"),
-  AI_FALLBACK_BASE_URL: z.string().url().default("https://api.deepseek.com/v1"),
+  AI_GATEWAY_URL: z.string().url(),
+  AI_GATEWAY_INTERNAL_TOKEN: z.string().min(16),
 });
 
 export type ChapterTutorModelInput = {
@@ -322,22 +316,17 @@ function tutorModelError(error: unknown): ApiError {
   return new ApiError(502, "ai_tutor_model_failed", "AI 导师暂时无法连接模型服务");
 }
 
-export class OpenAICompatibleChapterTutorModel implements ChapterTutorModel {
-  private readonly gateway: FailoverOpenAICompatibleGateway;
+export class GatewayChapterTutorModel implements ChapterTutorModel {
+  private readonly gateway: HttpAiGatewayClient;
 
   constructor(configuration: {
-    apiKey: string;
-    model: string;
-    baseUrl?: string;
-    fallback?: OpenAICompatibleGatewayConfiguration;
+    baseUrl: string;
+    internalToken: string;
   }) {
-    this.gateway = new FailoverOpenAICompatibleGateway({
-      primary: {
-        apiKey: configuration.apiKey,
-        model: configuration.model,
-        ...(configuration.baseUrl ? { baseUrl: configuration.baseUrl } : {}),
-      },
-      ...(configuration.fallback ? { fallback: configuration.fallback } : {}),
+    this.gateway = new HttpAiGatewayClient({
+      baseUrl: configuration.baseUrl,
+      internalToken: configuration.internalToken,
+      profile: "tutor",
     });
   }
 
@@ -394,20 +383,9 @@ function modelFromEnvironment(): ChapterTutorModel {
   if (!parsed.success) {
     throw new ApiError(503, "ai_tutor_not_configured", "AI 导师尚未配置模型服务");
   }
-  const fallback = parsed.data.AI_FALLBACK_API_KEY
-    ? {
-        apiKey: parsed.data.AI_FALLBACK_API_KEY,
-        model: parsed.data.AI_FALLBACK_MODEL,
-        baseUrl: parsed.data.AI_FALLBACK_BASE_URL,
-        maxTokensParameter: "max_tokens" as const,
-        providerOptions: { thinking: { type: "disabled" } },
-      }
-    : undefined;
-  return new OpenAICompatibleChapterTutorModel({
-    apiKey: parsed.data.AI_API_KEY,
-    model: parsed.data.AI_TUTOR_MODEL ?? parsed.data.AI_MODEL,
-    ...(parsed.data.AI_BASE_URL ? { baseUrl: parsed.data.AI_BASE_URL } : {}),
-    ...(fallback ? { fallback } : {}),
+  return new GatewayChapterTutorModel({
+    baseUrl: parsed.data.AI_GATEWAY_URL,
+    internalToken: parsed.data.AI_GATEWAY_INTERNAL_TOKEN,
   });
 }
 

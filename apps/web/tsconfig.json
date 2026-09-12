@@ -8,7 +8,8 @@
     "lib": ["dom", "dom.iterable", "esnext"],
     "noEmit": true,
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./*"],
+      "@mindmark/ai-client": ["../../packages/ai-client/src/index.ts"]
     },
     "plugins": [{ "name": "next" }]
   },

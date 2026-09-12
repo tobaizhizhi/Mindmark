@@ -44,9 +44,9 @@
 
 | 优先级 | Module | 证据 | 问题 |
 | --- | --- | --- | --- |
-| P0 | V1/V2 运行路径 | `apps/agent-runner/src/runtime.ts` 仍以 `RUNNER_VERSION` 启动两套 Coordinator；Web 仍保留 `/api/journeys`、`/learn/legacy`；合约和测试也有两套 | 每次修改领域规则、环境变量、部署、测试和排障都要理解两套不兼容模型。 |
+| P0 | V1/V2 运行路径 | `apps/workflow-runner/src/runtime.ts` 仍以 `RUNNER_VERSION` 启动两套 Coordinator；Web 仍保留 `/api/journeys`、`/learn/legacy`；合约和测试也有两套 | 每次修改领域规则、环境变量、部署、测试和排障都要理解两套不兼容模型。 |
 | P0 | Supabase migration Module | 当前 10 个 migration 先创建 V1，再用多个 `create or replace` 补出 V2 和纠偏规则 | 新环境必须理解历史顺序；schema 的最终形态分散，旧表和旧 RPC 仍可被误调用。 |
-| P0 | Chapter Planning Module | `apps/web/lib/server/chapter-planner.ts` 和 `apps/agent-runner/src/chapter-planner.ts` 各自实现模型协议、工具定义和降级逻辑 | 同一 AI 行为有两个实现，提示词、超时、验证和失败语义容易漂移；Web 也被迫持有 AI 密钥。 |
+| P0 | Chapter Planning Module | `apps/web/lib/server/chapter-planner.ts` 和 `apps/workflow-runner/src/chapter-planner.ts` 各自实现模型协议、工具定义和降级逻辑 | 同一 AI 行为有两个实现，提示词、超时、验证和失败语义容易漂移；Web 也被迫持有 AI 密钥。 |
 | P1 | Workflow Module | Runner 轮询中顺序扫描 reconciliation、Work Unit、质量门、组装、项目完成和奖励 | 阶段交接依赖多个专用 RPC 和固定轮询顺序；重试、可观测性和扩展新阶段的 Locality 较差。 |
 | P1 | Web application Module | `project-study.ts`、`projects.ts`、`library.ts` 同时包含用例、Supabase 查询、行映射和错误转换 | 领域用例的 Interface 被数据库细节放大，单测需要了解大量表字段，替换或演进 Adapter 的成本较高。 |
 | P1 | Chain integration Module | Web 创建回执校验、Runner reconciliation、Runner 写链各自读取 Registry | 链上读取、事件校验、幂等和故障分类没有单一实现，存在规则重复。 |
@@ -163,7 +163,7 @@ work unit confirmed    -> SETTLE_WORK_UNIT_REWARD
 将 Web 与 Runner 中重复的 Chapter Planner 合并到 Runner。抽取唯一的模型协议和工具定义：
 
 ```text
-apps/agent-runner/src/model/
+apps/workflow-runner/src/model/
   gateway.ts            # OpenAI-compatible transport, timeout, error classification
   chapter-planner.ts    # tool loop + deterministic fallback
   card-generator.ts     # Work Unit tool loop

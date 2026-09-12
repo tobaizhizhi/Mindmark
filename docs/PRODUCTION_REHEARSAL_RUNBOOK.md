@@ -13,8 +13,8 @@ pnpm lint
 pnpm typecheck
 pnpm test
 pnpm --filter @mindmark/shared build
-pnpm --filter @mindmark/ai-gateway build
-pnpm --filter @mindmark/agent-runner build
+pnpm --filter @mindmark/ai-client build
+pnpm --filter @mindmark/workflow-runner build
 pnpm --filter @mindmark/web build
 forge test
 git diff --check

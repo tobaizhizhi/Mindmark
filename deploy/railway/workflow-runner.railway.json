@@ -2,10 +2,10 @@
   "$schema": "https://railway.com/railway.schema.json",
   "build": {
     "builder": "NIXPACKS",
-    "buildCommand": "pnpm --filter @mindmark/shared build && pnpm --filter @mindmark/ai-gateway build && pnpm --filter @mindmark/agent-runner build"
+    "buildCommand": "pnpm --filter @mindmark/shared build && pnpm --filter @mindmark/ai-client build && pnpm --filter @mindmark/workflow-runner build"
   },
   "deploy": {
-    "startCommand": "pnpm --filter @mindmark/agent-runner start",
+    "startCommand": "pnpm --filter @mindmark/workflow-runner start",
     "numReplicas": 1,
     "sleepApplication": false,
     "restartPolicyType": "ON_FAILURE",
