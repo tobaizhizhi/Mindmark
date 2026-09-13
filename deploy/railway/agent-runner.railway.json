@@ -2,10 +2,10 @@
   "$schema": "https://railway.com/railway.schema.json",
   "build": {
     "builder": "NIXPACKS",
-    "buildCommand": "python3 -m compileall -q apps/agent-runner/src"
+    "buildCommand": "python3 -m pip install --no-cache-dir ./apps/agent-runner && python3 -m compileall -q apps/agent-runner/src"
   },
   "deploy": {
-    "startCommand": "PYTHONPATH=apps/agent-runner/src python3 -m mindmark_agent_runner.app",
+    "startCommand": "python3 -m mindmark_agent_runner.app",
     "numReplicas": 1,
     "healthcheckPath": "/health/ready",
     "healthcheckTimeout": 300,

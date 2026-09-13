@@ -1,12 +1,15 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CardBlueprintSlot, SourceBlock, WorkerKnowledgeCardV2 } from "@mindmark/shared";
-import type { AgentToolCall, ToolCallingModel } from "../src/runtime-types.js";
 import {
   DeterministicCardQualityEvaluatorV3,
-  ModelCardQualityEvaluatorV3,
+  RemoteCardQualityEvaluatorV3,
   type CardQualityEvaluationContextV3,
 } from "../src/quality-evaluator-v3.js";
 import { hex } from "./fakes.js";
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 function fixture(): CardQualityEvaluationContextV3 {
   const evidenceBlocks: SourceBlock[] = [{
@@ -45,37 +48,38 @@ function fixture(): CardQualityEvaluationContextV3 {
   return { conceptName: "检查-更新-交互", slot, card, evidenceBlocks };
 }
 
-class CapturingQualityModel implements ToolCallingModel {
-  lastInput: Parameters<ToolCallingModel["nextTool"]>[0] | null = null;
-
-  constructor(private readonly cardId: `0x${string}`) {}
-
-  async nextTool(input: Parameters<ToolCallingModel["nextTool"]>[0]): Promise<AgentToolCall> {
-    this.lastInput = input;
-    return {
-      id: "quality",
-      name: "submit_card_quality_evaluation",
-      arguments: {
-        cardId: this.cardId,
-        citationSufficient: true,
-        factuality: 5,
-        learningValue: 4,
-        clarity: 4,
-        completeness: 4,
-        citationRelevance: 5,
-        difficultyFit: 4,
-        verdict: "ACCEPT",
-        reasons: [],
-      },
-    };
-  }
+function qualityResponse(cardId: `0x${string}`) {
+  return {
+    evaluation: {
+      cardId,
+      citationSufficient: true,
+      factuality: 5,
+      learningValue: 4,
+      clarity: 4,
+      completeness: 4,
+      citationRelevance: 5,
+      difficultyFit: 4,
+      verdict: "ACCEPT",
+      reasons: [],
+    },
+    model: "agent-runner:evaluation",
+    prompt_version: "card-rubric-langgraph-v1",
+  };
 }
 
 describe("V3 Card Quality Evaluator", () => {
-  it("sends only one Slot, card and its evidence through a strict tool call", async () => {
+  it("sends only one Slot, card and its evidence to Agent Runner", async () => {
     const input = fixture();
-    const model = new CapturingQualityModel(input.card.id);
-    const evaluator = new ModelCardQualityEvaluatorV3(model, { modelId: "quality-model" });
+    const fetchMock = vi.fn<typeof fetch>();
+    fetchMock.mockResolvedValue(new Response(JSON.stringify(qualityResponse(input.card.id)), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const evaluator = new RemoteCardQualityEvaluatorV3({
+      baseUrl: "https://agents.example",
+      internalToken: "test-internal-token",
+    });
 
     await expect(evaluator.evaluate(input)).resolves.toMatchObject({
       cardId: input.card.id,
@@ -83,48 +87,28 @@ describe("V3 Card Quality Evaluator", () => {
       verdict: "ACCEPT",
     });
 
-    const task = JSON.parse(model.lastInput!.task) as Record<string, unknown>;
-    expect(task).toMatchObject({ conceptName: input.conceptName });
-    expect(model.lastInput!.task).not.toContain("workerAddress");
-    expect(model.lastInput!.task).not.toContain(input.card.projectId);
-    expect(model.lastInput!.tools[0]?.parameters).toMatchObject({
-      additionalProperties: false,
-      required: expect.arrayContaining(["citationSufficient", "factuality", "difficultyFit", "verdict"]),
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://agents.example/v1/card-quality-evaluations");
+    const request = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as Record<string, unknown>;
+    expect(request).toMatchObject({
+      conceptName: input.conceptName,
+      card: { cardId: input.card.id },
     });
+    expect(JSON.stringify(request)).not.toContain("workerAddress");
+    expect(JSON.stringify(request)).not.toContain(input.card.projectId);
   });
 
   it("rejects an evaluation that refers to another candidate card", async () => {
     const input = fixture();
-    const evaluator = new ModelCardQualityEvaluatorV3(
-      new CapturingQualityModel(hex("9")),
-      { modelId: "quality-model" },
-    );
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(qualityResponse(hex("9"))), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    })));
+    const evaluator = new RemoteCardQualityEvaluatorV3({
+      baseUrl: "https://agents.example",
+      internalToken: "test-internal-token",
+    });
 
     await expect(evaluator.evaluate(input)).rejects.toThrow(/wrong cardId/u);
-  });
-
-  it("retries transient model gateway failures inside one card evaluation", async () => {
-    const input = fixture();
-    const successfulModel = new CapturingQualityModel(input.card.id);
-    let calls = 0;
-    const model: ToolCallingModel = {
-      async nextTool(modelInput) {
-        calls += 1;
-        if (calls === 1) throw new Error("fetch failed");
-        if (calls === 2) throw new Error("AI model request failed with status 503");
-        return successfulModel.nextTool(modelInput);
-      },
-    };
-    const evaluator = new ModelCardQualityEvaluatorV3(model, {
-      modelId: "quality-model",
-      retryDelaysMs: [0, 0],
-    });
-
-    await expect(evaluator.evaluate(input)).resolves.toMatchObject({
-      cardId: input.card.id,
-      verdict: "ACCEPT",
-    });
-    expect(calls).toBe(3);
   });
 
   it("requests deterministic repair when the quote is outside Slot evidence", async () => {

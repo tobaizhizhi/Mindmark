@@ -1,5 +1,11 @@
 import { z } from "zod";
-import type { AgentToolCall, ToolCallingModel } from "./runtime-types.js";
+import { AgentRunnerClient, AgentRunnerError } from "./agent-runner-client.js";
+import type {
+  AgentToolCall,
+  DomainAgentName,
+  DomainAgentTurnInput,
+  ToolCallingModel,
+} from "./runtime-types.js";
 
 const DEFAULT_MAX_COMPLETION_TOKENS = 4096;
 
@@ -9,26 +15,25 @@ const AgentToolCallSchema = z.object({
   arguments: z.unknown(),
 });
 
-const ErrorResponseSchema = z.object({
-  error: z.object({
-    code: z.string(),
-    message: z.string(),
-    status: z.number().int().nullable(),
-    retryable: z.boolean(),
-  }),
-});
+const domainAgentDefinitions: Record<
+  DomainAgentName,
+  { path: string; promptVersion: string }
+> = {
+  "outline-planning": {
+    path: "/v1/outline-planning/next-tool",
+    promptVersion: "outline-planning-langgraph-v1",
+  },
+  "chapter-design": {
+    path: "/v1/chapter-design/next-tool",
+    promptVersion: "chapter-design-langgraph-v1",
+  },
+  "blueprint-worker": {
+    path: "/v1/blueprint-worker/next-tool",
+    promptVersion: "blueprint-worker-langgraph-v1",
+  },
+};
 
-export class AgentRunnerError extends Error {
-  constructor(
-    message: string,
-    public readonly code: string,
-    public readonly status: number | null,
-    public readonly retryable: boolean,
-  ) {
-    super(message);
-    this.name = "AgentRunnerError";
-  }
-}
+export { AgentRunnerError } from "./agent-runner-client.js";
 
 function modelErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Unknown Agent Runner failure";
@@ -69,8 +74,9 @@ export async function nextToolWithTransientRetry(
     try {
       return await nextToolWithAbort(model, input);
     } catch (error) {
-      const transient = (error instanceof AgentRunnerError && error.retryable)
-        || /status (?:429|5\d\d)\b|fetch failed|econnreset|etimedout/iu.test(modelErrorMessage(error));
+      const transient = error instanceof AgentRunnerError
+        ? error.retryable
+        : /status (?:429|5\d\d)\b|fetch failed|econnreset|etimedout/iu.test(modelErrorMessage(error));
       if (!transient || input.signal.aborted || attempt === retryDelaysMs.length) throw error;
       await waitForModelRetry(retryDelaysMs[attempt]!, input.signal);
     }
@@ -78,7 +84,37 @@ export async function nextToolWithTransientRetry(
   throw new Error("Agent Runner retry loop exhausted");
 }
 
+export async function nextDomainTool(
+  model: ToolCallingModel,
+  input: DomainAgentTurnInput,
+): Promise<AgentToolCall> {
+  const invocation = model.nextDomainTool
+    ? model.nextDomainTool(input)
+    : model.nextTool({
+        system: "The Agent Runner owns this domain prompt.",
+        task: JSON.stringify(input.context),
+        tools: [],
+        transcript: input.transcript,
+        signal: input.signal,
+        ...(input.maxCompletionTokens === undefined
+          ? {}
+          : { maxCompletionTokens: input.maxCompletionTokens }),
+      });
+  return nextToolWithAbort(
+    { nextTool: async () => invocation },
+    {
+      system: "Agent Runner domain invocation",
+      task: input.agent,
+      tools: [],
+      transcript: input.transcript,
+      signal: input.signal,
+    },
+  );
+}
+
 export class RemoteAgentToolModel implements ToolCallingModel {
+  private readonly client: AgentRunnerClient;
+
   constructor(
     private readonly configuration: {
       baseUrl: string;
@@ -87,21 +123,15 @@ export class RemoteAgentToolModel implements ToolCallingModel {
       timeoutMs?: number;
       maxCompletionTokens?: number;
     },
-  ) {}
+  ) {
+    this.client = new AgentRunnerClient(configuration);
+  }
 
   async nextTool(input: Parameters<ToolCallingModel["nextTool"]>[0]): Promise<AgentToolCall> {
     const timeoutMs = this.configuration.timeoutMs ?? 120_000;
-    const timeoutSignal = AbortSignal.timeout(timeoutMs + 5_000);
-    const signal = AbortSignal.any([input.signal, timeoutSignal]);
-    let response: Response;
-    try {
-      response = await fetch(`${this.configuration.baseUrl.replace(/\/$/u, "")}/v1/next-tool`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${this.configuration.internalToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
+    return this.client.post({
+      path: "/v1/next-tool",
+      body: {
           profile: this.configuration.profile,
           system: input.system,
           task: input.task,
@@ -112,48 +142,34 @@ export class RemoteAgentToolModel implements ToolCallingModel {
             input.maxCompletionTokens
             ?? this.configuration.maxCompletionTokens
             ?? DEFAULT_MAX_COMPLETION_TOKENS,
-        }),
-        signal,
-      });
-    } catch (error) {
-      if (input.signal.aborted) throw input.signal.reason ?? error;
-      throw new AgentRunnerError(
-        error instanceof DOMException && error.name === "TimeoutError"
-          ? "Agent Runner request timed out"
-          : "Agent Runner request failed",
-        error instanceof DOMException && error.name === "TimeoutError" ? "timed_out" : "runner_unavailable",
-        null,
-        true,
-      );
-    }
-    if (!response.ok) {
-      try {
-        const parsed = ErrorResponseSchema.parse(await response.json());
-        throw new AgentRunnerError(
-          parsed.error.message,
-          parsed.error.code,
-          parsed.error.status,
-          parsed.error.retryable,
-        );
-      } catch (error) {
-        if (error instanceof AgentRunnerError) throw error;
-        throw new AgentRunnerError(
-          `Agent Runner request failed with status ${response.status}`,
-          "runner_unavailable",
-          response.status,
-          response.status === 429 || response.status >= 500,
-        );
-      }
-    }
-    try {
-      return AgentToolCallSchema.parse(await response.json());
-    } catch {
-      throw new AgentRunnerError(
-        "Agent Runner returned an invalid tool call",
-        "invalid_response",
-        response.status,
-        false,
-      );
-    }
+      },
+      schema: AgentToolCallSchema,
+      timeoutMs,
+      signal: input.signal,
+    });
+  }
+
+  async nextDomainTool(input: DomainAgentTurnInput): Promise<AgentToolCall> {
+    const timeoutMs = input.timeoutMs ?? this.configuration.timeoutMs ?? 120_000;
+    const definition = domainAgentDefinitions[input.agent];
+    const response = await this.client.post({
+      path: definition.path,
+      body: {
+        context: input.context,
+        transcript: input.transcript,
+        timeout_ms: timeoutMs,
+        max_completion_tokens:
+          input.maxCompletionTokens
+          ?? this.configuration.maxCompletionTokens
+          ?? DEFAULT_MAX_COMPLETION_TOKENS,
+      },
+      schema: z.object({
+        call: AgentToolCallSchema,
+        prompt_version: z.literal(definition.promptVersion),
+      }),
+      timeoutMs,
+      signal: input.signal,
+    });
+    return response.call;
   }
 }

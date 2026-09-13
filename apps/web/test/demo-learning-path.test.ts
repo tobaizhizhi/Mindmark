@@ -161,7 +161,7 @@ describe("automated upload Learning Project demo path", () => {
       pageNumber: 7,
       quote: cardContent.source.quote,
     }]);
-    expect(vi.mocked(tutor.answer).mock.calls[0]?.[0].context).toContain("source-block-1 | page=7");
+    expect(vi.mocked(tutor.answer).mock.calls[0]?.[0].reading.blocks[1]?.blockId).toBe("source-block-1");
 
     const studyStore = new DemoStudyStore();
     const study = await getChapterStudyForOwner(projectId, 0, owner, studyStore);

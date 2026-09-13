@@ -27,7 +27,7 @@ import {
   learnerFacingLanguageIssues,
   learningOutputLanguageInstruction,
 } from "./language-policy.js";
-import { nextToolWithTransientRetry } from "./model.js";
+import { nextDomainTool, nextToolWithTransientRetry } from "./model.js";
 import {
   blueprintCitationForSlot,
   citationIsWithinSlotEvidence,
@@ -301,7 +301,6 @@ export class WorkUnitWorkerAgent {
           bundle,
           sourceBlocks,
           outputLanguage,
-          languageInstruction,
           blueprintContext: expandBlueprintContextEvidence(blueprintContext, sourceBlocks),
         });
         return;
@@ -454,7 +453,6 @@ export class WorkUnitWorkerAgent {
     bundle: Awaited<ReturnType<WorkUnitGenerationRepositoryV2["getChapterBundle"]>>;
     sourceBlocks: NonNullable<RunnerWorkUnitV2["sourceBlocks"]>;
     outputLanguage: ReturnType<typeof detectLearningOutputLanguage>;
-    languageInstruction: string;
     blueprintContext: WorkUnitBlueprintContextV3;
   }): Promise<void> {
     const startedAt = performance.now();
@@ -520,7 +518,6 @@ export class WorkUnitWorkerAgent {
     bundle: Awaited<ReturnType<WorkUnitGenerationRepositoryV2["getChapterBundle"]>>;
     sourceBlocks: NonNullable<RunnerWorkUnitV2["sourceBlocks"]>;
     outputLanguage: ReturnType<typeof detectLearningOutputLanguage>;
-    languageInstruction: string;
     blueprintContext: WorkUnitBlueprintContextV3;
   }): Promise<z.infer<typeof BlueprintCardDraftSchema>[]> {
     const controller = new AbortController();
@@ -575,12 +572,17 @@ export class WorkUnitWorkerAgent {
     let lastValidationErrors: string[] = [];
     try {
       for (let index = 0; index < Math.min(this.options.maxToolCalls ?? 3, 3); index += 1) {
-        const call = await nextToolWithTransientRetry(this.model, {
-          system: `You are a Mindmark Blueprint Worker. The assigned Work Unit context has already been read and is available in the tool transcript. Generate exactly one distinct, self-contained card for every supplied Blueprint Slot, then call save_work_unit_draft directly. Follow each Slot objective, type, difficulty, and evidence indexes. When a repair instruction is present, replace the rejected candidate by addressing every failure code and instruction; do not restate its failed question, answer, or key point. Return the supplied blueprintSlotId with its card. ${input.languageInstruction} Never choose any other IDs, hashes, roots, proofs, wallets, or transaction arguments.`,
-          task: `Generate and save exactly ${input.blueprintContext.slots.length} cards, one for each supplied Blueprint Slot, for Chapter ${input.bundle.chapter.chapterId}: ${input.bundle.chapter.title}.`,
-          tools: workerTools(3).filter((tool) => tool.name === "save_work_unit_draft"),
+        const call = await nextDomainTool(this.model, {
+          agent: "blueprint-worker",
+          context: {
+            chapterId: input.bundle.chapter.chapterId,
+            chapterTitle: input.bundle.chapter.title,
+            slotCount: input.blueprintContext.slots.length,
+            outputLanguage: input.outputLanguage,
+          },
           transcript,
           signal: controller.signal,
+          timeoutMs: batchTimeoutMs,
         });
         let result: unknown;
         if (call.name === "save_work_unit_draft") {

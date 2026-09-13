@@ -18,8 +18,8 @@ Mindmark 不需要微服务化。目标架构继续保持一个 Next.js Web、�
 
 1. `Learning Project -> Chapter -> Knowledge Card` 仍是唯一学习主模型；UPLOAD 和 PACK 只是 Learning Project 的两种来源。
 2. Supabase 继续作为学习状态、工作流状态、复习状态和审计事件的权威来源；Monad 只保存不可变承诺和确认结果。
-3. AI 分成两条不同生命周期：Runner 执行可恢复的异步内容生成；Web 执行低延迟、只读的 Chapter AI Tutor。两者不得共享业务状态机。
-4. 保留 PostgreSQL `workflow_jobs`，不引入 Kafka、Temporal、LangGraph 工作流或额外队列。LangGraph 未来只能作为某个 AI Module 的内部 Implementation。
+3. AI 分成两条不同生命周期：Workflow Runner 执行可恢复的异步内容生成；Web 执行低延迟、只读的 Chapter AI Tutor。两者可复用 Python Agent Runner，但不得共享业务状态机。
+4. 保留 PostgreSQL `workflow_jobs`，不引入 Kafka、Temporal 或额外队列。LangGraph 只作为 Python AI Module 的内部 Implementation，不接管业务 Workflow。
 5. Web 不再用一个超大客户端 Module 同时管理认证、查询、PDF、Tutor、复习和反馈；按用户用例拆出深 Module 和明确状态所有权。
 6. Runner 不再由一个 1,200 行持久化 Adapter 实现所有领域 Interface；按 Outline、Design、Generation、Commitment、Reward 拆分 Adapter，但继续共享一个 Supabase Client。
 7. Shared Domain 按领域概念拆分公开入口，避免所有调用方都依赖 800 行的 `project-v2.ts` 总合同。
@@ -36,6 +36,7 @@ Mindmark 不需要微服务化。目标架构继续保持一个 Next.js Web、�
 | 4 | 完成 | Project Lifecycle 拆分；创建页和学习页共用 Learner Project Progress |
 | 5 | 完成 | 新代码改用 Learning Project、Chapter、Knowledge Card、Study、Commitments 概念入口 |
 | 6 | 部分完成 | Schema Capability、Web/Runner 启动预检、主演示 Module Interface 测试和部署手册已落地；真实浏览器 Playwright 主路径尚未实施 |
+| 7 | 完成 | Outline、Chapter Design、V3 Worker、Card Quality 与 Chapter Tutor 的模型编排迁入 Python LangGraph；TypeScript 保留权威业务状态和确定性校验 |
 
 仓库自动验证覆盖完整迁移链、Progress、原 PDF、Reading、Tutor 引用回查和 Review。真实模型 tool call 与 Monad receipt 仍必须在具有外部凭据和测试网 Gas 的环境中执行，不能由本地 Fake 替代。
 
@@ -105,7 +106,7 @@ Browser
             +-> Query/Command Adapters -> Supabase
             +-> PDF File Adapter       -> Supabase Storage
             +-> Registry Read Adapter  -> Monad
-            +-> AI Gateway             -> Model Provider
+            +-> Python Agent Runner    -> AI Gateway -> Model Provider
 
 Supabase
   Learning data + Review state + Workflow jobs + Operational events
@@ -115,7 +116,7 @@ Runner Workflow Module
   Outline -> Chapter Design -> Work Generation -> Quality
           -> Commitments -> Assembly -> Finalization -> Reward
             |
-            +-> AI Gateway
+            +-> Python Agent Runner    -> AI Gateway
             +-> Registry Adapter
             +-> Reward Adapter
 
@@ -168,7 +169,7 @@ Web 负责不改变学习内容的低延迟问答：
 ```text
 Wallet Session
   -> owned Chapter Reading Snapshot
-  -> Context Retrieval（当前页、选中文字、问题相关块）
+  -> Python Agent Runner Context Retrieval（当前页、选中文字、问题相关块）
   -> AI Gateway
   -> Grounded Response Validator
   -> answer + verified citations
@@ -182,29 +183,30 @@ Wallet Session
 - 45 秒硬超时、每 owner 限流、`private, no-store`。
 - MVP 对话不持久化；后续如需持久化，应增加独立 Tutor Conversation，而不是复用 Review Session。
 
-### 5.3 共享 AI Gateway，分离业务 Module
+### 5.3 共享 Agent Runner 与 AI Gateway，分离业务 Module
 
-新增 server-only package：
+Python Agent Runner 的 LangChain Adapter 隐藏模型 Transport，领域 LangGraph Module 持有 Prompt、工具 Schema、重试和流式解析。`packages/ai-client/` 只保留 Workflow Runner 的 Embedding 调用。
+
+Agent Runner Interface 提供以下能力：
 
 ```text
-packages/ai-client/
-  src/
-    chat-completions.ts
-    tool-call.ts
-    errors.ts
-    telemetry.ts
-    index.ts
+apps/agent-runner/
+  langchain_model.py
+  graph.py
+  outline.py
+  chapter_design.py
+  worker.py
+  quality.py
+  tutor.py
 ```
 
-它的 Interface 只隐藏以下 Transport 复杂度：
-
-- base URL、Authorization、请求超时与 AbortSignal 合并；
-- 429/5xx 的有限重试策略；
-- JSON/tool-call 解析和统一错误分类；
-- request duration、provider status、model ID 和 usage 元数据；
+- 领域 Prompt、工具 Schema 与 action/observation transcript；
+- AI Gateway base URL、Authorization 和请求超时；
+- 429/5xx 的有限重试、JSON/tool-call 解析和统一错误分类；
+- Tutor 的章节内检索、上下文预算和流式参数解析；
 - 不记录 API Key、完整资料或完整 Prompt。
 
-Runner 的 Outline/Design/Worker/Evaluator 与 Web 的 Chapter Tutor 是不同业务 Module，只复用 AI Gateway。不要把它们合成一个 `AiService`，也不要让 Web 创建 Workflow Job 来回答一次即时问题。
+Outline/Design/Worker/Evaluator 与 Chapter Tutor 是不同领域 Module，只复用 Agent Runner 的模型 Adapter 和 AI Gateway。不要把它们合成一个通用 `AiService`，也不要让 Web 创建 Workflow Job 来回答一次即时问题。
 
 ## 6. 六个深 Module
 

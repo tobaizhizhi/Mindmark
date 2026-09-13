@@ -46,8 +46,8 @@ export class DeterministicCardEmbeddingGatewayV3 implements CardEmbeddingGateway
   }
 }
 
-export class RemoteAgentEmbeddingGatewayV3 implements CardEmbeddingGatewayV3 {
-  readonly modelId = "agent-runner:embedding";
+export class RemoteEmbeddingGatewayV3 implements CardEmbeddingGatewayV3 {
+  readonly modelId = "ai-gateway:embedding";
 
   constructor(private readonly configuration: {
     baseUrl: string;

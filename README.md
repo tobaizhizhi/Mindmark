@@ -117,7 +117,7 @@ Project Escrow 支付的是 AI 工作奖励，不是 OpenAI 兼容服务商的 A
                 │ private HTTP         │ Monad JSON-RPC
 ┌───────────────▼──────────────┐  ┌────▼─────────────────────┐
 │ Python Agent Runner         │  │ Registry V2 / Project    │
-│ Tool loops · retry          │  │ Escrow / Completion      │
+│ LangChain · LangGraph       │  │ Escrow / Completion      │
 └───────────────┬──────────────┘  └──────────────────────────┘
                 │ private HTTP
 ┌───────────────▼────────────────────────────────────────────┐
@@ -144,8 +144,11 @@ Supabase 是学习状态和 Workflow 的权威来源；Monad Registry 和 Escrow
 
 ```bash
 pnpm install
+pnpm setup:python
 cp .env.example .env
 ```
+
+`pnpm setup:python` 会在仓库根目录创建 `.venv`，并安装 Python Agent Runner 及其固定版本的 LangChain、LangGraph 依赖。AI Gateway 只使用 Python 标准库，不需要额外安装供应商 SDK。
 
 在 `.env` 中填写 Monad、Supabase、AI 和 Runner 所需的钱包与服务配置。私钥、AI API 密钥、Supabase Service Role 密钥和会话密钥只能放在服务端环境，不能提交 Git，也不能使用 `NEXT_PUBLIC_` 前缀。
 
@@ -157,8 +160,8 @@ cp .env.example .env
 pnpm lint
 pnpm typecheck
 pnpm test
-PYTHONPATH=apps/ai-gateway/src python3 -m unittest discover -s apps/ai-gateway/tests
-PYTHONPATH=apps/agent-runner/src python3 -m unittest discover -s apps/agent-runner/tests
+PYTHONPATH=apps/ai-gateway/src .venv/bin/python -m unittest discover -s apps/ai-gateway/tests
+PYTHONPATH=apps/agent-runner/src .venv/bin/python -m unittest discover -s apps/agent-runner/tests
 pnpm --filter @mindmark/shared build
 pnpm --filter @mindmark/ai-client build
 pnpm --filter @mindmark/workflow-runner build
@@ -172,13 +175,13 @@ git diff --check
 在四个终端分别启动两个 Python 服务、工作流进程和网页端：
 
 ```bash
-PYTHONPATH=apps/ai-gateway/src PORT=8101 python3 -m mindmark_ai_gateway.app
-PYTHONPATH=apps/agent-runner/src PORT=8102 python3 -m mindmark_agent_runner.app
+PYTHONPATH=apps/ai-gateway/src PORT=8101 .venv/bin/python -m mindmark_ai_gateway.app
+PORT=8102 .venv/bin/python -m mindmark_agent_runner.app
 pnpm --filter @mindmark/web dev
 pnpm --filter @mindmark/workflow-runner dev
 ```
 
-网页端默认地址为 `http://localhost:3000`。Workflow Runner 从 Supabase 领取任务，通过私有 HTTP 调用 Python Agent Runner，并继续负责确定性校验、Monad 和 Moss。
+网页端默认地址为 `http://localhost:3000`。Workflow Runner 从 Supabase 领取任务，通过私有 HTTP 调用 Python Agent Runner，并继续负责确定性校验、持久化、Monad 和 Moss；Chapter AI Tutor 也通过 Agent Runner 使用 Python 编排。启用 Embedding 时 Workflow Runner 直接调用 AI Gateway，避免没有编排价值的重复转发。
 
 ### 发布卡包
 
@@ -228,7 +231,7 @@ Python 服务的迁移边界见[Python AI 服务迁移边界](docs/PYTHON_SERVIC
 |----|------|
 | 网页端 | Next.js 16、React 19、TypeScript、wagmi、viem、SIWE |
 | 数据 | Supabase PostgreSQL、Storage、工作流任务、FSRS 复习调度算法 |
-| AI | Python 标准库 HTTP AI Gateway、Python Agent Runner、OpenAI-compatible API |
+| AI | Python AI Gateway、LangChain、LangGraph、OpenAI-compatible API |
 | 工作流运行器 | TypeScript、Supabase Workflow Job、Moss Core、Moss Simulator |
 | 区块链 | Solidity、Foundry、OpenZeppelin、Monad Registry V2、Project Escrow |
 

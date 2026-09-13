@@ -8,8 +8,8 @@ import {
   type SourceBlock,
   type WorkerKnowledgeCardV2,
 } from "@mindmark/shared";
-import type { AgentToolDefinition, ToolCallingModel } from "./runtime-types.js";
-import { nextToolWithTransientRetry } from "./model.js";
+import { z } from "zod";
+import { AgentRunnerClient } from "./agent-runner-client.js";
 
 export type CardQualityEvaluationContextV3 = {
   conceptName: string;
@@ -24,80 +24,42 @@ export interface CardQualityEvaluatorV3 {
   evaluate(input: CardQualityEvaluationContextV3, signal?: AbortSignal): Promise<CardRubricEvaluation>;
 }
 
-const submitQualityEvaluationTool: AgentToolDefinition = {
-  name: "submit_card_quality_evaluation",
-  description: "Submit evidence sufficiency, six Rubric scores, a verdict, and actionable reasons.",
-  parameters: {
-    type: "object",
-    additionalProperties: false,
-    required: [
-      "cardId",
-      "citationSufficient",
-      "factuality",
-      "learningValue",
-      "clarity",
-      "completeness",
-      "citationRelevance",
-      "difficultyFit",
-      "verdict",
-      "reasons",
-    ],
-    properties: {
-      cardId: { type: "string", pattern: "^0x[0-9a-fA-F]{64}$" },
-      citationSufficient: { type: "boolean" },
-      factuality: { type: "integer", minimum: 0, maximum: 5 },
-      learningValue: { type: "integer", minimum: 0, maximum: 5 },
-      clarity: { type: "integer", minimum: 0, maximum: 5 },
-      completeness: { type: "integer", minimum: 0, maximum: 5 },
-      citationRelevance: { type: "integer", minimum: 0, maximum: 5 },
-      difficultyFit: { type: "integer", minimum: 0, maximum: 5 },
-      verdict: { enum: ["ACCEPT", "REPAIR", "REJECT"] },
-      reasons: { type: "array", maxItems: 8, items: { type: "string", minLength: 1, maxLength: 500 } },
-    },
-  },
-};
+const CardQualityResponseSchema = z.object({
+  evaluation: CardRubricEvaluationSchema,
+  model: z.string().min(1),
+  prompt_version: z.literal("card-rubric-langgraph-v1"),
+});
 
-export class ModelCardQualityEvaluatorV3 implements CardQualityEvaluatorV3 {
+export class RemoteCardQualityEvaluatorV3 implements CardQualityEvaluatorV3 {
   readonly modelId: string;
   readonly promptVersion: string;
-
-  constructor(
-    private readonly model: ToolCallingModel,
-    options: {
-      modelId: string;
-      promptVersion?: string;
-      timeoutMs?: number;
-      rubricMinimums?: GenerationPolicyV3["rubricMinimums"];
-      retryDelaysMs?: readonly number[];
-    },
-  ) {
-    this.modelId = options.modelId;
-    this.promptVersion = options.promptVersion ?? "card-rubric-v3-2";
-    this.timeoutMs = options.timeoutMs ?? 120_000;
-    this.rubricMinimums = options.rubricMinimums ?? DEFAULT_GENERATION_POLICY_V3.rubricMinimums;
-    this.retryDelaysMs = options.retryDelaysMs ?? [5_000, 15_000];
-  }
-
   private readonly timeoutMs: number;
   private readonly rubricMinimums: GenerationPolicyV3["rubricMinimums"];
-  private readonly retryDelaysMs: readonly number[];
+  private readonly client: AgentRunnerClient;
+
+  constructor(
+    configuration: {
+      baseUrl: string;
+      internalToken: string;
+      modelId?: string;
+      timeoutMs?: number;
+      rubricMinimums?: GenerationPolicyV3["rubricMinimums"];
+    },
+  ) {
+    this.modelId = configuration.modelId ?? "agent-runner:evaluation";
+    this.promptVersion = "card-rubric-langgraph-v1";
+    this.timeoutMs = configuration.timeoutMs ?? 120_000;
+    this.rubricMinimums = configuration.rubricMinimums ?? DEFAULT_GENERATION_POLICY_V3.rubricMinimums;
+    this.client = new AgentRunnerClient(configuration);
+  }
 
   async evaluate(
     input: CardQualityEvaluationContextV3,
     signal?: AbortSignal,
   ): Promise<CardRubricEvaluation> {
-    const timeoutSignal = AbortSignal.timeout(this.timeoutMs);
-    const combinedSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
-    const call = await nextToolWithTransientRetry(this.model, {
-      system: [
-        "You are the Mindmark Card Quality Evaluator. Judge only the supplied Blueprint Slot, card, and evidence.",
-        "First decide whether the quoted evidence is sufficient for every material claim in the answer.",
-        "Then score factuality, learning value, clarity, completeness, citation relevance, and difficulty fit from 0 to 5.",
-        `Use these minimum scores for ACCEPT: ${JSON.stringify(this.rubricMinimums)}.`,
-        "Do not use external knowledge. ACCEPT only when the evidence is sufficient and every minimum is met.",
-        "Give concise, actionable repair reasons. Submit exactly one structured evaluation.",
-      ].join(" "),
-      task: JSON.stringify({
+    const response = await this.client.post({
+      path: "/v1/card-quality-evaluations",
+      body: {
         conceptName: input.conceptName,
         slot: {
           objective: input.slot.objective,
@@ -116,24 +78,23 @@ export class ModelCardQualityEvaluatorV3 implements CardQualityEvaluatorV3 {
           importance: input.card.importance,
           initialDifficulty: input.card.initialDifficulty,
         },
-        evidence: input.evidenceBlocks.map((block) => ({
+        evidenceBlocks: input.evidenceBlocks.map((block) => ({
           blockIndex: block.blockIndex,
           pageNumber: block.pageNumber,
           text: block.text,
         })),
-      }),
-      tools: [submitQualityEvaluationTool],
-      transcript: [],
-      signal: combinedSignal,
-    }, this.retryDelaysMs);
-    if (call.name !== submitQualityEvaluationTool.name) {
-      throw new Error("Card quality model called an unknown tool");
-    }
-    const evaluation = CardRubricEvaluationSchema.parse(call.arguments);
-    if (evaluation.cardId !== input.card.id) {
+        rubricMinimums: this.rubricMinimums,
+        timeout_ms: this.timeoutMs,
+        max_completion_tokens: 4_096,
+      },
+      schema: CardQualityResponseSchema,
+      timeoutMs: this.timeoutMs,
+      ...(signal ? { signal } : {}),
+    });
+    if (response.evaluation.cardId !== input.card.id) {
       throw new Error("Card quality evaluation returned the wrong cardId");
     }
-    return evaluation;
+    return response.evaluation;
   }
 }
 

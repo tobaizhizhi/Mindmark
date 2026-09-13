@@ -19,12 +19,6 @@ class NextToolRequest:
     max_completion_tokens: int
 
 
-@dataclass(frozen=True)
-class EmbeddingRequest:
-    texts: list[str]
-    timeout_ms: int
-
-
 def _bounded_int(value: object, name: str, minimum: int, maximum: int) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
         raise ValidationError(f"{name} must be an integer between {minimum} and {maximum}")
@@ -66,6 +60,8 @@ def validate_next_tool_request(value: object) -> NextToolRequest:
         call = entry["call"]
         if not all(isinstance(call.get(field), str) and call[field] for field in ("id", "name")):
             raise ValidationError("transcript contains an invalid tool call")
+        if not isinstance(call.get("arguments"), dict):
+            raise ValidationError("transcript tool arguments must be an object")
     return NextToolRequest(
         profile=profile,
         system=system,
@@ -80,20 +76,3 @@ def validate_next_tool_request(value: object) -> NextToolRequest:
             32_768,
         ),
     )
-
-
-def validate_embedding_request(value: object) -> EmbeddingRequest:
-    if not isinstance(value, dict) or set(value) - {"texts", "timeout_ms"}:
-        raise ValidationError("embedding request body is invalid")
-    texts = value.get("texts")
-    if (
-        not isinstance(texts, list)
-        or not 1 <= len(texts) <= 256
-        or any(not isinstance(text, str) for text in texts)
-    ):
-        raise ValidationError("texts must contain 1 to 256 strings")
-    return EmbeddingRequest(
-        texts=texts,
-        timeout_ms=_bounded_int(value.get("timeout_ms", 60_000), "timeout_ms", 1_000, 600_000),
-    )
-

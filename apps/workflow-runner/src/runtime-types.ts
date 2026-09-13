@@ -96,6 +96,20 @@ export type AgentToolCall = { id: string; name: string; arguments: unknown };
 
 export type AgentTranscriptEntry = { call: AgentToolCall; result: unknown };
 
+export type DomainAgentName =
+  | "outline-planning"
+  | "chapter-design"
+  | "blueprint-worker";
+
+export type DomainAgentTurnInput = {
+  agent: DomainAgentName;
+  context: Record<string, unknown>;
+  transcript: AgentTranscriptEntry[];
+  signal: AbortSignal;
+  timeoutMs?: number;
+  maxCompletionTokens?: number;
+};
+
 export interface ToolCallingModel {
   nextTool(input: {
     system: string;
@@ -105,4 +119,5 @@ export interface ToolCallingModel {
     signal: AbortSignal;
     maxCompletionTokens?: number;
   }): Promise<AgentToolCall>;
+  nextDomainTool?(input: DomainAgentTurnInput): Promise<AgentToolCall>;
 }

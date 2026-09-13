@@ -65,9 +65,6 @@ importers:
 
   apps/web:
     dependencies:
-      '@mindmark/ai-client':
-        specifier: workspace:*
-        version: link:../../packages/ai-client
       '@mindmark/shared':
         specifier: workspace:*
         version: link:../../packages/shared

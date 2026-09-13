@@ -10,7 +10,8 @@
     "lint": "pnpm -r --if-present lint",
     "typecheck": "pnpm -r --if-present typecheck",
     "test": "pnpm -r --if-present test && pnpm test:python",
-    "build": "pnpm -r --if-present build && python3 -m compileall -q apps/ai-gateway/src apps/agent-runner/src",
+    "build": "pnpm -r --if-present build && .venv/bin/python -m compileall -q apps/ai-gateway/src apps/agent-runner/src",
+    "setup:python": "python3 -m venv .venv && .venv/bin/python -m pip install -e apps/agent-runner",
     "fixtures:demo": "node scripts/generate-demo-fixtures.mjs",
     "packs:generate:solidity:v4": "tsx scripts/generate-solidity-curriculum-v4.ts",
     "packs:generate:solidity:v5": "tsx scripts/generate-solidity-curriculum-v5.ts",
@@ -21,7 +22,7 @@
     "quality:evaluator-live": "tsx --tsconfig apps/workflow-runner/tsconfig.json --env-file-if-exists=.env scripts/replay-live-ai-quality.ts",
     "quality:live": "pnpm quality:evaluator-live",
     "quality:canary": "pnpm quality:replay && pnpm exec vitest run packages/shared/test/learning-design-v3.test.ts packages/shared/test/quality-corpus.test.ts apps/workflow-runner/test/project-pipeline-v2.test.ts apps/workflow-runner/test/quality-evaluator-v3.test.ts apps/workflow-runner/test/embedding-v3.test.ts && pnpm quality:evaluator-live",
-    "test:python": "PYTHONPATH=apps/ai-gateway/src python3 -m unittest discover -s apps/ai-gateway/tests && PYTHONPATH=apps/agent-runner/src python3 -m unittest discover -s apps/agent-runner/tests"
+    "test:python": "PYTHONPATH=apps/ai-gateway/src .venv/bin/python -m unittest discover -s apps/ai-gateway/tests && PYTHONPATH=apps/agent-runner/src .venv/bin/python -m unittest discover -s apps/agent-runner/tests"
   },
   "devDependencies": {
     "@eslint/js": "9.39.5",

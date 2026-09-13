@@ -6,10 +6,8 @@ import type {
 } from "@mindmark/shared";
 import type { Hex } from "viem";
 import {
+  AgentRunnerChapterTutorModel,
   askChapterTutorForOwner,
-  buildChapterTutorContext,
-  extractPartialJsonStringProperty,
-  GatewayChapterTutorModel,
   streamChapterTutorForOwner,
   type ChapterTutorModel,
 } from "@/lib/server/chapter-ai-tutor";
@@ -85,19 +83,6 @@ describe("Chapter AI Tutor", () => {
     vi.unstubAllGlobals();
   });
 
-  it("prioritizes the current PDF page and keeps bounded source labels", () => {
-    const context = buildChapterTutorContext(reading, request);
-    expect(context).toContain("source-block-2");
-    expect(context.indexOf("source-block-2")).toBeLessThan(context.indexOf("source-block-1"));
-    expect(context.length).toBeLessThanOrEqual(24_000);
-  });
-
-  it("extracts a partial answer from fragmented JSON tool arguments", () => {
-    expect(extractPartialJsonStringProperty('{"answer":"先给\\n结论', "answer")).toBe("先给\n结论");
-    expect(extractPartialJsonStringProperty('{"answer":"先给\\u4e', "answer")).toBe("先给");
-    expect(extractPartialJsonStringProperty('{"citations":[],"answer":"回答"}', "answer")).toBe("回答");
-  });
-
   it("loads only the owned Chapter and normalizes model citations to saved source", async () => {
     const model = new RecordingTutorModel();
     const loaded: Array<{ projectId: Hex; chapterId: number; owner: string }> = [];
@@ -110,7 +95,7 @@ describe("Chapter AI Tutor", () => {
     });
 
     expect(loaded).toEqual([{ projectId, chapterId: 0, owner }]);
-    expect(model.input?.context).toContain("频繁上下文切换");
+    expect(model.input?.reading.blocks[1]?.text).toContain("频繁上下文切换");
     expect(result.citations).toEqual([{
       blockId: "source-block-2",
       pageNumber: 11,
@@ -150,8 +135,8 @@ describe("Chapter AI Tutor", () => {
       status: 200,
       headers: { "Content-Type": "application/json" },
     })));
-    const model = new GatewayChapterTutorModel({
-      baseUrl: "https://gateway.example",
+    const model = new AgentRunnerChapterTutorModel({
+      baseUrl: "https://agents.example",
       internalToken: "test-internal-token",
     });
 
@@ -160,14 +145,60 @@ describe("Chapter AI Tutor", () => {
       currentPage: request.currentPage ?? null,
       selectedText: request.selectedText ?? null,
       history: [],
-      context: "[source-block-2 | page=11 | kind=paragraph]\n正文",
+      reading,
     })).rejects.toMatchObject({ status: 502, code: "ai_tutor_invalid_response" });
+  });
+
+  it("reads answer deltas and the final result from Agent Runner SSE", async () => {
+    const encoded = new TextEncoder().encode([
+      `data: ${JSON.stringify({ type: "answer_delta", delta: "先给结论。" })}`,
+      "",
+      `data: ${JSON.stringify({
+        type: "result",
+        response: {
+          answer: "先给结论。再解释。",
+          citations: [],
+          suggestedQuestions: [],
+        },
+        prompt_version: "chapter-tutor-langgraph-v1",
+      })}`,
+      "",
+    ].join("\n"));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(encoded, {
+      status: 200,
+      headers: { "Content-Type": "text/event-stream" },
+    })));
+    const model = new AgentRunnerChapterTutorModel({
+      baseUrl: "https://agents.example",
+      internalToken: "test-internal-token",
+    });
+
+    const events = [];
+    for await (const event of model.streamAnswer({
+      question: request.question,
+      currentPage: request.currentPage ?? null,
+      selectedText: request.selectedText ?? null,
+      history: [],
+      reading,
+    })) events.push(event);
+
+    expect(events).toEqual([
+      { type: "answer_delta", delta: "先给结论。" },
+      {
+        type: "result",
+        response: {
+          answer: "先给结论。再解释。",
+          citations: [],
+          suggestedQuestions: [],
+        },
+      },
+    ]);
   });
 
   it("reports model connectivity failures without leaking transport details", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("secret upstream detail")));
-    const model = new GatewayChapterTutorModel({
-      baseUrl: "https://gateway.example",
+    const model = new AgentRunnerChapterTutorModel({
+      baseUrl: "https://agents.example",
       internalToken: "test-internal-token",
     });
 
@@ -176,7 +207,7 @@ describe("Chapter AI Tutor", () => {
       currentPage: request.currentPage ?? null,
       selectedText: request.selectedText ?? null,
       history: [],
-      context: "[source-block-2 | page=11 | kind=paragraph]\n正文",
+      reading,
     })).rejects.toMatchObject({
       status: 502,
       code: "ai_tutor_model_failed",

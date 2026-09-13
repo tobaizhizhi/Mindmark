@@ -7,7 +7,11 @@ name = "mindmark-agent-runner"
 version = "0.1.0"
 description = "Private Python agent runtime for Mindmark workflows"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+  "langchain-core==1.6.3",
+  "langgraph==1.2.11",
+  "pydantic==2.12.5",
+]
 
 [project.scripts]
 mindmark-agent-runner = "mindmark_agent_runner.app:main"

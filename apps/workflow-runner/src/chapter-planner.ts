@@ -14,83 +14,17 @@ import {
 import { z } from "zod";
 import {
   DEFAULT_AI_TOOL_TIMEOUT_MS,
-  type AgentToolDefinition,
   type AgentTranscriptEntry,
   type ToolCallingModel,
 } from "./runtime-types.js";
+import { nextDomainTool } from "./model.js";
 import {
   detectLearningOutputLanguage,
   learnerFacingLanguageIssues,
-  learningOutputLanguageInstruction,
 } from "./language-policy.js";
 
 const EmptyArgumentsSchema = z.object({}).strict();
 const ProposeArgumentsSchema = ChapterPlanningProposalSchema;
-
-const plannerTools: AgentToolDefinition[] = [
-  {
-    name: "read_source_outline",
-    description: "Read the ordered Source Blocks and learning goal. No raw IDs or hashes are writable.",
-    parameters: { type: "object", properties: {}, additionalProperties: false },
-  },
-  {
-    name: "propose_chapters",
-    description: "Propose learner-facing chapter titles, summaries, and contiguous Source Block ranges.",
-    parameters: {
-      type: "object",
-      required: ["chapters", "excludedRanges"],
-      additionalProperties: false,
-      properties: {
-        chapters: {
-          type: "array",
-          minItems: 1,
-          maxItems: 16,
-          items: {
-            type: "object",
-            required: ["title", "summary", "startBlock", "endBlock", "importance"],
-            additionalProperties: false,
-            properties: {
-              title: { type: "string" },
-              summary: { type: "string" },
-              startBlock: { type: "integer", minimum: 0 },
-              endBlock: { type: "integer", minimum: 0 },
-              importance: { type: "integer", minimum: 1, maximum: 5 },
-            },
-          },
-        },
-        excludedRanges: {
-          type: "array",
-          maxItems: 256,
-          items: {
-            type: "object",
-            required: ["startBlock", "endBlock", "category", "reason"],
-            additionalProperties: false,
-            properties: {
-              startBlock: { type: "integer", minimum: 0 },
-              endBlock: { type: "integer", minimum: 0 },
-              category: {
-                type: "string",
-                enum: [
-                  "REPEATED_HEADER_FOOTER",
-                  "PAGE_NUMBER",
-                  "TABLE_OF_CONTENTS",
-                  "COPYRIGHT",
-                  "PROMOTIONAL",
-                  "ADMINISTRATIVE",
-                  "EXAM_UPDATE",
-                  "VERSION_NOTICE",
-                  "SCHEDULE_NOTICE",
-                  "OTHER",
-                ],
-              },
-              reason: { type: "string" },
-            },
-          },
-        },
-      },
-    },
-  },
-];
 
 export interface ChapterPlanner {
   plan(input: {
@@ -133,7 +67,6 @@ export class AiChapterPlanner implements ChapterPlanner {
     const protectedExclusions = classifySourceExclusions(blocks);
     const initialBudget = planChapterCountBudget(blocks, protectedExclusions);
     const outputLanguage = detectLearningOutputLanguage(blocks, [input.goal]);
-    const languageInstruction = learningOutputLanguageInstruction(outputLanguage);
     const controller = new AbortController();
     const timeout = setTimeout(
       () => controller.abort(new Error("Chapter Planner timed out")),
@@ -142,15 +75,22 @@ export class AiChapterPlanner implements ChapterPlanner {
     timeout.unref();
     const transcript: AgentTranscriptEntry[] = [];
     let read = false;
+    const signal = input.signal
+      ? AbortSignal.any([input.signal, controller.signal])
+      : controller.signal;
     try {
       for (let index = 0; index < (this.options.maxToolCalls ?? 3); index += 1) {
-        const call = await this.model.nextTool({
-          system:
-            `You are Mindmark's Chapter Planner. Account for every Source Block as either learner-facing Chapter content or an excluded non-learning range. Exclude repeated headers, footers, watermarks, page numbers, contents pages, copyright notices, promotional messages, administrative text, exam-syllabus changes, added or removed exam topics, score or question-format changes, schedules, registration notices, and course or document version updates. These notices must never become Chapters. A Chapter must contain real learnable knowledge and may span excluded blocks inside its range. Document headings are candidate boundaries, not automatic Chapters. Follow the structural hints from read_source_outline: keep each natural topic group together unless a split is necessary for the budget, keep parenthesized or decimal numbered headings as subsections, and never cross unrelated groups without a composite title that describes both topics. Prefer coherent learning units over one Chapter per heading. Every non-excluded block must belong to exactly one ordered, non-overlapping Chapter. The initial Chapter budget is ${initialBudget.minChapters}-${initialBudget.maxChapters}, with a target of ${initialBudget.targetChapters}. Never exceed the budget returned by read_source_outline. Titles must be concise learning-topic noun phrases with no Chapter numbering, Markdown, formulas, worked-example fragments, explanatory sentences, or terminal punctuation. ${languageInstruction} Never invent IDs, hashes, proofs, or transaction data.`,
-          task: `Plan ${initialBudget.targetChapters} target Chapters (${initialBudget.minChapters}-${initialBudget.maxChapters} allowed) for Project ${input.projectId}. Learning goal: ${input.goal ?? "not specified"}`,
-          tools: plannerTools,
+        const call = await nextDomainTool(this.model, {
+          agent: "outline-planning",
+          context: {
+            projectId: input.projectId,
+            goal: input.goal ?? null,
+            chapterBudget: initialBudget,
+            outputLanguage,
+          },
           transcript,
-          signal: input.signal ?? controller.signal,
+          signal,
+          timeoutMs: this.options.timeoutMs ?? DEFAULT_AI_TOOL_TIMEOUT_MS,
         });
         let result: unknown;
         if (call.name === "read_source_outline") {

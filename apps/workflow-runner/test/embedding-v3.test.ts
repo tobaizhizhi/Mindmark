@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { RemoteAgentEmbeddingGatewayV3 } from "../src/embedding-v3.js";
+import { RemoteEmbeddingGatewayV3 } from "../src/embedding-v3.js";
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("remote Agent Runner card embeddings", () => {
+describe("remote AI Gateway card embeddings", () => {
   it("returns vectors and sends one internal request", async () => {
     const fetchMock = vi.fn<typeof fetch>();
     fetchMock.mockResolvedValue(new Response(JSON.stringify({
@@ -13,14 +13,14 @@ describe("remote Agent Runner card embeddings", () => {
       model: "text-embedding-test",
     }), { status: 200, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const gateway = new RemoteAgentEmbeddingGatewayV3({
+    const gateway = new RemoteEmbeddingGatewayV3({
       internalToken: "test-internal-token",
-      baseUrl: "https://agents.example/",
+      baseUrl: "https://gateway.example/",
     });
 
     await expect(gateway.embed(["first", "second"])).resolves.toEqual([[1, 0], [0, 1]]);
     expect(fetchMock).toHaveBeenCalledOnce();
-    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://agents.example/v1/embeddings");
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://gateway.example/v1/embeddings");
     expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toMatchObject({
       texts: ["first", "second"],
     });
@@ -31,8 +31,8 @@ describe("remote Agent Runner card embeddings", () => {
       embeddings: [[0, 1]],
       model: "text-embedding-test",
     }), { status: 200, headers: { "Content-Type": "application/json" } })));
-    const gateway = new RemoteAgentEmbeddingGatewayV3({
-      baseUrl: "https://agents.example",
+    const gateway = new RemoteEmbeddingGatewayV3({
+      baseUrl: "https://gateway.example",
       internalToken: "test-internal-token",
     });
 

@@ -68,7 +68,7 @@ export class OutlinePlanningAgent {
     if (job.kind !== "PLAN_OUTLINE") throw new Error(`Unexpected outline job kind ${job.kind}`);
     const source = await this.repository.loadOutlinePlanningSource(job.projectId);
     const nextVersion = (source.headVersion ?? 0) + 1;
-    let plannerVersion = "semantic-relevance-v9";
+    let plannerVersion = "outline-planning-langgraph-v1";
     let outline;
     try {
       const proposal = await this.planner.plan({

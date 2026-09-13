@@ -12,8 +12,7 @@ import {
   type QualityCorpusFixture,
   type WorkerKnowledgeCardV2,
 } from "../packages/shared/src/index.ts";
-import { RemoteAgentToolModel } from "../apps/workflow-runner/src/model.ts";
-import { ModelCardQualityEvaluatorV3 } from "../apps/workflow-runner/src/quality-evaluator-v3.ts";
+import { RemoteCardQualityEvaluatorV3 } from "../apps/workflow-runner/src/quality-evaluator-v3.ts";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const corpusRoot = path.join(root, "fixtures", "ai-quality");
@@ -127,15 +126,10 @@ async function main(): Promise<void> {
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
     .sort();
-  const model = new RemoteAgentToolModel({
+  const evaluator = new RemoteCardQualityEvaluatorV3({
     baseUrl: live.baseUrl,
     internalToken: live.internalToken,
-    profile: "evaluation",
-    timeoutMs: live.timeoutMs,
-  });
-  const evaluator = new ModelCardQualityEvaluatorV3(model, {
     modelId: live.modelLabel,
-    promptVersion: "card-rubric-v3-live-corpus-1",
     timeoutMs: live.timeoutMs,
   });
   const reports = [] as Array<{

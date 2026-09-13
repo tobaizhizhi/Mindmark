@@ -16,15 +16,14 @@ import {
 import { z } from "zod";
 import {
   DEFAULT_AI_TOOL_TIMEOUT_MS,
-  type AgentToolDefinition,
   type AgentTranscriptEntry,
   type ToolCallingModel,
 } from "./runtime-types.js";
+import { nextDomainTool } from "./model.js";
 import type { ChapterDesignRepositoryV3, ChapterDesignSourceV3 } from "./types-v2.js";
 import {
   detectLearningOutputLanguage,
   learnerFacingLanguageIssues,
-  learningOutputLanguageInstruction,
   type LearningOutputLanguage,
 } from "./language-policy.js";
 import { expandBlueprintEvidenceBlockIndexes } from "./blueprint-evidence.js";
@@ -35,67 +34,6 @@ const ProposeInventoryArgumentsSchema = z.object({
 const ProposeBlueprintArgumentsSchema = z.object({
   slots: CardBlueprintSlotProposalSchema.array().min(1).max(30),
 }).strict();
-
-const chapterDesignTools: AgentToolDefinition[] = [
-  {
-    name: "propose_chapter_concepts",
-    description: "Propose source-grounded learning concepts. Do not provide IDs, hashes, statuses, wallet, or transaction fields.",
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      required: ["concepts"],
-      properties: {
-        concepts: {
-          type: "array",
-          minItems: 1,
-          maxItems: 40,
-          items: {
-            type: "object",
-            additionalProperties: false,
-            required: ["name", "importance", "learningObjective", "sourceBlockIndexes", "prerequisites", "misconceptions"],
-            properties: {
-              name: { type: "string" },
-              importance: { type: "integer", minimum: 1, maximum: 5 },
-              learningObjective: { type: "string" },
-              sourceBlockIndexes: { type: "array", minItems: 1, items: { type: "integer", minimum: 0 } },
-              prerequisites: { type: "array", items: { type: "string" } },
-              misconceptions: { type: "array", items: { type: "string" } },
-            },
-          },
-        },
-      },
-    },
-  },
-  {
-    name: "propose_card_blueprint",
-    description: "Map the accepted concept IDs to cited card slots. Important concepts need required slots; important misconceptions need a required misconception slot.",
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      required: ["slots"],
-      properties: {
-        slots: {
-          type: "array",
-          minItems: 1,
-          maxItems: 30,
-          items: {
-            type: "object",
-            additionalProperties: false,
-            required: ["conceptId", "type", "objective", "difficulty", "sourceBlockIndexes", "required"],
-            properties: {
-              conceptId: { type: "string" },
-              type: { enum: ["concept", "comparison", "process", "application", "misconception"] },
-              objective: { type: "string" },
-              difficulty: { type: "integer", minimum: 1, maximum: 5 },
-              sourceBlockIndexes: { type: "array", minItems: 1, items: { type: "integer", minimum: 0 } },
-              required: { type: "boolean" },
-            },
-          },
-        },
-      },
-    },
-  },
-];
 
 function issuesOf(error: unknown): string[] {
   if (error instanceof z.ZodError) return error.issues.map((issue) => issue.message);
@@ -248,7 +186,6 @@ export class ChapterDesignModule {
       source.chapter.title,
       source.chapter.summary,
     ]);
-    const languageInstruction = learningOutputLanguageInstruction(outputLanguage);
     const controller = new AbortController();
     const timeout = setTimeout(
       () => controller.abort(new Error("Chapter Design timed out")),
@@ -261,6 +198,7 @@ export class ChapterDesignModule {
     let inventoryRepairCount = 0;
     let blueprintRepairCount = 0;
     const context = {
+      goal: source.goal,
       chapter: {
         chapterId: source.chapter.chapterId,
         title: source.chapter.title,
@@ -289,28 +227,19 @@ export class ChapterDesignModule {
       for (let index = 0; index < (this.options.maxToolCalls ?? 8); index += 1) {
         const phaseConfiguration = !inventory
           ? {
-              tools: [chapterDesignTools[0]!],
+              phase: "inventory" as const,
               maxCompletionTokens: 2048,
-              instruction: "Propose or repair the Chapter Concept Inventory now.",
             }
           : {
-              tools: [chapterDesignTools[1]!],
+              phase: "blueprint" as const,
               maxCompletionTokens: 2048,
-              instruction: "Propose or repair the Card Blueprint now.",
             };
-        const call = await this.model.nextTool({
-          system: [
-            "You are Mindmark's Chapter Design Agent.",
-            "First identify the concepts a learner must master; then design cited card slots for them.",
-            "Use only assigned Source Blocks. Do not write learner cards yet.",
-            `Create ${source.cardPolicy.minCardCount}-${source.cardPolicy.maxCardCount} total Blueprint Slots, aiming for ${source.cardPolicy.targetCardCount}.`,
-            languageInstruction,
-            "Never invent IDs, hashes, status, wallet, proofs, or transaction fields.",
-          ].join(" "),
-          task: `Design learning coverage for Chapter ${source.chapter.chapterId}: ${source.chapter.title}. Learning goal: ${source.goal ?? "not specified"}. ${phaseConfiguration.instruction}\nContext: ${JSON.stringify(context)}`,
-          tools: phaseConfiguration.tools,
+        const call = await nextDomainTool(this.model, {
+          agent: "chapter-design",
+          context: { ...context, phase: phaseConfiguration.phase },
           transcript,
           signal: controller.signal,
+          timeoutMs: this.options.timeoutMs ?? DEFAULT_AI_TOOL_TIMEOUT_MS,
           maxCompletionTokens: phaseConfiguration.maxCompletionTokens,
         });
         let result: unknown;
@@ -459,7 +388,7 @@ export class ChapterDesignWorkflowAgent {
       await this.repository.completeChapterDesign({
         designRunId: run.designRunId,
         ...design,
-        promptVersion: this.options.promptVersion ?? "chapter-design-v3.2.0",
+        promptVersion: this.options.promptVersion ?? "chapter-design-langgraph-v1",
         modelId: strategy === "AI"
           ? this.options.modelId ?? "configured-model"
           : "deterministic-chapter-design-v1",

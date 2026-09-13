@@ -268,7 +268,7 @@ describe("ChapterDesignWorkflowAgent", () => {
     expect(repository.failed).toBeNull();
     expect(repository.completed).toMatchObject({
       designRunId,
-      promptVersion: "chapter-design-v3.2.0",
+      promptVersion: "chapter-design-langgraph-v1",
       modelId: "configured-model",
       metrics: { conceptCount: 1, slotCount: 2, strategy: "AI" },
     });
@@ -278,8 +278,8 @@ describe("ChapterDesignWorkflowAgent", () => {
       toolNames: input.tools.map((tool) => tool.name),
       maxCompletionTokens: Reflect.get(input, "maxCompletionTokens"),
     }))).toEqual([
-      { toolNames: ["propose_chapter_concepts"], maxCompletionTokens: 2048 },
-      { toolNames: ["propose_card_blueprint"], maxCompletionTokens: 2048 },
+      { toolNames: [], maxCompletionTokens: 2048 },
+      { toolNames: [], maxCompletionTokens: 2048 },
     ]);
     expect(model.inputs[0]?.task).toContain(repository.fixture.source.blocks[1]!.text);
   });

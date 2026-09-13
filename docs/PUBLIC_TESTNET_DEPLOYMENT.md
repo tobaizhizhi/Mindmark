@@ -101,11 +101,11 @@ SUPABASE_SERVICE_ROLE_KEY=<server-only-secret>
 SESSION_SECRET=<at-least-32-random-characters>
 OPERATOR_WALLET_ADDRESSES=<operator-wallets-separated-by-comma>
 
-AI_GATEWAY_URL=http://<ai-gateway-private-domain>
-AI_GATEWAY_INTERNAL_TOKEN=<same-token-as-ai-gateway>
+AGENT_RUNNER_URL=http://<agent-runner-private-domain>
+AGENT_RUNNER_INTERNAL_TOKEN=<same-token-as-agent-runner>
 ```
 
-Web 不再配置 `AI_API_KEY`。内部令牌只在 Next.js 服务端读取。
+Web 不配置 `AI_API_KEY` 或 AI Gateway 令牌。Chapter AI Tutor 只通过私有 HTTP/SSE 调用 Agent Runner，内部令牌只在 Next.js 服务端读取。
 
 ## 6. Workflow Runner Service
 
@@ -122,6 +122,8 @@ SUPABASE_SERVICE_ROLE_KEY=<server-only-secret>
 AGENT_RUNNER_URL=http://<agent-runner-private-domain>
 AGENT_RUNNER_INTERNAL_TOKEN=<same-token-as-agent-runner>
 AI_EMBEDDING_ENABLED=false
+# AI_GATEWAY_URL=http://<ai-gateway-private-domain>
+# AI_GATEWAY_INTERNAL_TOKEN=<same-token-as-ai-gateway>
 AI_TOOL_TIMEOUT_MS=120000
 AI_CHAPTER_DESIGN_TIMEOUT_MS=20000
 
@@ -134,7 +136,7 @@ WORKER_REWARD_AMOUNT_MON=0.001
 RUNNER_POLL_INTERVAL_MS=5000
 ```
 
-只有 AI Gateway 持有模型 Key；只有 Workflow Runner 持有钱包私钥和 Supabase Service Role。`AI_EMBEDDING_ENABLED=true` 前，必须先在 AI Gateway 配置 `AI_EMBEDDING_MODEL`。
+只有 AI Gateway 持有模型 Key；只有 Workflow Runner 持有钱包私钥和 Supabase Service Role。`AI_EMBEDDING_ENABLED=true` 前，必须先在 AI Gateway 配置 `AI_EMBEDDING_MODEL`，并为 Workflow Runner 配置上面的 AI Gateway 私有地址和内部令牌。
 
 Workflow Runner 固定启用三个生成 lane。日志出现 `Mindmark Workflow Runner: 6 isolated roles configured` 表示启动成功。
 

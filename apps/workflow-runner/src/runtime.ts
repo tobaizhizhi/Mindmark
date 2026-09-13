@@ -8,11 +8,11 @@ import { ChapterQualityGate } from "./chapter-quality-gate.js";
 import { ProjectCoordinatorV2 } from "./coordinator-v2.js";
 import {
   DeterministicCardEmbeddingGatewayV3,
-  RemoteAgentEmbeddingGatewayV3,
+  RemoteEmbeddingGatewayV3,
 } from "./embedding-v3.js";
 import { ProjectFinalizerV2 } from "./project-finalizer-v2.js";
 import { ProjectDesignFreezer } from "./project-design-freezer.js";
-import { ModelCardQualityEvaluatorV3 } from "./quality-evaluator-v3.js";
+import { RemoteCardQualityEvaluatorV3 } from "./quality-evaluator-v3.js";
 import { RemoteAgentToolModel } from "./model.js";
 import { OutlinePlanningAgent } from "./outline-planning-agent.js";
 import { connectRunnerPersistence } from "./persistence/index.js";
@@ -44,6 +44,8 @@ export const RunnerEnvironmentSchema = z.object({
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
   AGENT_RUNNER_URL: z.string().url(),
   AGENT_RUNNER_INTERNAL_TOKEN: z.string().min(16),
+  AI_GATEWAY_URL: z.string().url().optional(),
+  AI_GATEWAY_INTERNAL_TOKEN: z.string().min(16).optional(),
   AI_EMBEDDING_ENABLED: EnvironmentBooleanSchema,
   AI_TOOL_TIMEOUT_MS: z.coerce.number().int().min(45_000).max(600_000).default(DEFAULT_AI_TOOL_TIMEOUT_MS),
   AI_CHAPTER_DESIGN_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(120_000).default(20_000),
@@ -59,7 +61,37 @@ export const RunnerEnvironmentSchema = z.object({
     .refine((value) => value > 0n, "Worker reward pricing base must be positive")
     .default(parseEther("0.001")),
   RUNNER_POLL_INTERVAL_MS: z.coerce.number().int().min(1_000).max(30_000).default(5_000),
+}).superRefine((configuration, context) => {
+  if (!configuration.AI_EMBEDDING_ENABLED) return;
+  if (!configuration.AI_GATEWAY_URL) {
+    context.addIssue({
+      code: "custom",
+      path: ["AI_GATEWAY_URL"],
+      message: "AI_GATEWAY_URL is required when AI_EMBEDDING_ENABLED is true",
+    });
+  }
+  if (!configuration.AI_GATEWAY_INTERNAL_TOKEN) {
+    context.addIssue({
+      code: "custom",
+      path: ["AI_GATEWAY_INTERNAL_TOKEN"],
+      message: "AI_GATEWAY_INTERNAL_TOKEN is required when AI_EMBEDDING_ENABLED is true",
+    });
+  }
 });
+
+function embeddingGatewayConfiguration(configuration: z.infer<typeof RunnerEnvironmentSchema>): {
+  baseUrl: string;
+  internalToken: string;
+} | null {
+  if (!configuration.AI_EMBEDDING_ENABLED) return null;
+  if (!configuration.AI_GATEWAY_URL || !configuration.AI_GATEWAY_INTERNAL_TOKEN) {
+    throw new Error("AI Gateway embedding configuration is missing");
+  }
+  return {
+    baseUrl: configuration.AI_GATEWAY_URL,
+    internalToken: configuration.AI_GATEWAY_INTERNAL_TOKEN,
+  };
+}
 
 export async function startRunnerFromEnvironment(
   environment: NodeJS.ProcessEnv = process.env,
@@ -117,16 +149,10 @@ export async function startRunnerFromEnvironment(
     profile: "design",
     timeoutMs: configuration.AI_TOOL_TIMEOUT_MS,
   });
-  const evaluationModel = new RemoteAgentToolModel({
-    baseUrl: configuration.AGENT_RUNNER_URL,
-    internalToken: configuration.AGENT_RUNNER_INTERNAL_TOKEN,
-    profile: "evaluation",
-    timeoutMs: configuration.AI_TOOL_TIMEOUT_MS,
-  });
-  const embeddings = configuration.AI_EMBEDDING_ENABLED
-    ? new RemoteAgentEmbeddingGatewayV3({
-        baseUrl: configuration.AGENT_RUNNER_URL,
-        internalToken: configuration.AGENT_RUNNER_INTERNAL_TOKEN,
+  const embeddingGateway = embeddingGatewayConfiguration(configuration);
+  const embeddings = embeddingGateway
+    ? new RemoteEmbeddingGatewayV3({
+        ...embeddingGateway,
         timeoutMs: configuration.AI_TOOL_TIMEOUT_MS,
       })
     : new DeterministicCardEmbeddingGatewayV3();
@@ -154,7 +180,9 @@ export async function startRunnerFromEnvironment(
     new ChapterQualityGate(
       persistence.generation,
       embeddings,
-      new ModelCardQualityEvaluatorV3(evaluationModel, {
+      new RemoteCardQualityEvaluatorV3({
+        baseUrl: configuration.AGENT_RUNNER_URL,
+        internalToken: configuration.AGENT_RUNNER_INTERNAL_TOKEN,
         modelId: "agent-runner:evaluation",
         timeoutMs: configuration.AI_TOOL_TIMEOUT_MS,
       }),

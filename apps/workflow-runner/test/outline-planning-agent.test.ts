@@ -98,7 +98,7 @@ describe("OutlinePlanningAgent", () => {
       projectId,
       ownerAddress,
       expectedHeadVersion: null,
-      plannerVersion: "semantic-relevance-v9",
+      plannerVersion: "outline-planning-langgraph-v1",
     });
     expect(repository.saved?.chapters[0]).toMatchObject({
       item_id: "chapter-0",
@@ -145,7 +145,7 @@ describe("OutlinePlanningAgent", () => {
     const output = await agent.runClaimed(repository.job);
     await repository.completeWorkflowJob(repository.job.jobId, output);
 
-    expect(repository.saved?.plannerVersion).toBe("semantic-relevance-v9");
+    expect(repository.saved?.plannerVersion).toBe("outline-planning-langgraph-v1");
     expect(repository.saved?.exclusions).toEqual([
       expect.objectContaining({ start_block: 0, end_block: 1, category: "EXAM_UPDATE" }),
     ]);
